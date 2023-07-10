@@ -95,7 +95,7 @@ namespace assimp {
 		for (unsigned int i=0; i<node->mNumMeshes; ++i) {
 			unsigned int mesh_idx = node->mMeshes[i];
 			assert(mesh_idx < scene->mNumMeshes);
-			load_mesh_data(scene->mMeshes[mesh_idx], data, transform);
+			load_mesh_data(scene->mMeshes[mesh_idx], data, mat);
 		}
 	
 		for (unsigned int i=0; i<node->mNumChildren; ++i)
@@ -105,7 +105,7 @@ namespace assimp {
 	// appends to mesh, set location in submesh
 	bool load_join_mesh (aiScene const* scene, LoadedMesh* data, LoadedSubmesh* out_mesh) {
 		
-		float scl = 1;
+		float scl = 1.0f / 100; // fbx seems to use centimeter units (with UnitScaleFactor 1) 
 		for (unsigned int i=0; i<scene->mMetaData->mNumProperties; ++i) {
 			if (strcmp(scene->mMetaData->mKeys[i].C_Str(), "UnitScaleFactor") == 0) {
 				float fac = 1.0f;

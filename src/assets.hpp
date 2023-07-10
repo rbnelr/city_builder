@@ -56,6 +56,6 @@ struct Assets {
 	Collection<BuildingAsset> buildings;
 
 	Assets () {
-		buildings.push_back( std::make_unique<BuildingAsset>(BuildingAsset{"house", 16, "assets/house1/house.blend", "assets/house1/house.png"}) );
+		buildings.push_back( std::make_unique<BuildingAsset>(BuildingAsset{"house", 16, "assets/house1/house.fbx", "assets/house1/house.png"}) );
 	}
 };

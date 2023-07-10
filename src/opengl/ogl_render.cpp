@@ -504,8 +504,16 @@ struct OglRenderer : public Renderer {
 	
 
 	struct BuildingRenderer {
-		Shader* shad = g_shaders.compile("buildings");
-
+	#if 0
+	//// Normal drawcalls
+	/*
+	Normal Drawcalls:
+	Buildings NxN:  20,    500,    1000
+	cpu ms:         0.1,    40,    170
+	gpu fps:        ~144,   20,    6
+	*/
+		Shader* shad = g_shaders.compile("buildings", {{"MODE", "0"}});
+		
 		VertexBufferI vbo = vertex_bufferI<LoadedMesh::Vertex>("buildings");
 
 		BuildingRenderer (Assets& assets) {
@@ -535,12 +543,93 @@ struct OglRenderer : public Renderer {
 
 				for (auto& instance : app.entities.buildings) {
 					shad->set_uniform("model2world", (float4x4)translate(instance->pos));
-
+				
 					auto& mesh = instance->asset->mesh;
 					glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_SHORT, (void*)0);
 				}
 			}
 		}
+	#elif 1
+	//// Instanced drawing (still streaming instance data)
+	/*
+	Instanced with instance streaming: 2x fps   10x cpu speedup
+	Buildings NxN:  20,    500,    1000
+	cpu ms:         0.038,  3,     18
+	gpu fps:        ~144,   40,    12
+	*/
+		Shader* shad = g_shaders.compile("buildings", {{"MODE", "1"}});
+		
+		struct BuildingInstance {
+			float3 pos;
+			float  rot;
+			
+			VERTEX_CONFIG_INSTANCED(
+				ATTRIB(FLT3, BuildingInstance, pos),
+				ATTRIB(FLT , BuildingInstance, rot),
+			)
+		};
+
+		VertexBufferInstancedI instanced_buf = vertex_buffer_instacedI<LoadedMesh::Vertex, BuildingInstance>("buildings");
+
+		BuildingRenderer (Assets& assets) {
+			auto& mesh = assets.buildings[0]->mesh;
+			instanced_buf.upload_mesh(mesh.vertices, mesh.indices);
+		}
+
+		void draw (OglRenderer& r, App& app) {
+			ZoneScoped;
+
+			if (shad->prog) {
+
+				OGL_TRACE("render_buildings");
+				
+				PipelineState s;
+				s.depth_test = true;
+				s.blend_enable = false;
+				r.state.set(s);
+
+				glUseProgram(shad->prog);
+
+				r.state.bind_textures(shad, {
+					{"tex", r.textures.house_diffuse, r.textures.sampler_normal},
+				});
+
+				glBindVertexArray(instanced_buf.vao);
+
+				
+				//for (auto& instance : app.entities.buildings) {
+				//	shad->set_uniform("model2world", (float4x4)translate(instance->pos));
+				//
+				//	auto& mesh = instance->asset->mesh;
+				//	glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_SHORT, (void*)0);
+				//}
+				
+				size_t instances;
+				{
+					std::vector<BuildingInstance> instance_data;
+					instance_data.resize(app.entities.buildings.size());
+					auto* cur = instance_data.data();
+
+					for (auto& instance : app.entities.buildings) {
+						cur->pos = instance->pos;
+						cur->rot = 0;
+						cur++;
+					}
+
+					instances = instance_data.size();
+					instanced_buf.stream_instances(instance_data);
+				}
+				
+				auto& mesh = app.assets.buildings[0]->mesh;
+				glDrawElementsInstanced(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_SHORT, (void*)0, (GLsizei)instances);
+			}
+		}
+	#else
+	// TODO: create lod meshes for assets, dynamically sort entities into lod buckets,
+	//       draw those buckets via one instanced drawcall for each lod
+	// -> should fix gpu usage of millions of buildings
+	// -> cpu usage should be fine
+	#endif
 	};
 	BuildingRenderer building_renderer;
 

@@ -9,6 +9,8 @@ struct Vertex {
 VS2FS
 
 #ifdef _VERTEX
+
+#if MODE == 0
 	layout(location = 0) in vec3  pos;
 	layout(location = 1) in vec3  normal;
 	layout(location = 2) in vec2  uv;
@@ -21,6 +23,23 @@ VS2FS
 		v.world_normal = normal;
 		v.uv           = uv;
 	}
+#elif MODE == 1
+	layout(location = 0) in vec3  mesh_pos;
+	layout(location = 1) in vec3  mesh_normal;
+	layout(location = 2) in vec2  mesh_uv;
+	layout(location = 3) in vec3  instance_pos;
+	layout(location = 4) in float instance_rot;
+	
+	void main () {
+		gl_Position = view.world2clip * vec4(mesh_pos + instance_pos, 1.0);
+		v.world_pos    = mesh_pos;
+		v.world_normal = mesh_normal;
+		v.uv           = mesh_uv;
+	}
+#else
+
+#endif
+	
 #endif
 #ifdef _FRAGMENT
 	uniform sampler2D tex;

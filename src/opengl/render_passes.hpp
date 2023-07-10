@@ -1,5 +1,6 @@
 #pragma once
 #include "opengl.hpp"
+#include "agnostic_render.hpp"
 
 namespace ogl {
 
@@ -25,7 +26,7 @@ struct RenderPasses {
 	Renderbuffer fbo_opaque_copy = {};
 	Renderbuffer fbo             = {};
 	
-	RenderScale renderscale;
+	render::RenderScale renderscale;
 	
 	Sampler fbo_sampler         = sampler("fbo_sampler", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
 	Sampler fbo_sampler_nearest = sampler("fbo_sampler_nearest", FILTER_NEAREST, GL_CLAMP_TO_EDGE);

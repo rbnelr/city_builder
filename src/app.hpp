@@ -1,6 +1,8 @@
 #pragma once
 #include "common.hpp"
 #include "engine/engine.hpp"
+#include "game_camera.hpp"
+#include "assets.hpp"
 
 struct App;
 
@@ -16,24 +18,65 @@ struct Renderer {
 	render::DebugDraw dbgdraw;
 };
 
-std::unique_ptr<Renderer> create_ogl_backend ();
+std::unique_ptr<Renderer> create_ogl_backend (Assets& assets);
+
+struct Building {
+	BuildingAsset* asset;
+
+	float3 pos = 0;
+	float  rot = 0;
+};
+struct Entities {
+
+	std::vector<std::unique_ptr<Building>> buildings;
+};
 
 struct App : public Engine {
-	// can't serialize renderer directly, because its abstract
-	// with multiple backends we would proably want settings to be inside a normal Renderer class
-	// which handles the backend selection and calls the specific backend with the correct data
-	SERIALIZE_NONE(App)
+	SERIALIZE(App, assets)
 
-	Camera2D cam2d = Camera2D();
-	View3D view;
-
-	std::unique_ptr<Renderer> renderer = create_ogl_backend();
-	
-	App (): Engine{"Kiss-Framework Project"} {}
+	App (): Engine{"Kiss-Framework Project"} {
+		//auto pos = float3(8,8,0)*1024;
+		//auto* house = assets.buildings[0].get();
+		//entities.buildings.push_back(std::make_unique<Building>(Building{ house, pos + float3(0,0,0) }));
+		//entities.buildings.push_back(std::make_unique<Building>(Building{ house, pos + float3(32,0,0) }));
+		//entities.buildings.push_back(std::make_unique<Building>(Building{ house, pos + float3(32,32,0) }));
+	}
 	virtual ~App () {}
 
 	virtual void json_load () { load("debug.json", this); }
 	virtual void json_save () { save("debug.json", *this); }
+	
+	Assets assets;
+	Entities entities;
+
+	float sun_azim = deg(30); // degrees from east, counter clockwise
+	float sun_elev = deg(14);
+	float day_t = 0.6f; // [0,1] -> [0,24] hours
+	float day_speed = 1.0f / 60.0f;
+	bool  day_pause = true;
+
+	GameCamera cam = GameCamera{ float3(8,8,0)*1024 };
+	View3D view;
+
+	float3 sun_dir;
+
+	std::unique_ptr<Renderer> renderer = create_ogl_backend(assets);
+
+	void create_nxn_buildings () {
+		static bool init = true;
+		static int n = 5;
+		if (init || ImGui::SliderInt("n", &n, 1, 1000)) {
+			init = false;
+			entities.buildings.clear();
+
+			auto pos = float3(8,8,0)*1024;
+			auto* house = assets.buildings[0].get();
+
+			for (int y=0; y<n; ++y)
+			for (int x=0; x<n; ++x)
+			entities.buildings.push_back(std::make_unique<Building>(Building{ house, pos + float3((float)x,(float)y,0) * house->size }));
+		}
+	}
 
 	virtual void imgui () {
 		ZoneScoped;
@@ -42,24 +85,38 @@ struct App : public Engine {
 
 		ImGui::Separator();
 
-		if (imgui_Header("2D", true)) {
-			cam2d.imgui("cam");
-			ImGui::PopID();
+		cam.imgui("cam");
+
+		if (ImGui::TreeNode("Time of Day")) {
+
+			ImGui::SliderAngle("sun_azim", &sun_azim, 0, 360);
+			ImGui::SliderAngle("sun_elev", &sun_elev, -90, 90);
+			ImGui::SliderFloat("day_t", &day_t, 0,1);
+
+			ImGui::SliderFloat("day_speed", &day_speed, 0, 0.25f, "%.3f", ImGuiSliderFlags_Logarithmic);
+			ImGui::Checkbox("day_pause", &day_pause);
+			
+			ImGui::TreePop();
 		}
 	}
 
 	void update () {
 		ZoneScoped;
 
+		create_nxn_buildings();
+
+		if (!day_pause) day_t = wrap(day_t + day_speed * input.dt, 1.0f);
+		sun_dir = rotate3_Z(sun_azim) * rotate3_X(sun_elev) * rotate3_Y(day_t * deg(360)) * float3(0,0,-1);
+
 		renderer->dbgdraw.clear();
 
-		view = cam2d.update(input, (float2)input.window_size);
+		view = cam.update(input, (float2)input.window_size);
 
 		renderer->dbgdraw.axis_gizmo(view, input.window_size);
 
-		for (int y=0; y<32; ++y)
-		for (int x=0; x<32; ++x) {
-			renderer->dbgdraw.quad(float3(x + 0.5f, y + 0.5f, 0), 1, lrgba(1,1,1,1));
+		for (auto& building : entities.buildings) {
+			//renderer->dbgdraw.quad(float3(building->pos), (float2)building->asset->size, lrgba(1,1,1,1));
+			//renderer->dbgdraw.wire_quad(float3(building->pos), (float2)building->asset->size, lrgba(1,1,1,1));
 		}
 	}
 
@@ -73,80 +130,3 @@ struct App : public Engine {
 		renderer->end(*this);
 	}
 };
-
-inline void imgui_style () {
-	auto& style = ImGui::GetStyle();
-	ImVec4* colors = style.Colors;
-
-	colors[ImGuiCol_Text]                   = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
-	colors[ImGuiCol_TextDisabled]           = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
-	colors[ImGuiCol_WindowBg]               = ImVec4(0.09f, 0.09f, 0.11f, 0.83f);
-	colors[ImGuiCol_ChildBg]                = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-	colors[ImGuiCol_PopupBg]                = ImVec4(0.11f, 0.11f, 0.14f, 0.92f);
-	colors[ImGuiCol_Border]                 = ImVec4(0.50f, 0.50f, 0.50f, 0.50f);
-	colors[ImGuiCol_BorderShadow]           = ImVec4(0.05f, 0.06f, 0.07f, 0.80f);
-	colors[ImGuiCol_FrameBg]                = ImVec4(0.43f, 0.43f, 0.43f, 0.39f);
-	colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.47f, 0.47f, 0.69f, 0.40f);
-	colors[ImGuiCol_FrameBgActive]          = ImVec4(0.42f, 0.41f, 0.64f, 0.69f);
-	colors[ImGuiCol_TitleBg]                = ImVec4(0.27f, 0.27f, 0.54f, 0.83f);
-	colors[ImGuiCol_TitleBgActive]          = ImVec4(0.32f, 0.32f, 0.63f, 0.87f);
-	colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.40f, 0.40f, 0.80f, 0.20f);
-	colors[ImGuiCol_MenuBarBg]              = ImVec4(0.40f, 0.40f, 0.55f, 0.80f);
-	colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.20f, 0.25f, 0.30f, 0.60f);
-	colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.40f, 0.40f, 0.80f, 0.30f);
-	colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.40f, 0.40f, 0.80f, 0.40f);
-	colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(0.41f, 0.39f, 0.80f, 0.60f);
-	colors[ImGuiCol_CheckMark]              = ImVec4(0.90f, 0.90f, 0.90f, 0.50f);
-	colors[ImGuiCol_SliderGrab]             = ImVec4(1.00f, 1.00f, 1.00f, 0.30f);
-	colors[ImGuiCol_SliderGrabActive]       = ImVec4(0.41f, 0.39f, 0.80f, 0.60f);
-	colors[ImGuiCol_Button]                 = ImVec4(0.35f, 0.40f, 0.61f, 0.62f);
-	colors[ImGuiCol_ButtonHovered]          = ImVec4(0.40f, 0.48f, 0.71f, 0.79f);
-	colors[ImGuiCol_ButtonActive]           = ImVec4(0.46f, 0.54f, 0.80f, 1.00f);
-	colors[ImGuiCol_Header]                 = ImVec4(0.40f, 0.40f, 0.90f, 0.45f);
-	colors[ImGuiCol_HeaderHovered]          = ImVec4(0.45f, 0.45f, 0.90f, 0.80f);
-	colors[ImGuiCol_HeaderActive]           = ImVec4(0.53f, 0.53f, 0.87f, 0.80f);
-	colors[ImGuiCol_Separator]              = ImVec4(0.50f, 0.50f, 0.50f, 0.60f);
-	colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.60f, 0.60f, 0.70f, 1.00f);
-	colors[ImGuiCol_SeparatorActive]        = ImVec4(0.70f, 0.70f, 0.90f, 1.00f);
-	colors[ImGuiCol_ResizeGrip]             = ImVec4(1.00f, 1.00f, 1.00f, 0.10f);
-	colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.78f, 0.82f, 1.00f, 0.60f);
-	colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.78f, 0.82f, 1.00f, 0.90f);
-	colors[ImGuiCol_Tab]                    = ImVec4(0.34f, 0.34f, 0.68f, 0.79f);
-	colors[ImGuiCol_TabHovered]             = ImVec4(0.45f, 0.45f, 0.90f, 0.80f);
-	colors[ImGuiCol_TabActive]              = ImVec4(0.40f, 0.40f, 0.73f, 0.84f);
-	colors[ImGuiCol_TabUnfocused]           = ImVec4(0.28f, 0.28f, 0.57f, 0.82f);
-	colors[ImGuiCol_TabUnfocusedActive]     = ImVec4(0.35f, 0.35f, 0.65f, 0.84f);
-	colors[ImGuiCol_DockingPreview]         = ImVec4(0.40f, 0.40f, 0.90f, 0.31f);
-	colors[ImGuiCol_DockingEmptyBg]         = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-	colors[ImGuiCol_PlotLines]              = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-	colors[ImGuiCol_PlotLinesHovered]       = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-	colors[ImGuiCol_PlotHistogram]          = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-	colors[ImGuiCol_PlotHistogramHovered]   = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
-	colors[ImGuiCol_TableHeaderBg]          = ImVec4(0.27f, 0.27f, 0.38f, 1.00f);
-	colors[ImGuiCol_TableBorderStrong]      = ImVec4(0.31f, 0.31f, 0.45f, 1.00f);
-	colors[ImGuiCol_TableBorderLight]       = ImVec4(0.26f, 0.26f, 0.28f, 1.00f);
-	colors[ImGuiCol_TableRowBg]             = ImVec4(0.00f, 0.00f, 0.00f, 0.29f);
-	colors[ImGuiCol_TableRowBgAlt]          = ImVec4(0.19f, 0.19f, 0.19f, 0.29f);
-	colors[ImGuiCol_TextSelectedBg]         = ImVec4(0.00f, 0.00f, 1.00f, 0.35f);
-	colors[ImGuiCol_DragDropTarget]         = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
-	colors[ImGuiCol_NavHighlight]           = ImVec4(0.45f, 0.45f, 0.90f, 0.80f);
-	colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
-	colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
-	colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(0.20f, 0.20f, 0.20f, 0.35f);
-
-
-	style.WindowPadding     = ImVec2(5,5);
-	style.FramePadding      = ImVec2(6,2);
-	style.CellPadding       = ImVec2(4,2);
-	style.ItemSpacing       = ImVec2(12,3);
-	style.ItemInnerSpacing  = ImVec2(3,3);
-	style.IndentSpacing     = 18;
-	style.GrabMinSize       = 14;
-
-	style.WindowRounding    = 3;
-	style.FrameRounding     = 6;
-	style.PopupRounding     = 3;
-	style.GrabRounding      = 6;
-
-	style.WindowTitleAlign  = ImVec2(0.5f, 0.5f);
-}

@@ -1,6 +1,6 @@
 #pragma once
 #include "opengl.hpp"
-#include "generic_render.hpp"
+#include "agnostic_render.hpp"
 
 namespace ogl {
 

@@ -23,7 +23,7 @@ VS2FS
 		v.world_normal = normal;
 		v.uv           = uv;
 	}
-#elif MODE == 1
+#else
 	layout(location = 0) in vec3  mesh_pos;
 	layout(location = 1) in vec3  mesh_normal;
 	layout(location = 2) in vec2  mesh_uv;
@@ -36,8 +36,6 @@ VS2FS
 		v.world_normal = mesh_normal;
 		v.uv           = mesh_uv;
 	}
-#else
-
 #endif
 	
 #endif

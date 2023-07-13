@@ -44,15 +44,13 @@ struct GameCamera {
 		Button move_up     = KEY_HOME;
 		Button move_down   = KEY_END;
 
-		//Button rot_left    = KEY_Q;
-		//Button rot_right   = KEY_E;
-		Button rot_left    = KEY_NULL;
-		Button rot_right   = KEY_NULL;
+		Button rot_left    = KEY_Q;
+		Button rot_right   = KEY_E;
 
 		Button zoom_in     = KEY_KP_ADD;
 		Button zoom_out    = KEY_KP_SUBTRACT;
 
-		float sensitivity = deg(100) / 1000;
+		float sensitivity = deg(120) / 1000;
 	};
 	
 	Binds binds;
@@ -112,18 +110,17 @@ struct GameCamera {
 			azimuth   -= delta.x;
 			elevation += delta.y;
 
+			// rotate with keys
+			float rot_dir = 0;
+			if (I.buttons[KEY_Q].is_down) rot_dir += 1;
+			if (I.buttons[KEY_E].is_down) rot_dir -= 1;
+			
+			float rot_speed = deg(120);
+			
+			azimuth += rot_dir * rot_speed * I.real_dt;
+
 			azimuth = wrap(azimuth, deg(-180), deg(180));
 			elevation = clamp(elevation, deg(-90), deg(85));
-
-			// roll with keys
-			//float roll_dir = 0;
-			//if (I.buttons[KEY_Q].is_down) roll_dir += 1;
-			//if (I.buttons[KEY_E].is_down) roll_dir -= 1;
-			//
-			//float roll_speed = deg(90);
-			//
-			//roll += roll_dir * roll_speed * I.real_dt;
-			//roll = wrap(roll, deg(-180), deg(180));
 		}
 
 		float3x3 cam2world_rot, world2cam_rot;

@@ -18,7 +18,7 @@ struct Renderer {
 	render::DebugDraw dbgdraw;
 };
 
-std::unique_ptr<Renderer> create_ogl_backend (Assets& assets);
+std::unique_ptr<Renderer> create_ogl_backend ();
 
 struct Building {
 	BuildingAsset* asset;
@@ -32,7 +32,6 @@ struct Entities {
 };
 
 struct App : public Engine {
-	SERIALIZE(App, assets)
 
 	App (): Engine{"Kiss-Framework Project"} {
 		//auto pos = float3(8,8,0)*1024;
@@ -42,6 +41,11 @@ struct App : public Engine {
 		//entities.buildings.push_back(std::make_unique<Building>(Building{ house, pos + float3(32,32,0) }));
 	}
 	virtual ~App () {}
+	
+	friend SERIALIZE_TO_JSON(App)   { SERIALIZE_TO_JSON_EXPAND(cam, assets); }
+    friend SERIALIZE_FROM_JSON(App) {
+		SERIALIZE_FROM_JSON_EXPAND(cam, assets);
+	}
 
 	virtual void json_load () { load("debug.json", this); }
 	virtual void json_save () { save("debug.json", *this); }
@@ -60,21 +64,24 @@ struct App : public Engine {
 
 	float3 sun_dir;
 
-	std::unique_ptr<Renderer> renderer = create_ogl_backend(assets);
+	std::unique_ptr<Renderer> renderer = create_ogl_backend();
 
 	void create_nxn_buildings () {
-		static bool init = true;
-		static int n = 5;
-		if (init || ImGui::SliderInt("n", &n, 1, 1000)) {
-			init = false;
+		static int n = 10;
+
+		if (ImGui::SliderInt("n", &n, 1, 1000) || assets.assets_reloaded) {
 			entities.buildings.clear();
 
 			auto pos = float3(8,8,0)*1024;
-			auto* house = assets.buildings[0].get();
+			auto* house0 = assets.buildings[0].get();
+			auto* house1 = assets.buildings[1].get();
 
 			for (int y=0; y<n; ++y)
-			for (int x=0; x<n; ++x)
-			entities.buildings.push_back(std::make_unique<Building>(Building{ house, pos + float3((float)x,(float)y,0) * house->size }));
+			for (int x=0; x<n; ++x) {
+				Random rand(hash(int2(x,y))); // position-based rand
+				auto* asset = rand.uniformi(0, 2) ? house0 : house1;
+				entities.buildings.push_back(std::make_unique<Building>(Building{ asset, pos + float3((float)x,(float)y,0) * float3(40,25,0) }));
+			}
 		}
 	}
 
@@ -128,5 +135,8 @@ struct App : public Engine {
 		update();
 
 		renderer->end(*this);
+
+
+		assets.assets_reloaded = false;
 	}
 };

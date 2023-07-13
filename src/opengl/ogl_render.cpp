@@ -97,6 +97,9 @@ struct OglRenderer : public Renderer {
 		#endif
 
 			gl_dbgdraw.imgui();
+
+			lod.imgui();
+
 			lighting.imgui();
 			terrain_renderer.imgui();
 
@@ -502,6 +505,7 @@ struct OglRenderer : public Renderer {
 	};
 	SkyboxRenderer skybox;
 	
+	LOD_Func lod;
 
 	struct BuildingRenderer {
 	#if 0
@@ -514,11 +518,28 @@ struct OglRenderer : public Renderer {
 	*/
 		Shader* shad = g_shaders.compile("buildings", {{"MODE", "0"}});
 		
-		VertexBufferI vbo = vertex_bufferI<LoadedMesh::Vertex>("buildings");
+		struct MeshBuf {
+			struct Lod {
+				VertexBufferI buf;
+				size_t vertex_count;
+				size_t index_count;
+			};
+			std::vector<Lod> lods;
 
-		BuildingRenderer (Assets& assets) {
-			auto& mesh = assets.buildings[0]->mesh;
-			vbo.upload(mesh.vertices, mesh.indices);
+			MeshBuf (AssetMesh& mesh) {
+				for (auto& lod : mesh.mesh_lods) {
+					auto& buf = lods.emplace_back(Lod{ vertex_bufferI<Mesh::Vertex>("building"), lod.vertices.size(), lod.indices.size() });
+					buf.buf.upload(lod.vertices, lod.indices);
+				}
+			}
+		};
+		std::unordered_map<BuildingAsset*, MeshBuf> meshes;
+
+		void reload (Assets& assets) {
+			meshes.clear();
+			for (auto& asset : assets.buildings) {
+				meshes.emplace(asset.get(), asset->mesh);
+			}
 		}
 
 		void draw (OglRenderer& r, App& app) {
@@ -539,13 +560,23 @@ struct OglRenderer : public Renderer {
 					{"tex", r.textures.house_diffuse, r.textures.sampler_normal},
 				});
 
-				glBindVertexArray(vbo.vao);
-
+				int i=0;
 				for (auto& instance : app.entities.buildings) {
 					shad->set_uniform("model2world", (float4x4)translate(instance->pos));
-				
-					auto& mesh = instance->asset->mesh;
-					glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_SHORT, (void*)0);
+
+					auto it = meshes.find(instance->asset);
+					assert(it != meshes.end());
+					auto& buf = it->second;
+					
+					int lod = r.lod.pick_lod(app.view, instance->pos, 32);
+					lod = min(lod, (int)buf.lods.size()-1); // don't allow obj to be not drawn due to lod
+
+					if (lod >= buf.lods.size())
+						continue;
+
+					glBindVertexArray(buf.lods[lod].buf.vao);
+					
+					glDrawElements(GL_TRIANGLES, (GLsizei)buf.lods[lod].index_count, GL_UNSIGNED_SHORT, (void*)0);
 				}
 			}
 		}
@@ -569,11 +600,57 @@ struct OglRenderer : public Renderer {
 			)
 		};
 
-		VertexBufferInstancedI instanced_buf = vertex_buffer_instacedI<LoadedMesh::Vertex, BuildingInstance>("buildings");
+		typedef Mesh::Vertex vert_t;
+		typedef uint16_t     idx_t;
 
-		BuildingRenderer (Assets& assets) {
-			auto& mesh = assets.buildings[0]->mesh;
-			instanced_buf.upload_mesh(mesh.vertices, mesh.indices);
+		struct MeshBuf {
+			VertexBufferInstancedI buf = vertex_buffer_instacedI<Mesh::Vertex, BuildingInstance>("building");
+
+			struct Lod {
+				size_t vertex_base;
+				size_t vertex_count;
+				size_t index_base;
+				size_t index_count;
+			};
+			std::vector<Lod> lods;
+
+			MeshBuf (AssetMesh& mesh) {
+				size_t i=0, v=0;
+				for (auto& lod : mesh.mesh_lods) {
+					auto& l = lods.emplace_back();
+
+					l.vertex_base = v;
+					l.vertex_count = lod.vertices.size();
+					l.index_base = i;
+					l.index_count = lod.indices.size();
+
+					v += l.vertex_count;
+					i += l.index_count;
+				}
+				
+				glBindBuffer(GL_ARRAY_BUFFER, buf.vbo);
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buf.ebo);
+
+				glBufferData(GL_ARRAY_BUFFER,         v * sizeof(vert_t), nullptr, GL_STATIC_DRAW);
+				glBufferData(GL_ELEMENT_ARRAY_BUFFER, i * sizeof(idx_t),  nullptr, GL_STATIC_DRAW);
+				
+				for (size_t i=0; i<lods.size(); ++i) {
+					auto& asset_lod = mesh.mesh_lods[i];
+					auto& lod       = lods[i];
+					glBufferSubData(GL_ARRAY_BUFFER,         lod.vertex_base * sizeof(vert_t), lod.vertex_count * sizeof(vert_t), asset_lod.vertices.data());
+					glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, lod.index_base * sizeof(idx_t),   lod.index_count * sizeof(idx_t),   asset_lod.indices.data());
+				}
+
+				glBindBuffer(GL_ARRAY_BUFFER, 0);
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+			}
+		};
+		std::unordered_map<BuildingAsset*, MeshBuf> asset_meshes;
+
+		void reload (Assets& assets) {
+			for (auto& asset : assets.buildings) {
+				asset_meshes.emplace(asset.get(), asset->mesh);
+			}
 		}
 
 		void draw (OglRenderer& r, App& app) {
@@ -594,34 +671,45 @@ struct OglRenderer : public Renderer {
 					{"tex", r.textures.house_diffuse, r.textures.sampler_normal},
 				});
 
-				glBindVertexArray(instanced_buf.vao);
+				struct Instances {
+					std::vector< std::vector<BuildingInstance> > lod_instances;
+				};
+				std::unordered_map<BuildingAsset*, Instances> asset_instances;
 
-				
-				//for (auto& instance : app.entities.buildings) {
-				//	shad->set_uniform("model2world", (float4x4)translate(instance->pos));
-				//
-				//	auto& mesh = instance->asset->mesh;
-				//	glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_SHORT, (void*)0);
-				//}
-				
-				size_t instances;
-				{
-					std::vector<BuildingInstance> instance_data;
-					instance_data.resize(app.entities.buildings.size());
-					auto* cur = instance_data.data();
+				asset_instances.reserve(asset_meshes.size());
+				for (auto& asset : app.assets.buildings) {
+					auto& ins = asset_instances.emplace(asset.get(), Instances{}).first->second;
+					ins.lod_instances.resize(asset->mesh.mesh_lods.size());
+				}
 
-					for (auto& instance : app.entities.buildings) {
-						cur->pos = instance->pos;
-						cur->rot = 0;
-						cur++;
+				for (auto& entity : app.entities.buildings) {
+					auto& instances = asset_instances.find(entity->asset)->second;
+					int lods = (int)instances.lod_instances.size();
+
+					int lod = r.lod.pick_lod(app.view, entity->pos, 32);
+					lod = min(lod, lods-1); // don't allow obj to be not drawn due to lod
+
+					if (lod < lods) {
+						auto& instance = instances.lod_instances[lod].emplace_back();
+						instance.pos = entity->pos;
+						instance.rot = 0;
 					}
-
-					instances = instance_data.size();
-					instanced_buf.stream_instances(instance_data);
 				}
 				
-				auto& mesh = app.assets.buildings[0]->mesh;
-				glDrawElementsInstanced(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_SHORT, (void*)0, (GLsizei)instances);
+				for (auto& kv : asset_instances) {
+					auto* asset = kv.first;
+					auto& mesh_buf = asset_meshes.find(asset)->second;
+
+					for (int lod=0; lod<(int)kv.second.lod_instances.size(); ++lod) {
+						auto& mesh_lod = mesh_buf.lods[lod];
+						auto& instances = kv.second.lod_instances[lod];
+
+						mesh_buf.buf.stream_instances(instances);
+
+						glBindVertexArray(mesh_buf.buf.vao);
+						glDrawElementsInstancedBaseVertex(GL_TRIANGLES, (GLsizei)mesh_lod.index_count, GL_UNSIGNED_SHORT, (void*)(mesh_lod.index_base * sizeof(idx_t)), (GLsizei)instances.size(), (GLint)(mesh_lod.vertex_base));
+					}
+				}
 			}
 		}
 	#else
@@ -635,25 +723,25 @@ struct OglRenderer : public Renderer {
 
 	struct Textures {
 		//Texture2D clouds = load_texture<srgba8>("clouds", "textures/clouds.png");
-		Texture2D grid = load_texture<srgba8>("grid", "textures/grid2.png");
-		Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "textures/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
+		Texture2D grid = load_texture<srgba8>("grid", "misc/grid2.png");
+		Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
 	
 		//Sampler sampler_heightmap = sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
 		Sampler sampler_normal = sampler("sampler_normal",    FILTER_MIPMAPPED, GL_REPEAT, true);
 
-		Texture2D house_diffuse = load_texture<srgb8>("house_diffuse", "assets/house1/house.png");
+		Texture2D house_diffuse = load_texture<srgb8>("house_diffuse", "buildings/house.png");
 
 		template <typename T>
 		static auto load_texture (std::string_view gl_label, const char* filepath) {
 			Texture2D tex = {gl_label};
-			if (!upload_texture2D<T>(tex, filepath))
+			if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str()))
 				assert(false);
 			return tex;
 		}
 	};
 	Textures textures;
 
-	OglRenderer (Assets& assets): building_renderer{assets} {
+	OglRenderer () {
 		
 	}
 	
@@ -662,20 +750,11 @@ struct OglRenderer : public Renderer {
 	}
 	virtual void end (App& app) {
 		ZoneScoped;
-		
-		{
-			OGL_TRACE("draw ui");
-		
-			if (app.trigger_screenshot && !app.screenshot_hud) take_screenshot(app.input.window_size);
-		
-			// draw HUD
 
-			app.draw_imgui();
-
-			if (app.trigger_screenshot && app.screenshot_hud)  take_screenshot(app.input.window_size);
-			app.trigger_screenshot = false;
+		if (app.assets.assets_reloaded) {
+			building_renderer.reload(app.assets);
 		}
-
+		
 		{
 			OGL_TRACE("setup");
 
@@ -744,6 +823,6 @@ struct OglRenderer : public Renderer {
 
 } // namespace ogl
 
-std::unique_ptr<Renderer> create_ogl_backend (Assets& assets) {
-	return std::make_unique<ogl::OglRenderer>(assets);
+std::unique_ptr<Renderer> create_ogl_backend () {
+	return std::make_unique<ogl::OglRenderer>();
 }

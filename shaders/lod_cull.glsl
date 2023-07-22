@@ -1,0 +1,77 @@
+#version 430
+layout(local_size_x = GROUPSZ) in;
+#include "common.glsl"
+
+// assume uint == uint32_t
+
+struct glDrawElementsIndirectCommand {
+	uint  count;
+	uint  instanceCount;
+	uint  firstIndex;
+	int   baseVertex;
+	uint  baseInstance;
+};
+
+struct MeshInstance {
+	uint  mesh_id;
+	float posx, posy, posz; // Avoid alignment, not needed here anyway
+	float rot;
+};
+struct MeshInfo {
+	uint mesh_lod_id; // index of MeshLodInfos [lods]
+	uint lods;
+};
+struct MeshLodInfo {
+	uint vertex_base;
+	uint vertex_count;
+	uint index_base;
+	uint index_count;
+};
+
+layout(std430, binding = 2) restrict buffer CommandsBuf {
+	glDrawElementsIndirectCommand cmd[];
+};
+layout(std430, binding = 3) restrict buffer InstancesBuf {
+	MeshInstance instance[];
+};
+layout(std430, binding = 4) restrict buffer MeshInfoBuf {
+	MeshInfo mesh_info[];
+};
+layout(std430, binding = 5) restrict buffer MeshLodInfoBuf {
+	MeshLodInfo mesh_lod_info[];
+};
+
+uniform float lod_bias = -3.0f;
+uniform float lod_fac  = 0.45f;
+
+uniform uint entities;
+
+uint pick_lod (vec3 obj_pos, uint lod_count) {
+	float obj_lod_start = 32.0;
+	float dist = max(distance(view.cam_pos, obj_pos) - obj_lod_start, 1.0);
+
+	uint lod = uint(round(lod_fac * log2(dist) + lod_bias));
+	lod = clamp(lod, 0u, lod_count-1u);
+	return lod;
+}
+
+void main () {
+	//uint idx = atomicAdd(_dbgdrawbuf.lines.cmd.count, 2u);
+	
+	uint i = gl_GlobalInvocationID.x;
+	if (i >= entities) return;
+	
+	vec3 pos = vec3(instance[i].posx, instance[i].posy, instance[i].posz);
+	uint mesh_id = instance[i].mesh_id;
+	MeshInfo info = mesh_info[mesh_id];
+	
+	uint lod = pick_lod(pos, info.lods);
+	
+	MeshLodInfo lod_info = mesh_lod_info[info.mesh_lod_id + lod];
+	
+	cmd[i].count = lod_info.index_count;
+	cmd[i].instanceCount = 1u;
+	cmd[i].firstIndex = lod_info.index_base;
+	cmd[i].baseVertex = int(lod_info.vertex_base);
+	cmd[i].baseInstance = i;
+}

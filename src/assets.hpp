@@ -105,6 +105,7 @@ struct Assets {
 
 	bool assets_reloaded = true;
 
+	// use a vector of pointers for now, asset pointers stay valid on edit, but need ordered data for gpu-side data
 	template <typename T>
 	using Collection = std::vector< std::unique_ptr<T> >;
 

@@ -23,7 +23,8 @@ VS2FS
 		v.world_normal = normal;
 		v.uv           = uv;
 	}
-#else
+#elif MODE == 1
+	//layout(location = 0) in int   mesh_id;
 	layout(location = 0) in vec3  mesh_pos;
 	layout(location = 1) in vec3  mesh_normal;
 	layout(location = 2) in vec2  mesh_uv;
@@ -36,9 +37,24 @@ VS2FS
 		v.world_normal = mesh_normal;
 		v.uv           = mesh_uv;
 	}
-#endif
+#else
+	layout(location = 0) in vec3  mesh_pos;
+	layout(location = 1) in vec3  mesh_normal;
+	layout(location = 2) in vec2  mesh_uv;
+	//layout(location = 3) in int   mesh_id;
+	layout(location = 4) in vec3  instance_pos;
+	layout(location = 5) in float instance_rot;
 	
+	void main () {
+		gl_Position = view.world2clip * vec4(mesh_pos + instance_pos, 1.0);
+		v.world_pos    = mesh_pos;
+		v.world_normal = mesh_normal;
+		v.uv           = mesh_uv;
+	}
 #endif
+
+#endif
+
 #ifdef _FRAGMENT
 	uniform sampler2D tex;
 	

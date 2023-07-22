@@ -64,6 +64,7 @@ struct glDebugDraw {
 	};
 	
 	// indirect_vbo contains all indirect drawing data
+	// Using Vbo without setup_vao? use Ssbo instead?
 	Vbo indirect_vbo = {"DebugDraw.indirect_draw"}; // = 1x IndirectBuffer
 	
 	Vao indirect_lines_vao = {"DebugDraw.indirect_lines"};

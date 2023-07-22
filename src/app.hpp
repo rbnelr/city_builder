@@ -28,7 +28,10 @@ struct Building {
 };
 struct Entities {
 
-	std::vector<std::unique_ptr<Building>> buildings;
+	//std::vector<std::unique_ptr<Building>> buildings;
+	std::vector<Building> buildings;
+	
+	bool changes = true;
 };
 
 struct App : public Engine {
@@ -76,12 +79,16 @@ struct App : public Engine {
 			auto* house0 = assets.buildings[0].get();
 			auto* house1 = assets.buildings[1].get();
 
-			for (int y=0; y<n; ++y)
-			for (int x=0; x<n; ++x) {
-				Random rand(hash(int2(x,y))); // position-based rand
-				auto* asset = rand.uniformi(0, 2) ? house0 : house1;
-				entities.buildings.push_back(std::make_unique<Building>(Building{ asset, pos + float3((float)x,(float)y,0) * float3(40,25,0) }));
+			for (int y=0; y<n; ++y) {
+				Random rand(y); // y as hash to get deterministic results on resize, opt -> this is a lot faster than doing Random rand(hash(int2(x,y))) for each xy
+				for (int x=0; x<n; ++x) {
+					auto* asset = rand.uniformi(0, 2) ? house0 : house1;
+					//entities.buildings.push_back(std::make_unique<Building>(Building{ asset, pos + float3((float)x,(float)y,0) * float3(40,25,0) }));
+					entities.buildings.push_back({ asset, pos + float3((float)x,(float)y,0) * float3(40,25,0) }); // a lot faster
+				}
 			}
+
+			entities.changes = true;
 		}
 	}
 
@@ -138,5 +145,6 @@ struct App : public Engine {
 
 
 		assets.assets_reloaded = false;
+		entities.changes = false;
 	}
 };

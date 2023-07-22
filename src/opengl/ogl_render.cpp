@@ -731,7 +731,7 @@ struct OglRenderer : public Renderer {
 				ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f);
 			}
 		}
-	#else
+	#elif 0
 	//// glMultiDrawElementsIndirect drawing (cpu sided indirect buffer generation)
 	/*
 	Instanced with instance streaming: 2x fps   10x cpu speedup
@@ -873,6 +873,200 @@ struct OglRenderer : public Renderer {
 
 				ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f);
 			}
+		}
+	#else
+	//// glMultiDrawElementsIndirect drawing (cpu sided indirect buffer generation)
+	/*
+	Instanced with instance streaming: 2x fps   10x cpu speedup
+	Buildings NxN:  20,    500,    1000
+	cpu ms:         0.038,  3,     18
+	gpu fps:        ~144,   40,    12
+	*/
+		static constexpr uint32_t COMPUTE_GROUPSZ = 512;
+		
+		Shader* shad = g_shaders.compile("buildings", {{"MODE", "2"}});
+		Shader* shad_lod_cull = g_shaders.compile("lod_cull", { {"GROUPSZ", prints("%d", COMPUTE_GROUPSZ)} }, { { shader::COMPUTE_SHADER } });
+
+		typedef Mesh::Vertex vert_t;
+		typedef uint16_t     idx_t;
+		
+		struct MeshInstance {
+			int    mesh_id;
+			float3 pos;
+			float  rot;
+			
+			VERTEX_CONFIG_INSTANCED(
+				ATTRIB(INT , MeshInstance, mesh_id),
+				ATTRIB(FLT3, MeshInstance, pos),
+				ATTRIB(FLT , MeshInstance, rot),
+			)
+		};
+		struct MeshInfo {
+			uint32_t mesh_lod_id; // index of MeshLodInfos [lods]
+			uint32_t lods;
+		};
+		struct MeshLodInfo {
+			uint32_t vertex_base;
+			uint32_t vertex_count;
+			uint32_t index_base;
+			uint32_t index_count;
+		};
+
+		// All meshes/lods vbo (indexed) GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER
+		// All entities instance data GL_ARRAY_BUFFER
+		VertexBufferInstancedI vbo = vertex_buffer_instacedI<Mesh::Vertex, MeshInstance>("meshes");
+		
+		Ssbo ssbo_mesh_info = {"mesh_info"};
+		Ssbo ssbo_mesh_lod_info = {"mesh_lod_info"};
+
+		// All entities lodded draw commands
+		Vbo indirect_vbo = {"DebugDraw.indirect_draw"};
+
+		std::unordered_map<BuildingAsset*, int> asset2mesh_id;
+
+		BuildingRenderer () {
+			//int3 sz = -1;
+			//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &sz.x);
+			//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &sz.y);
+			//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &sz.z);
+			//
+			//int3 cnt = -1;
+			//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &cnt.x);
+			//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 1, &cnt.y);
+			//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 2, &cnt.z);
+		}
+
+		void reload (Assets& assets) {
+			std::vector<MeshInfo> mesh_infos;
+			std::vector<MeshLodInfo> mesh_lod_infos;
+
+			glBindBuffer(GL_ARRAY_BUFFER, vbo.vbo);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo.ebo);
+			
+			uint32_t indices=0, vertices=0;
+			uint32_t mesh_id=0;
+			uint32_t mesh_lod_id=0;
+			for (auto& asset : assets.buildings) {
+				asset2mesh_id.emplace(asset.get(), mesh_id++);
+
+				auto& info = mesh_infos.emplace_back();
+				info.mesh_lod_id = mesh_lod_id;
+				info.lods = (uint32_t)asset->mesh.mesh_lods.size();
+
+				for (auto& lod : asset->mesh.mesh_lods) {
+					auto& l = mesh_lod_infos.emplace_back();
+
+					l.vertex_base  = (uint32_t)vertices;
+					l.vertex_count = (uint32_t)lod.vertices.size();
+					l.index_base  = (uint32_t)indices;
+					l.index_count = (uint32_t)lod.indices.size();
+					
+					vertices += l.vertex_count;
+					indices += l.index_count;
+
+					mesh_lod_id++;
+				}
+			}
+			
+			glBufferData(GL_ARRAY_BUFFER,         vertices * sizeof(vert_t), nullptr, GL_STATIC_DRAW);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices  * sizeof(idx_t),  nullptr, GL_STATIC_DRAW);
+			
+			mesh_id=0;
+			for (auto& asset : assets.buildings) {
+				for (uint32_t i=0; i<asset->mesh.mesh_lods.size(); ++i) {
+					auto& asset_lod = asset->mesh.mesh_lods[i];
+					auto& lod = mesh_lod_infos[mesh_id++];
+
+					glBufferSubData(GL_ARRAY_BUFFER,         lod.vertex_base * sizeof(vert_t), lod.vertex_count * sizeof(vert_t), asset_lod.vertices.data());
+					glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, lod.index_base * sizeof(idx_t),   lod.index_count * sizeof(idx_t),   asset_lod.indices.data());
+				}
+			}
+
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+			upload_buffer(GL_SHADER_STORAGE_BUFFER, ssbo_mesh_info, sizeof(mesh_infos[0]) * mesh_infos.size(), mesh_infos.data(), GL_STATIC_DRAW);
+			upload_buffer(GL_SHADER_STORAGE_BUFFER, ssbo_mesh_lod_info, sizeof(mesh_lod_infos[0]) * mesh_lod_infos.size(), mesh_lod_infos.data(), GL_STATIC_DRAW);
+
+		}
+
+		void draw (OglRenderer& r, App& app) {
+			ZoneScoped;
+			OGL_TRACE("render_buildings");
+
+			if (app.entities.changes) {
+				std::vector<MeshInstance> instances;
+				instances.resize(app.entities.buildings.size());
+
+				drawn_vertices = 0;
+				drawn_indices = 0;
+
+				for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
+					auto& entity = app.entities.buildings[i];
+
+					//instances[i].mesh_id = asset2mesh_id[entity->asset];
+					//instances[i].pos = entity->pos;
+					//instances[i].rot = 0;
+					instances[i].mesh_id = asset2mesh_id[entity.asset];
+					instances[i].pos = entity.pos;
+					instances[i].rot = 0;
+				}
+
+				vbo.stream_instances(instances);
+			}
+		
+			uint32_t entities = (uint32_t)app.entities.buildings.size();
+			{
+				OGL_TRACE("lod_cull compute");
+				
+				glBindBuffer(GL_ARRAY_BUFFER, indirect_vbo);
+				glBufferData(GL_ARRAY_BUFFER, entities * sizeof(glDrawElementsIndirectCommand), nullptr, GL_STREAM_DRAW);
+				glBindBuffer(GL_ARRAY_BUFFER, 0);
+			
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, indirect_vbo);
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, vbo.instances);
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, ssbo_mesh_info);
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ssbo_mesh_lod_info);
+				
+				glUseProgram(shad_lod_cull->prog);
+
+				shad_lod_cull->set_uniform("entities", entities);
+
+				uint32_t groups_x = (entities + COMPUTE_GROUPSZ-1) / COMPUTE_GROUPSZ;
+				glDispatchCompute(groups_x, 1, 1);
+				glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
+			
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, 0);
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, 0);
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, 0);
+			}
+
+			if (shad->prog) {
+				OGL_TRACE("draw indirect");
+
+				PipelineState s;
+				s.depth_test = true;
+				s.blend_enable = false;
+				r.state.set(s);
+
+				glUseProgram(shad->prog);
+
+				glBindVertexArray(vbo.vao);
+				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_vbo);
+
+				r.state.bind_textures(shad, {
+					{"tex", r.textures.house_diffuse, r.textures.sampler_normal},
+				});
+
+				glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, entities, 0);
+				
+				glBindVertexArray(0);
+				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+			}
+
+			ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f); // TODO: ????? How to get this info?
+			
 		}
 	#endif
 	};

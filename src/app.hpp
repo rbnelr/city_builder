@@ -45,6 +45,7 @@ struct App : public Engine {
 	friend SERIALIZE_TO_JSON(App)   { SERIALIZE_TO_JSON_EXPAND(cam, assets); }
     friend SERIALIZE_FROM_JSON(App) {
 		SERIALIZE_FROM_JSON_EXPAND(cam, assets);
+
 	}
 
 	virtual void json_load () { load("debug.json", this); }

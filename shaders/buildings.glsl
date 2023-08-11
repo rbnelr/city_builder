@@ -37,8 +37,9 @@ VS2FS
 		v.uv           = mesh_uv;
 	}
 #endif
-	
+
 #endif
+
 #ifdef _FRAGMENT
 	uniform sampler2D tex;
 	

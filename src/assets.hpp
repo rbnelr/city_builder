@@ -79,12 +79,23 @@ struct AssetMesh {
 	}
 };
 
+// seperate into lists instead?
+// Or maybe give buildings sub-buildings of certain types (maybe even track individual homes/workplaces?
+enum BuildingType {
+	BT_RESIDENTIAL,
+	BT_COMMERCIAL
+};
+NLOHMANN_JSON_SERIALIZE_ENUM(BuildingType, { { BT_RESIDENTIAL, "residential" }, { BT_COMMERCIAL, "commercial" } })
+
 struct BuildingAsset {
-	friend SERIALIZE_TO_JSON(BuildingAsset) { SERIALIZE_TO_JSON_EXPAND(name, size) };
+	friend SERIALIZE_TO_JSON(BuildingAsset) { SERIALIZE_TO_JSON_EXPAND(name, type, citizens, size) };
 
-	std::string name;
+	std::string name = "<unnamed>";
+
+	BuildingType type = BT_RESIDENTIAL;
+	int citizens = 10;
+
 	float3 size = 16;
-
 	AssetMesh mesh;
 };
 
@@ -93,14 +104,13 @@ struct Assets {
 	friend SERIALIZE_FROM_JSON(Assets) {
 		if (j.contains("buildings")) {
 			for (auto& build : j.at("buildings")) {
-				std::string name = build["name"];
-				float3 size = build["size"];
-				t.buildings.emplace_back(std::make_unique<BuildingAsset>(BuildingAsset{ name, size, prints("buildings/%s.fbx", name.c_str()).c_str() }));
+				std::string    name     = build["name"];
+				BuildingType   type     = build["type"];
+				int            citizens = build["citizens"];
+				float3         size     = build["size"];
+				t.buildings.emplace_back(std::make_unique<BuildingAsset>(BuildingAsset{ name, type, citizens, size, prints("buildings/%s.fbx", name.c_str()).c_str() }));
 			}
 		}
-
-
-		t.assets_reloaded = true;
 	}
 
 	bool assets_reloaded = true;

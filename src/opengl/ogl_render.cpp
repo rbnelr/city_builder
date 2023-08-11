@@ -8,11 +8,10 @@
 
 namespace ogl {
 
-#if 0
 struct TriRenderer {
 	Shader* shad  = g_shaders.compile("tris");
 
-	Texture2D tex = texture2D<srgba8>("logo", "textures/Opengl-logo.png");
+	//Texture2D tex = texture2D<srgba8>("logo", "textures/Opengl-logo.png");
 
 	Sampler sampler_normal = sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, false);
 
@@ -22,7 +21,7 @@ struct TriRenderer {
 		float4 col;
 
 		VERTEX_CONFIG(
-			ATTRIB(FLT2, Vertex, pos),
+			ATTRIB(FLT3, Vertex, pos),
 			ATTRIB(FLT2, Vertex, uv),
 			ATTRIB(FLT4, Vertex, col),
 		)
@@ -33,23 +32,36 @@ struct TriRenderer {
 	std::vector<Vertex>   verticies;
 	std::vector<uint16_t> indices;
 
-	void update (Input& I) {
+	void push_path (float3 a, float3 b, float width, float4 col) {
+		uint16_t idx = (uint16_t)verticies.size();
+
+		float2 dir2d = normalizesafe((float2)b - (float2)a);
+		float2 norm = rotate90(dir2d) * width*0.5f;
+
+		float3 a0 = float3((float2)a + norm, a.z + 0.1f);
+		float3 a1 = float3((float2)a - norm, a.z + 0.1f);
+		float3 b0 = float3((float2)b + norm, b.z + 0.1f);
+		float3 b1 = float3((float2)b - norm, b.z + 0.1f);
+
+		auto* pv = push_back(verticies, 4);
+		pv[0] = { a0, float2(0,0), col };
+		pv[1] = { a1, float2(1,0), col };
+		pv[2] = { b1, float2(1,1), col };
+		pv[3] = { b0, float2(0,1), col };
+
+		render::shapes::push_quad_indices<uint16_t>(indices, idx+0u, idx+1u, idx+2u, idx+3u);
+	}
+
+	void update (Network& net) {
+
 		verticies.clear();
 		verticies.shrink_to_fit();
 		indices.clear();
 		indices.shrink_to_fit();
-	}
 
-	void push_quad (float3 pos, float2 size, float4 col) {
-		uint16_t idx = (uint16_t)verticies.size();
-
-		auto* pv = push_back(verticies, 4);
-		pv[0] = { pos + float3(     0,      0, 0), float2(0,0), col };
-		pv[1] = { pos + float3(size.x,      0, 0), float2(1,0), col };
-		pv[2] = { pos + float3(size.x, size.y, 0), float2(1,1), col };
-		pv[3] = { pos + float3(     0, size.y, 0), float2(0,1), col };
-
-		render::shapes::push_quad_indices<uint16_t>(indices, idx+0u, idx+1u, idx+2u, idx+3u);
+		for (auto& path : net.paths) {
+			push_path(path->a->pos, path->b->pos, 12, lrgba(lrgb(0.05f), 1.0f));
+		}
 	}
 
 	void render (StateManager& state) {
@@ -66,11 +78,10 @@ struct TriRenderer {
 				glUseProgram(shad->prog);
 
 				state.bind_textures(shad, {
-					{ "tex", tex, sampler_normal }
+					//{ "tex", tex, sampler_normal }
 				});
 
 				PipelineState s;
-				s.depth_test = false;
 				s.blend_enable = true;
 				state.set(s);
 
@@ -82,7 +93,6 @@ struct TriRenderer {
 		glBindVertexArray(0);
 	}
 };
-#endif
 
 struct OglRenderer : public Renderer {
 	SERIALIZE_NONE(OglRenderer)
@@ -431,6 +441,8 @@ struct OglRenderer : public Renderer {
 		//}
 	};
 	TerrainRenderer terrain_renderer;
+
+	TriRenderer network_renderer;
 
 	struct SkyboxRenderer {
 	
@@ -1075,6 +1087,15 @@ struct OglRenderer : public Renderer {
 		if (app.assets.assets_reloaded) {
 			building_renderer.reload(app.assets);
 		}
+
+		network_renderer.update(app.net);
+
+		for (auto& node : app.net.nodes) {
+			dbgdraw.wire_cube(node->pos - 5*0.5f, 5, lrgba(1,1,0,1));
+		}
+		for (auto& path : app.net.paths) {
+			dbgdraw.line(path->a->pos, path->b->pos, lrgba(1,1,0,1));
+		}
 		
 		{
 			OGL_TRACE("setup");
@@ -1112,6 +1133,8 @@ struct OglRenderer : public Renderer {
 			terrain_renderer.render_terrain(app.view, *this);
 		
 			building_renderer.draw(*this, app);
+
+			network_renderer.render(state);
 
 			skybox.render_skybox_last(state, *this);
 		}

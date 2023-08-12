@@ -20,45 +20,138 @@ struct Renderer {
 
 std::unique_ptr<Renderer> create_ogl_backend ();
 
-struct Building {
-	BuildingAsset* asset;
-
-	float3 pos = 0;
-	float  rot = 0;
-};
-struct Citizen {
-	// TODO: needs to be some kind of state like in car, or in building
-	// OR car/building etc needs to track citizen and we dont know where the citizen is
-	// probably best to first use double pointers everywhere, likely that this is not a problem in terms of memory
-	float3 pos = 0;
-	Building* current_target = nullptr;
-
-
-	Building* home = nullptr;
-	Building* work = nullptr;
-
-	lrgb col;
-
-	Citizen (Random& r) {
-		col = hsv2rgb(r.uniformf(), 1.0f, 0.8f);
-	}
-};
+struct Citizen;
+struct Building;
 
 struct Network {
 
-	struct Path;
+	struct Segment;
+
 	struct Node {
 		float3 pos;
-		std::vector<Path*> paths;
+		std::vector<Segment*> segments;
+
+		// for Dijkstra, TODO: remove this from this data structure! indices instead of pointers needed to be able to have seperate node lists?
+		// else always need to map pointers to other pointers or indices
+		float _dist;
+		Node* _pred;
 	};
 
-	struct Path {
+	struct Segment { // better name? Keep Path and call path Route?
 		Node* a;
 		Node* b;
 	};
 
 	std::vector<std::unique_ptr<Node>> nodes;
-	std::vector<std::unique_ptr<Path>> paths;
+	std::vector<std::unique_ptr<Segment>> segments;
+
+	struct ActivePath {
+		float length = 0;
+		int   idx = 0; // index of prev node
+		float cur_seg_t = 0; // t along prev node to current node
+		std::vector<Node*> nodes;
+
+		Building* target = nullptr;
+	};
+
+	void _recurse_find_shortest (Node* cur, Node* target) {
+		for (auto& seg : cur->segments) {
+			Node* other = seg->a != cur ? seg->a : seg->b;
+
+			float new_dist = cur->_dist + distance(seg->a->pos, seg->b->pos);
+			if (new_dist < other->_dist) {
+				other->_pred = cur;
+				other->_dist = new_dist;
+
+				_recurse_find_shortest(other, target);
+			}
+		}
+	}
+
+	bool pathfind (Segment* start, Segment* target, ActivePath* path) {
+		for (auto& node : nodes) {
+			node->_dist = INF;
+			node->_pred = nullptr;
+		}
+
+		start->a->_dist = 0;
+		_recurse_find_shortest(start->a, target->a);
+
+		if (target->a->_pred == nullptr)
+			return false; // no path found
+		
+		path->length = target->a->_dist;
+		assert(path->length < INF);
+
+		std::vector<Node*> tmp_nodes;
+
+		Node* cur = target->a;
+		while (cur) {
+			tmp_nodes.push_back(cur);
+			cur = cur->_pred;
+		}
+
+		for (auto it=tmp_nodes.rbegin(); it!=tmp_nodes.rend(); ++it) {
+			path->nodes.push_back(*it);
+		}
+
+		return true;
+	}
+};
+
+struct CitizenLoc {
+	MOVE_ONLY_CLASS(CitizenLoc)
+	static void swap (CitizenLoc& l, CitizenLoc& r) {
+		std::swap();
+	}
+
+	enum Type {
+		IN_BUILDING,
+		ON_PATH,
+	};
+
+	Type type;
+	union {
+		Building* building;	
+		Network::ActivePath* path;
+	};
+
+	CitizenLoc (Type type): type{type} {
+		if (type == ON_PATH)
+			path = new Network::ActivePath();
+	}
+	static CitizenLoc in_building (Building* build) { CitizenLoc loc{IN_BUILDING}; loc.building = build; return loc; }
+	static CitizenLoc on_path () { return CitizenLoc{ON_PATH}; }
+	~CitizenLoc () {
+		if (type == ON_PATH)
+			delete path;
+	}
+};
+
+struct Building {
+	BuildingAsset* asset;
+
+	float3 pos = 0;
+	float  rot = 0;
+
+	Network::Segment* connected_segment = nullptr;
+};
+struct Citizen {
+	// TODO: needs to be some kind of state like in car, or in building
+	// OR car/building etc needs to track citizen and we dont know where the citizen is
+	// probably best to first use double pointers everywhere, likely that this is not a problem in terms of memory
+	CitizenLoc loc;
+
+	//Building* home = nullptr;
+	//Building* work = nullptr;
+
+	lrgb col;
+
+	Citizen (Random& r, Building* initial_building): loc{CitizenLoc::IN_BUILDING} { // TODO: spawn citizens on map edge (on path)
+		loc.building = initial_building;
+
+		col = hsv2rgb(r.uniformf(), 1.0f, 0.8f);
+	}
 };
 
 struct Entities {
@@ -114,6 +207,8 @@ struct App : public Engine {
 			entities = {};
 			net = {};
 
+			Random rand(0);
+
 			auto base_pos = float3(8,8,0)*1024;
 			auto* house0 = assets.buildings[0].get();
 			auto* house1 = assets.buildings[1].get();
@@ -130,20 +225,33 @@ struct App : public Engine {
 				float3 pos = base_pos + float3((float)x,(float)y,0) * (float3(40,25,0) + street_size);
 				net.nodes[y * (n+1) + x] = std::make_unique<Network::Node>(Network::Node{pos});
 			}
+			
+			auto create_segment = [&] (Network::Node* a, Network::Node* b) {
+				assert(a && b && a != b);
+
+				auto* seg = net.segments.emplace_back(std::make_unique<Network::Segment>(Network::Segment{})).get();
+				seg->a = a;
+				seg->b = b;
+
+				a->segments.push_back(seg);
+				b->segments.push_back(seg);
+			};
 
 			// create x paths
 			for (int y=0; y<n+1; ++y)
 			for (int x=0; x<n; ++x) {
-				auto& path = net.paths.emplace_back(std::make_unique<Network::Path>(Network::Path{}));
-				path->a = get_node(x, y);
-				path->b = get_node(x+1, y);
+				auto* a = get_node(x, y);
+				auto* b = get_node(x+1, y);
+				create_segment(a, b);
 			}
 			// create y paths
 			for (int y=0; y<n; ++y)
 			for (int x=0; x<n+1; ++x) {
-				auto& path = net.paths.emplace_back(std::make_unique<Network::Path>(Network::Path{}));
-				path->a = get_node(x, y);
-				path->b = get_node(x, y+1);
+				if (rand.chance(0.5f)) {
+					auto* a = get_node(x, y);
+					auto* b = get_node(x, y+1);
+					create_segment(a, b);
+				}
 			}
 			
 			for (int y=0; y<n; ++y)
@@ -152,16 +260,26 @@ struct App : public Engine {
 				auto* asset = rand.uniformi(0, 2) ? house0 : house1;
 
 				float3 pos = base_pos + (float3((float)x,(float)y,0) + float3(0.5f)) * (float3(40,25,0) + street_size);
-				entities.buildings.push_back(std::make_unique<Building>(Building{ asset, pos }));
+				auto& build = entities.buildings.emplace_back(std::make_unique<Building>(Building{ asset, pos }));
+
+				auto* a = get_node(x, y);
+				auto* b = get_node(x+1, y);
+				for (auto& seg : a->segments) {
+					auto* other_node = seg->a != a ? seg->a : seg->b;
+					if (other_node == b) {
+						// found path in front of building
+						build->connected_segment = seg;
+						break;
+					}
+				}
+
+				assert(build->connected_segment);
 			}
 
-			Random rand(0);
-			for (int i=0; i<20; ++i) {
-				auto& cit = entities.citizens.emplace_back(std::make_unique<Citizen>(Citizen{rand}));
-
-				if (entities.buildings.size() > 0) {
-					cit->current_target = entities.buildings[0].get();
-					cit->pos = cit->current_target->pos;
+			if (entities.buildings.size() > 0) {
+				auto* cur_building = entities.buildings[0].get();
+				for (int i=0; i<20; ++i) {
+					auto& cit = entities.citizens.emplace_back(std::make_unique<Citizen>(Citizen{rand, cur_building}));
 				}
 			}
 		}
@@ -206,39 +324,81 @@ struct App : public Engine {
 		static float speed = 50;
 		ImGui::SliderFloat("speed", &speed, 0, 100, "%.3f", ImGuiSliderFlags_Logarithmic);
 
+
+		for (auto& node : net.nodes) {
+			renderer->dbgdraw.wire_cube(node->pos - 5*0.5f, 5, lrgba(1,1,0,1));
+		}
+		for (auto& seg : net.segments) {
+			renderer->dbgdraw.line(seg->a->pos, seg->b->pos, lrgba(1,1,0,1));
+		}
+
+
 		for (auto& building : entities.buildings) {
 			//renderer->dbgdraw.quad(float3(building->pos), (float2)building->asset->size, lrgba(1,1,1,1));
 			//renderer->dbgdraw.wire_quad(float3(building->pos), (float2)building->asset->size, lrgba(1,1,1,1));
 		}
 		for (auto& cit : entities.citizens) {
-			if (!cit->current_target) {
-				cit->current_target = entities.buildings[ random.uniformi(0, (int)entities.buildings.size()) ].get();
+			if (cit->loc.type == CitizenLoc::IN_BUILDING) {
+				auto* cur_target = entities.buildings[ random.uniformi(0, (int)entities.buildings.size()) ].get();
+
+				assert(cit->loc.building->connected_segment);
+				if (cit->loc.building->connected_segment) {
+					auto path = CitizenLoc::on_path();
+					path.path->target = cur_target;
+					bool valid = net.pathfind(cit->loc.building->connected_segment, cur_target->connected_segment, path.path);
+
+					if (valid) {
+						cit->loc = std::move(path);
+					}
+				}
 			}
 
-			float3 offset = cit->current_target->pos - cit->pos;
-			float dist = length(offset);
-			if (dist <= 0.01f) {
-				cit->pos = cit->current_target->pos;
-				cit->current_target = nullptr;
+			float3 cur_pos = 0;
+
+			if (cit->loc.type == CitizenLoc::ON_PATH) {
+				auto& path = *cit->loc.path;
+				
+				assert(path.nodes.size() >= 2);
+				assert(path.idx >= 0 && path.idx+1 < path.nodes.size());
+				assert(path.cur_seg_t < 1.0f);
+
+				auto* cur  = path.nodes[path.idx];
+				auto* next = path.nodes[path.idx+1];
+
+				float len = distance(cur->pos, next->pos);
+
+				path.cur_seg_t += (speed * input.dt) / len;
+
+				if (path.cur_seg_t >= 1.0f) {
+					if (path.idx+1 >= path.nodes.size()) {
+						// end of path reached
+						cit->loc = CitizenLoc::in_building(path.target);
+					}
+					else {
+						path.idx++;
+						path.cur_seg_t = 0;
+					}
+				}
+
+				cur  = path.nodes[path.idx];
+				next = path.nodes[path.idx+1];
+				cur_pos = lerp(cur->pos, next->pos, path.cur_seg_t);
+
+				if (cit == entities.citizens[0]) {
+					float2 size = (float2)path.target->asset->size;
+					renderer->dbgdraw.wire_quad(float3(path.target->pos - float3(size*0.5f,0)), size, lrgba(0,1,0,1));
+
+					renderer->dbgdraw.line(cur_pos, path.target->pos, lrgba(0,1,0,1));
+				}
 			}
-			else {
-				float3 vel = offset / dist * min(dist, speed * input.dt);
-				cit->pos += vel;
+			
+			if (cit->loc.type == CitizenLoc::IN_BUILDING) {
+				cur_pos = cit->loc.building->pos;
 			}
 
 			float rad = cit == entities.citizens[0] ? 5 : 0.3f * 5;
-			renderer->dbgdraw.cylinder(cit->pos, rad, 1.7f, lrgba(cit->col, 1));
-		}
+			renderer->dbgdraw.cylinder(cur_pos, rad, 1.7f, lrgba(cit->col, 1));
 
-		if (entities.citizens.size() > 0) {
-			auto* targ = entities.citizens[0]->current_target;
-			if (targ) {
-				float2 size = (float2)targ->asset->size;
-				renderer->dbgdraw.wire_quad(float3(targ->pos - float3(size*0.5f,0)), size, lrgba(0,1,0,1));
-
-				float3 a = entities.citizens[0]->pos;
-				renderer->dbgdraw.vector(a, targ->pos - a, lrgba(0,1,0,1));
-			}
 		}
 	}
 

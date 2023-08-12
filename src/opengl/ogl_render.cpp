@@ -59,8 +59,8 @@ struct TriRenderer {
 		indices.clear();
 		indices.shrink_to_fit();
 
-		for (auto& path : net.paths) {
-			push_path(path->a->pos, path->b->pos, 12, lrgba(lrgb(0.05f), 1.0f));
+		for (auto& seg : net.segments) {
+			push_path(seg->a->pos, seg->b->pos, 12, lrgba(lrgb(0.05f), 1.0f));
 		}
 	}
 
@@ -1090,13 +1090,6 @@ struct OglRenderer : public Renderer {
 
 		network_renderer.update(app.net);
 
-		for (auto& node : app.net.nodes) {
-			dbgdraw.wire_cube(node->pos - 5*0.5f, 5, lrgba(1,1,0,1));
-		}
-		for (auto& path : app.net.paths) {
-			dbgdraw.line(path->a->pos, path->b->pos, lrgba(1,1,0,1));
-		}
-		
 		{
 			OGL_TRACE("setup");
 

@@ -19,10 +19,11 @@ VS2FS
 	}
 #endif
 #ifdef _FRAGMENT
-	uniform sampler2D tex;
+	//uniform sampler2D tex;
 	
 	out vec4 frag_col;
 	void main () {
-		frag_col = texture(tex, v.uv) * v.col;
+		//frag_col = texture(tex, v.uv) * v.col;
+		frag_col = v.col;
 	}
 #endif

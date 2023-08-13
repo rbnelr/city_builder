@@ -82,7 +82,7 @@ VS2FS
 		col *= simple_lighting(v.pos, v.normal);
 		col = apply_fog(col, v.pos);
 		
-		col = overlay_grid(col, v.pos);
+		//col = overlay_grid(col, v.pos);
 		
 		frag_col = vec4(col, 1.0);
 	}

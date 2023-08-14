@@ -56,6 +56,8 @@ uint pick_lod (vec3 obj_pos, uint lod_count) {
 }
 
 void main () {
+	// might want to do this once we want to stop rendering objects once they get to far away
+	// ie. mostly props, citizens etc.
 	//uint idx = atomicAdd(_dbgdrawbuf.lines.cmd.count, 2u);
 	
 	uint i = gl_GlobalInvocationID.x;

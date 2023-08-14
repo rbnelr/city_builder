@@ -1008,7 +1008,7 @@ struct OglRenderer : public Renderer {
 			ZoneScoped;
 			OGL_TRACE("render_buildings");
 
-			if (app.entities.changes) {
+			if (app.entities.buildings_changed) {
 				std::vector<MeshInstance> instances;
 				instances.resize(app.entities.buildings.size());
 
@@ -1021,8 +1021,8 @@ struct OglRenderer : public Renderer {
 					//instances[i].mesh_id = asset2mesh_id[entity->asset];
 					//instances[i].pos = entity->pos;
 					//instances[i].rot = 0;
-					instances[i].mesh_id = asset2mesh_id[entity.asset];
-					instances[i].pos = entity.pos;
+					instances[i].mesh_id = asset2mesh_id[entity->asset];
+					instances[i].pos = entity->pos;
 					instances[i].rot = 0;
 				}
 

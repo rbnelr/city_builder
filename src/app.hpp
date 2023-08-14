@@ -4,6 +4,8 @@
 #include "game_camera.hpp"
 #include "assets.hpp"
 
+#include <queue>
+
 struct App;
 
 struct Renderer {
@@ -34,6 +36,7 @@ struct Network {
 		// for Dijkstra, TODO: remove this from this data structure! indices instead of pointers needed to be able to have seperate node lists?
 		// else always need to map pointers to other pointers or indices
 		float _dist;
+		bool  _visited;
 		Node* _pred;
 	};
 
@@ -41,9 +44,10 @@ struct Network {
 		// SegmentLayout* -> type of lanes etc.
 		Node* a;
 		Node* b;
+		float length;
 		
-		float calc_length () {
-			return distance(a->pos, b->pos);
+		void calc_length () {
+			length = distance(a->pos, b->pos);
 		}
 	};
 
@@ -58,41 +62,73 @@ struct Network {
 
 		Building* start = nullptr;
 		Building* end   = nullptr;
+
+		//struct Segment {
+		//	float3 start, end;
+		//};
+		//
+		//int get_moves () {
+		//	(int)nodes.size() + 4; // building->street
+		//}
+		//Segment get_move (int i) {
+		//	
+		//}
 	};
 
-	void _recurse_dijkstra (Node* cur, Node* target) {
-		for (auto& seg : cur->segments) {
-			Node* other = seg->a != cur ? seg->a : seg->b;
-
-			// TODO: early out if target is found? Is that a sensible optimization with Dijkstra
-
-			float new_dist = cur->_dist + seg->calc_length();
-			if (new_dist < other->_dist) {
-				other->_pred = cur;
-				other->_dist = new_dist;
-
-				_recurse_dijkstra(other, target);
-			}
-		}
-	}
-
 	bool pathfind (Segment* start, Segment* target, ActivePath* path) {
+		// use dijstra
+
+		struct Comparer {
+			bool operator () (Node* l, Node* r) {
+				// true: l < r
+				// but since priority_queue only lets us get
+				// max element rather than min flip everything around
+				return l->_dist > r->_dist;
+			}
+		};
+		std::priority_queue<Node*, std::vector<Node*>, Comparer> unvisited;
+		
+		// queue all nodes
 		for (auto& node : nodes) {
 			node->_dist = INF;
+			node->_visited = false;
 			node->_pred = nullptr;
 		}
 
-		{
-			float len = start->calc_length();
-			start->a->_dist = len / 0.5f; // pretend start point is at center of start segment for now
-			start->b->_dist = len / 0.5f;
-		}
-		start->a->_pred = nullptr;
-		_recurse_dijkstra(start->a, target->a);
-		start->b->_pred = nullptr; // need to reset this for paths to actually start here
-		_recurse_dijkstra(start->b, target->a);
+		// handle the two start nodes
+		start->a->_dist = start->length / 0.5f; // pretend start point is at center of start segment for now
+		start->b->_dist = start->length / 0.5f;
+		
+		unvisited.push(start->a);
+		unvisited.push(start->b);
 
-		if (target->a->_pred == nullptr)
+		while (!unvisited.empty()) {
+			// visit node with min distance
+			Node* cur = unvisited.top();
+			unvisited.pop();
+			
+			if (cur->_visited) continue;
+			cur->_visited = true;
+
+			if (cur == target->a || cur == target->b)
+				break; // shortest path found (either a or b works becase shortest one will always be visited first)
+
+			// update neighbours with new minimum distances
+			for (auto& seg : cur->segments) {
+				Node* neighbour = seg->a != cur ? seg->a : seg->b;
+
+				float new_dist = cur->_dist + seg->length;
+				if (new_dist < neighbour->_dist) {
+					neighbour->_pred = cur;
+					neighbour->_dist = new_dist;
+
+					unvisited.push(neighbour); // push updated neighbour (duplicate)
+				}
+			}
+		}
+
+		//// make path out of dijkstra graph
+		if (target->a->_pred == nullptr && target->b->_pred == nullptr)
 			return false; // no path found
 		
 		// additional distances from a and b of the target segment
@@ -118,6 +154,8 @@ struct Network {
 		for (auto it=tmp_nodes.rbegin(); it!=tmp_nodes.rend(); ++it) {
 			path->nodes.push_back(*it);
 		}
+
+		//path->nodes.push_back(target->a == end_node ? target->b : target->a);
 
 		return true;
 	}
@@ -202,8 +240,11 @@ struct App : public Engine {
 
 	void spawn () {
 		static int buildings_n = 10;
+		static int citizens_n = 50;
 
 		if (ImGui::SliderInt("buildings_n", &buildings_n, 1, 1000) || assets.assets_reloaded) {
+			ZoneScopedN("spawn buildings");
+
 			entities.buildings.clear();
 			net = {};
 
@@ -235,6 +276,8 @@ struct App : public Engine {
 
 				a->segments.push_back(seg);
 				b->segments.push_back(seg);
+				
+				seg->calc_length();
 			};
 
 			// create x paths
@@ -278,10 +321,10 @@ struct App : public Engine {
 
 			entities.buildings_changed = true;
 		}
-
-		static int citizens_n = 20;
 		
 		if (ImGui::SliderInt("citizens_n", &citizens_n, 1, 1000) || entities.buildings_changed) {
+			ZoneScopedN("spawn citizens");
+
 			if (entities.buildings_changed)
 				entities.citizens.clear(); // invalidated pointers
 
@@ -333,7 +376,7 @@ struct App : public Engine {
 
 		renderer->dbgdraw.axis_gizmo(view, input.window_size);
 
-		static float speed = 50;
+		static float speed = 100;
 		ImGui::SliderFloat("speed", &speed, 0, 500);
 
 
@@ -350,78 +393,84 @@ struct App : public Engine {
 			//renderer->dbgdraw.quad(float3(building->pos), (float2)building->asset->size, lrgba(1,1,1,1));
 			//renderer->dbgdraw.wire_quad(float3(building->pos), (float2)building->asset->size, lrgba(1,1,1,1));
 		}
-		for (auto& cit : entities.citizens) {
-			if (cit->building) {
-				auto* cur_target = entities.buildings[ random.uniformi(0, (int)entities.buildings.size()) ].get();
 
-				assert(cit->building->connected_segment);
-				if (cit->building->connected_segment) {
-					auto path = std::make_unique<Network::ActivePath>();
-					path->start = cit->building;
-					path->end   = cur_target;
-					bool valid = net.pathfind(cit->building->connected_segment, cur_target->connected_segment, path.get());
-					pathing_count++;
+		{
+			ZoneScopedN("citizen update");
 
-					if (valid) {
-						cit->building = nullptr;
-						cit->path = std::move(path);
-					}
-				}
-			}
+			for (auto& cit : entities.citizens) {
+				if (cit->building) {
+					auto* cur_target = entities.buildings[ random.uniformi(0, (int)entities.buildings.size()) ].get();
 
-			float3 cur_pos = 0;
-
-			if (cit->path) {
-				auto& path = *cit->path;
-				
-				assert(path.nodes.size() >= 1);
-				assert(path.idx >= -1 && path.idx <= (int)path.nodes.size()-1);
-				assert(path.cur_t < 1.0f);
-
-				float3 pos_a = path.idx <= -1                       ? path.start->pos : path.nodes[path.idx  ]->pos;
-				float3 pos_b = path.idx >= (int)path.nodes.size()-1 ? path.end->pos   : path.nodes[path.idx+1]->pos;
-				
-				float len = distance(pos_a, pos_b);
-
-				path.cur_t += (speed * input.dt) / len;
-
-				if (path.cur_t >= 1.0f) {
-					path.idx++;
-					path.cur_t = 0;
-				}
-
-
-				if (path.idx >= (int)path.nodes.size()) {
-					// end of path reached
-					cit->building = path.end;
-					cit->path = nullptr;
-				}
-				else {
-					pos_a = path.idx <= -1                       ? path.start->pos : path.nodes[path.idx  ]->pos;
-					pos_b = path.idx >= (int)path.nodes.size()-1 ? path.end->pos   : path.nodes[path.idx+1]->pos;
-					cur_pos = lerp(pos_a, pos_b, path.cur_t);
-
-					if (cit == entities.citizens[0]) {
-
-						// draw target building
-						float2 size = (float2)path.end->asset->size;
-						renderer->dbgdraw.wire_quad(float3(path.end->pos - float3(size*0.5f,0)), size, lrgba(0,1,0,1));
+					assert(cit->building->connected_segment);
+					if (cit->building->connected_segment) {
+						ZoneScopedN("pathfind");
 						
-						// shitty code, I wish we had generator expression that represented the state machine for the movement
-						renderer->dbgdraw.line(cur_pos + float3(0,0,1), pos_b + float3(0,0,1), lrgba(0,1,0,1));
-						for (int i=path.idx+1; i<(int)path.nodes.size()-1; ++i) {
-							renderer->dbgdraw.line(path.nodes[i]->pos + float3(0,0,1), path.nodes[i+1]->pos + float3(0,0,1), lrgba(0,1,0,1));
+						auto path = std::make_unique<Network::ActivePath>();
+						path->start = cit->building;
+						path->end   = cur_target;
+						bool valid = net.pathfind(cit->building->connected_segment, cur_target->connected_segment, path.get());
+						pathing_count++;
+
+						if (valid) {
+							cit->building = nullptr;
+							cit->path = std::move(path);
 						}
 					}
 				}
-			}
-			
-			if (cit->building) {
-				cur_pos = cit->building->pos;
-			}
 
-			float rad = cit == entities.citizens[0] ? 5.0f : 3.0f;
-			renderer->dbgdraw.cylinder(cur_pos, rad, 1.7f, lrgba(cit->col, 1), 8);
+				float3 cur_pos = 0;
+
+				if (cit->path) {
+					auto& path = *cit->path;
+				
+					assert(path.nodes.size() >= 1);
+					assert(path.idx >= -1 && path.idx <= (int)path.nodes.size()-1);
+					assert(path.cur_t < 1.0f);
+
+					float3 pos_a = path.idx <= -1                       ? path.start->pos : path.nodes[path.idx  ]->pos;
+					float3 pos_b = path.idx >= (int)path.nodes.size()-1 ? path.end->pos   : path.nodes[path.idx+1]->pos;
+				
+					float len = distance(pos_a, pos_b);
+
+					path.cur_t += (speed * input.dt) / len;
+
+					if (path.cur_t >= 1.0f) {
+						path.idx++;
+						path.cur_t = 0;
+					}
+
+					if (path.idx >= (int)path.nodes.size()) {
+						// end of path reached
+						cit->building = path.end;
+						cit->path = nullptr;
+					}
+					else {
+						pos_a = path.idx <= -1                       ? path.start->pos : path.nodes[path.idx  ]->pos;
+						pos_b = path.idx >= (int)path.nodes.size()-1 ? path.end->pos   : path.nodes[path.idx+1]->pos;
+						cur_pos = lerp(pos_a, pos_b, path.cur_t);
+
+						if (cit == entities.citizens[0]) {
+
+							// draw target building
+							float2 size = (float2)path.end->asset->size;
+							renderer->dbgdraw.wire_quad(float3(path.end->pos - float3(size*0.5f,0)), size, lrgba(0,1,0,1));
+						
+							// shitty code, I wish we had generator expression that represented the state machine for the movement
+							renderer->dbgdraw.line(cur_pos + float3(0,0,1), pos_b + float3(0,0,1), lrgba(0,1,0,1));
+							for (int i=path.idx+1; i<(int)path.nodes.size()-1; ++i) {
+								renderer->dbgdraw.line(path.nodes[i]->pos + float3(0,0,1), path.nodes[i+1]->pos + float3(0,0,1), lrgba(0,1,0,1));
+							}
+						}
+					}
+				}
+			
+				if (cit->building) {
+					cur_pos = cit->building->pos;
+				}
+
+				float rad = cit == entities.citizens[0] ? 5.0f : 3.0f;
+				renderer->dbgdraw.cylinder(cur_pos, rad, 1.7f, lrgba(cit->col, 1), 8);
+			}
 		}
 
 		static RunningAverage pathings_avg(30);

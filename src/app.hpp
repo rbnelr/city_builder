@@ -35,7 +35,7 @@ struct Network {
 
 		// for Dijkstra, TODO: remove this from this data structure! indices instead of pointers needed to be able to have seperate node lists?
 		// else always need to map pointers to other pointers or indices
-		float _dist;
+		float _cost;
 		bool  _visited;
 		Node* _pred;
 	};
@@ -55,7 +55,6 @@ struct Network {
 	std::vector<std::unique_ptr<Segment>> segments;
 
 	struct ActivePath {
-		float length = 0;
 		int   idx = 0;
 		float cur_t = 0;
 		std::vector<Node*> nodes;
@@ -72,21 +71,21 @@ struct Network {
 				// true: l < r
 				// but since priority_queue only lets us get
 				// max element rather than min flip everything around
-				return l->_dist > r->_dist;
+				return l->_cost > r->_cost;
 			}
 		};
 		std::priority_queue<Node*, std::vector<Node*>, Comparer> unvisited;
 		
 		// queue all nodes
 		for (auto& node : nodes) {
-			node->_dist = INF;
+			node->_cost = INF;
 			node->_visited = false;
 			node->_pred = nullptr;
 		}
 
 		// handle the two start nodes
-		start->a->_dist = start->length / 0.5f; // pretend start point is at center of start segment for now
-		start->b->_dist = start->length / 0.5f;
+		start->a->_cost = start->length / 0.5f; // pretend start point is at center of start segment for now
+		start->b->_cost = start->length / 0.5f;
 		
 		unvisited.push(start->a);
 		unvisited.push(start->b);
@@ -106,10 +105,10 @@ struct Network {
 			for (auto& seg : cur->segments) {
 				Node* neighbour = seg->a != cur ? seg->a : seg->b;
 
-				float new_dist = cur->_dist + seg->length;
-				if (new_dist < neighbour->_dist) {
+				float new_dist = cur->_cost + seg->length;
+				if (new_dist < neighbour->_cost) {
 					neighbour->_pred = cur;
-					neighbour->_dist = new_dist;
+					neighbour->_cost = new_dist;
 
 					unvisited.push(neighbour); // push updated neighbour (duplicate)
 				}
@@ -124,13 +123,12 @@ struct Network {
 		float dist_from_a = 0.5f;
 		float dist_from_b = 0.5f;
 
-		float a_len = target->a->_dist + dist_from_a;
-		float b_len = target->b->_dist + dist_from_b;
+		float a_len = target->a->_cost + dist_from_a;
+		float b_len = target->b->_cost + dist_from_b;
 		// choose end node that end up fastest
 		Node* end_node = a_len < b_len ? target->a : target->b;
 
-		path->length = end_node->_dist;
-		assert(path->length < INF);
+		assert(end_node->_cost < INF);
 
 		std::vector<Node*> tmp_nodes;
 

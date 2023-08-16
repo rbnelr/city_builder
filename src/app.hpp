@@ -56,23 +56,12 @@ struct Network {
 
 	struct ActivePath {
 		float length = 0;
-		int   idx = -1; // index of cur node
-		float cur_t = 0; // t along cur segment
+		int   idx = 0;
+		float cur_t = 0;
 		std::vector<Node*> nodes;
 
 		Building* start = nullptr;
 		Building* end   = nullptr;
-
-		//struct Segment {
-		//	float3 start, end;
-		//};
-		//
-		//int get_moves () {
-		//	(int)nodes.size() + 4; // building->street
-		//}
-		//Segment get_move (int i) {
-		//	
-		//}
 	};
 
 	bool pathfind (Segment* start, Segment* target, ActivePath* path) {
@@ -174,7 +163,7 @@ struct Citizen {
 	// OR car/building etc needs to track citizen and we dont know where the citizen is
 	// probably best to first use double pointers everywhere, likely that this is not a problem in terms of memory
 
-	// TODO: make this some kind of union?
+	// TODO: i think some sort of CitizenLoc interface would work well here (implement in ActivePath 
 	Building* building = nullptr;
 	std::unique_ptr<Network::ActivePath> path = nullptr;
 
@@ -200,13 +189,7 @@ struct Entities {
 
 struct App : public Engine {
 
-	App (): Engine{"Kiss-Framework Project"} {
-		//auto pos = float3(8,8,0)*1024;
-		//auto* house = assets.buildings[0].get();
-		//entities.buildings.push_back(std::make_unique<Building>(Building{ house, pos + float3(0,0,0) }));
-		//entities.buildings.push_back(std::make_unique<Building>(Building{ house, pos + float3(32,0,0) }));
-		//entities.buildings.push_back(std::make_unique<Building>(Building{ house, pos + float3(32,32,0) }));
-	}
+	App (): Engine{"Kiss-Framework Project"} {}
 	virtual ~App () {}
 	
 	friend SERIALIZE_TO_JSON(App)   { SERIALIZE_TO_JSON_EXPAND(cam, assets); }
@@ -362,6 +345,122 @@ struct App : public Engine {
 		}
 	}
 
+	int pathing_count = 0;
+
+	void update_citizens () {
+		ZoneScoped;
+
+		static float speed = 100;
+		ImGui::SliderFloat("speed", &speed, 0, 500);
+
+		for (auto& cit : entities.citizens) {
+			if (cit->building) {
+				auto* cur_target = entities.buildings[ random.uniformi(0, (int)entities.buildings.size()) ].get();
+
+				assert(cit->building->connected_segment);
+				if (cit->building->connected_segment) {
+					ZoneScopedN("pathfind");
+
+					auto path = std::make_unique<Network::ActivePath>();
+					path->start = cit->building;
+					path->end   = cur_target;
+					bool valid = net.pathfind(cit->building->connected_segment, cur_target->connected_segment, path.get());
+					pathing_count++;
+
+					if (valid) {
+						cit->building = nullptr;
+						cit->path = std::move(path);
+					}
+				}
+			}
+
+			float3 cur_pos = 0;
+
+			if (cit->path) {
+				auto& path = *cit->path;
+
+				auto count = [&] () {
+					return (int)path.nodes.size()-1 + 4;
+				};
+				struct Move {
+					float3 a, b;
+				};
+				auto get_move = [&] (int idx) -> Move {
+					// Ughhh. Generator expressions would be sooo nice
+					float3 s0 = path.start->pos;
+					float3 s1 = (path.start->connected_segment->a->pos + path.start->connected_segment->b->pos) * 0.5f;
+					float3 e0 = (path.end->connected_segment->a->pos + path.end->connected_segment->b->pos) * 0.5f;
+					float3 e1 = path.end->pos;
+
+					if (idx == 0) {
+						return { s0, s1 };
+					}
+					if (idx == 1) {
+						return { s1, path.nodes.front()->pos };
+					}
+
+					if (idx-2 < (int)path.nodes.size()-1) {
+						return { path.nodes[idx-2]->pos, path.nodes[idx-2 + 1]->pos };
+					}
+
+					if (idx == (int)path.nodes.size()-1 + 2) {
+						return { path.nodes.back()->pos, e0 };
+					}
+					else /*idx == (int)path.nodes.size()-1 + 3*/ {
+						return { e0, e1 };
+					}
+				};
+
+				assert(path.nodes.size() >= 1);
+				assert(path.idx < count());
+				assert(path.cur_t < 1.0f);
+
+				auto move = get_move(path.idx);
+
+				float len = distance(move.a, move.b);
+
+				path.cur_t += (speed * input.dt) / len;
+
+				if (path.cur_t >= 1.0f) {
+					path.idx++;
+					path.cur_t = 0;
+
+					move = get_move(path.idx);
+				}
+
+				if (path.idx >= count()) {
+					// end of path reached
+					cit->building = path.end;
+					cit->path = nullptr;
+				}
+				else {
+					cur_pos = lerp(move.a, move.b, path.cur_t);
+
+					if (cit == entities.citizens[0]) {
+
+						// draw target building
+						float2 size = (float2)path.end->asset->size;
+						renderer->dbgdraw.wire_quad(float3(path.end->pos - float3(size*0.5f,0)), size, lrgba(0,1,0,1));
+
+						auto m = get_move(path.idx);
+						renderer->dbgdraw.line(cur_pos + float3(0,0,1), m.b + float3(0,0,1), lrgba(0,1,0,1));
+						for (int i=path.idx+1; i<count(); ++i) {
+							auto m = get_move(i);
+							renderer->dbgdraw.line(m.a + float3(0,0,1), m.b + float3(0,0,1), lrgba(0,1,0,1));
+						}
+					}
+				}
+			}
+
+			if (cit->building) {
+				cur_pos = cit->building->pos;
+			}
+
+			float rad = cit == entities.citizens[0] ? 5.0f : 3.0f;
+			renderer->dbgdraw.cylinder(cur_pos, rad, 1.7f, lrgba(cit->col, 1), 8);
+		}
+	}
+
 	void update () {
 		ZoneScoped;
 
@@ -376,9 +475,6 @@ struct App : public Engine {
 
 		renderer->dbgdraw.axis_gizmo(view, input.window_size);
 
-		static float speed = 100;
-		ImGui::SliderFloat("speed", &speed, 0, 500);
-
 
 		//for (auto& node : net.nodes) {
 		//	renderer->dbgdraw.wire_cube(node->pos - 5*0.5f, 5, lrgba(1,1,0,1));
@@ -387,91 +483,14 @@ struct App : public Engine {
 		//	renderer->dbgdraw.line(seg->a->pos, seg->b->pos, lrgba(1,1,0,1));
 		//}
 
-		int pathing_count = 0;
+		pathing_count = 0;
 
 		for (auto& building : entities.buildings) {
 			//renderer->dbgdraw.quad(float3(building->pos), (float2)building->asset->size, lrgba(1,1,1,1));
 			//renderer->dbgdraw.wire_quad(float3(building->pos), (float2)building->asset->size, lrgba(1,1,1,1));
 		}
 
-		{
-			ZoneScopedN("citizen update");
-
-			for (auto& cit : entities.citizens) {
-				if (cit->building) {
-					auto* cur_target = entities.buildings[ random.uniformi(0, (int)entities.buildings.size()) ].get();
-
-					assert(cit->building->connected_segment);
-					if (cit->building->connected_segment) {
-						ZoneScopedN("pathfind");
-						
-						auto path = std::make_unique<Network::ActivePath>();
-						path->start = cit->building;
-						path->end   = cur_target;
-						bool valid = net.pathfind(cit->building->connected_segment, cur_target->connected_segment, path.get());
-						pathing_count++;
-
-						if (valid) {
-							cit->building = nullptr;
-							cit->path = std::move(path);
-						}
-					}
-				}
-
-				float3 cur_pos = 0;
-
-				if (cit->path) {
-					auto& path = *cit->path;
-				
-					assert(path.nodes.size() >= 1);
-					assert(path.idx >= -1 && path.idx <= (int)path.nodes.size()-1);
-					assert(path.cur_t < 1.0f);
-
-					float3 pos_a = path.idx <= -1                       ? path.start->pos : path.nodes[path.idx  ]->pos;
-					float3 pos_b = path.idx >= (int)path.nodes.size()-1 ? path.end->pos   : path.nodes[path.idx+1]->pos;
-				
-					float len = distance(pos_a, pos_b);
-
-					path.cur_t += (speed * input.dt) / len;
-
-					if (path.cur_t >= 1.0f) {
-						path.idx++;
-						path.cur_t = 0;
-					}
-
-					if (path.idx >= (int)path.nodes.size()) {
-						// end of path reached
-						cit->building = path.end;
-						cit->path = nullptr;
-					}
-					else {
-						pos_a = path.idx <= -1                       ? path.start->pos : path.nodes[path.idx  ]->pos;
-						pos_b = path.idx >= (int)path.nodes.size()-1 ? path.end->pos   : path.nodes[path.idx+1]->pos;
-						cur_pos = lerp(pos_a, pos_b, path.cur_t);
-
-						if (cit == entities.citizens[0]) {
-
-							// draw target building
-							float2 size = (float2)path.end->asset->size;
-							renderer->dbgdraw.wire_quad(float3(path.end->pos - float3(size*0.5f,0)), size, lrgba(0,1,0,1));
-						
-							// shitty code, I wish we had generator expression that represented the state machine for the movement
-							renderer->dbgdraw.line(cur_pos + float3(0,0,1), pos_b + float3(0,0,1), lrgba(0,1,0,1));
-							for (int i=path.idx+1; i<(int)path.nodes.size()-1; ++i) {
-								renderer->dbgdraw.line(path.nodes[i]->pos + float3(0,0,1), path.nodes[i+1]->pos + float3(0,0,1), lrgba(0,1,0,1));
-							}
-						}
-					}
-				}
-			
-				if (cit->building) {
-					cur_pos = cit->building->pos;
-				}
-
-				float rad = cit == entities.citizens[0] ? 5.0f : 3.0f;
-				renderer->dbgdraw.cylinder(cur_pos, rad, 1.7f, lrgba(cit->col, 1), 8);
-			}
-		}
+		update_citizens();
 
 		static RunningAverage pathings_avg(30);
 		pathings_avg.push((float)pathing_count);

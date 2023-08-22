@@ -26,28 +26,52 @@ struct Citizen;
 struct Building;
 
 struct Network {
+	// TODO: naming
+	// path should be reserved for pathfinding
+	// general name to call a network edges? (road, pedestrian path, rail track etc.)
+	// how to call intersections? node seems fine
 
 	struct Segment;
 
 	struct Node {
 		float3 pos;
+		// for editing and drawing?
 		std::vector<Segment*> segments;
 
 		// for Dijkstra, TODO: remove this from this data structure! indices instead of pointers needed to be able to have seperate node lists?
 		// else always need to map pointers to other pointers or indices
-		float _cost;
-		bool  _visited;
-		Node* _pred;
+		float    _cost;
+		bool     _visited;
+		Node*    _pred;
+		Segment* _pred_seg;
+		int      _pred_lane;
 	};
 
+	// Segments are oriented from a -> b, such that the 'forward' lanes go from a->b and reverse lanes from b->a
 	struct Segment { // better name? Keep Path and call path Route?
-		// SegmentLayout* -> type of lanes etc.
+		RoadLayout* layout;
 		Node* a;
 		Node* b;
-		float length;
-		
-		void calc_length () {
-			length = distance(a->pos, b->pos);
+
+		float calc_length () {
+			return distance(a->pos, b->pos);
+		}
+
+		struct LaneInfo {
+			float3 a, b;
+		};
+		LaneInfo clac_lane_info (int lane_i) {
+			auto& lane = layout->lanes[lane_i];
+
+			float2 offs = (float2)b->pos - (float2)a->pos;
+			float2 dir = normalizesafe(offs);
+			float2 norm = rotate90(-dir); // cw rotate
+
+			float3 posa = a->pos + float3(norm * lane.offset, 0);
+			float3 posb = b->pos + float3(norm * lane.offset, 0);
+
+			if (lane.direction == 0) return { posa, posb };
+			else                     return { posb, posa };
 		}
 	};
 
@@ -55,9 +79,15 @@ struct Network {
 	std::vector<std::unique_ptr<Segment>> segments;
 
 	struct ActivePath {
+		struct Seg {
+			Segment* seg;
+			int      lane;
+		};
+
 		int   idx = 0;
 		float cur_t = 0;
 		std::vector<Node*> nodes;
+		std::vector<Seg>   segments;
 
 		Building* start = nullptr;
 		Building* end   = nullptr;
@@ -83,34 +113,50 @@ struct Network {
 			node->_pred = nullptr;
 		}
 
-		// handle the two start nodes
-		start->a->_cost = start->length / 0.5f; // pretend start point is at center of start segment for now
-		start->b->_cost = start->length / 0.5f;
-		
+		// TODO: could actually start only on the lane facing the target building
+		//  (ie. don't allow crossing the road middle)
+		{ // handle the two start nodes
+			auto len = start->calc_length();
+			start->a->_cost = len / 0.5f; // pretend start point is at center of start segment for now
+			start->b->_cost = len / 0.5f;
+		}
+
 		unvisited.push(start->a);
 		unvisited.push(start->b);
 
 		while (!unvisited.empty()) {
 			// visit node with min distance
-			Node* cur = unvisited.top();
+			Node* cur_node = unvisited.top();
 			unvisited.pop();
 			
-			if (cur->_visited) continue;
-			cur->_visited = true;
+			if (cur_node->_visited) continue;
+			cur_node->_visited = true;
 
-			if (cur == target->a || cur == target->b)
-				break; // shortest path found (either a or b works becase shortest one will always be visited first)
+			// Just an optimization
+			//if (cur_node == target->a || cur_node == target->b)
+			//	break; // shortest path found (either a or b works becase shortest one will always be visited first)
+			//	       // -> not quite true due to the possible difference in additional distance along the final segment! -> if either node found just check again that both are visited
 
 			// update neighbours with new minimum distances
-			for (auto& seg : cur->segments) {
-				Node* neighbour = seg->a != cur ? seg->a : seg->b;
+			for (auto& seg : cur_node->segments) {
+				int dir = cur_node == seg->a ? 0 : 1;
+				Node* other_node = dir ? seg->a : seg->b;
 
-				float new_dist = cur->_cost + seg->length;
-				if (new_dist < neighbour->_cost) {
-					neighbour->_pred = cur;
-					neighbour->_cost = new_dist;
+				int lane_i = 0;
+				for (auto& lane : seg->layout->lanes) {
+					if (lane.direction == dir) { // TODO: could cache list to avoid this check and iterate half as many lanes
 
-					unvisited.push(neighbour); // push updated neighbour (duplicate)
+						float new_cost = cur_node->_cost + seg->calc_length(); // TODO: cache length?
+						if (new_cost < other_node->_cost) {
+							other_node->_pred      = cur_node;
+							other_node->_pred_seg  = seg;
+							other_node->_pred_lane = lane_i;
+							other_node->_cost      = new_cost;
+
+							unvisited.push(other_node); // push updated neighbour (duplicate)
+						}
+					}
+					lane_i++;
 				}
 			}
 		}
@@ -123,10 +169,10 @@ struct Network {
 		float dist_from_a = 0.5f;
 		float dist_from_b = 0.5f;
 
-		float a_len = target->a->_cost + dist_from_a;
-		float b_len = target->b->_cost + dist_from_b;
+		float a_cost = target->a->_cost + dist_from_a;
+		float b_cost = target->b->_cost + dist_from_b;
 		// choose end node that end up fastest
-		Node* end_node = a_len < b_len ? target->a : target->b;
+		Node* end_node = a_cost < b_cost ? target->a : target->b;
 
 		assert(end_node->_cost < INF);
 
@@ -137,12 +183,31 @@ struct Network {
 			tmp_nodes.push_back(cur);
 			cur = cur->_pred;
 		}
+		assert(tmp_nodes.size() >= 1);
 
-		for (auto it=tmp_nodes.rbegin(); it!=tmp_nodes.rend(); ++it) {
-			path->nodes.push_back(*it);
+		Node* start_node = tmp_nodes.back();
+
+		// first node
+		path->nodes.push_back(start_node);
+
+		// start segment
+		// if start node is segment.a then we go from b->a and thus need to start on a reverse lane
+		int start_lane = start_node == start->b ? 0 : (int)start->layout->lanes.size()-1;
+		path->segments.push_back({ start, start_lane });
+
+		// nodes
+		for (int i=(int)tmp_nodes.size()-2; i>=0; --i) {
+			assert(tmp_nodes[i]->_pred_seg);
+			// segment of predecessor to path node
+			path->segments.push_back({ tmp_nodes[i]->_pred_seg, tmp_nodes[i]->_pred_lane });
+			// path node
+			path->nodes.push_back(tmp_nodes[i]);
 		}
 
-		//path->nodes.push_back(target->a == end_node ? target->b : target->a);
+		// end segment
+		// if end node is segment.a then we go from a->b and thus need to start on a forward lane
+		int end_lane = end_node == target->a ? 0 : (int)target->layout->lanes.size()-1;
+		path->segments.push_back({ target, end_lane });
 
 		return true;
 	}
@@ -217,8 +282,6 @@ struct App : public Engine {
 
 	std::unique_ptr<Renderer> renderer = create_ogl_backend();
 
-	const float3 street_size = float3(12, 12, 1);
-
 	void spawn () {
 		static int buildings_n = 10;
 		static int citizens_n = 50;
@@ -241,24 +304,24 @@ struct App : public Engine {
 				return net.nodes[y * (buildings_n+1) + x].get();
 			};
 			
+			auto* road_layout = assets.road_layouts[0].get();
+
 			// create path nodes grid
 			for (int y=0; y<buildings_n+1; ++y)
 			for (int x=0; x<buildings_n+1; ++x) {
-				float3 pos = base_pos + float3((float)x,(float)y,0) * (float3(40,25,0) + street_size);
+				float3 pos = base_pos + float3((float)x,(float)y,0) * (float3(40,25,0) + float3(road_layout->width, road_layout->width, 0));
 				net.nodes[y * (buildings_n+1) + x] = std::make_unique<Network::Node>(Network::Node{pos});
 			}
 			
 			auto create_segment = [&] (Network::Node* a, Network::Node* b) {
 				assert(a && b && a != b);
 
-				auto* seg = net.segments.emplace_back(std::make_unique<Network::Segment>(Network::Segment{})).get();
-				seg->a = a;
-				seg->b = b;
+				auto* seg = net.segments.emplace_back(std::make_unique<Network::Segment>(Network::Segment{
+					road_layout, a, b
+				})).get();
 
 				a->segments.push_back(seg);
 				b->segments.push_back(seg);
-				
-				seg->calc_length();
 			};
 
 			// create x paths
@@ -283,7 +346,7 @@ struct App : public Engine {
 				Random rand(hash(int2(x,y))); // position-based rand
 				auto* asset = rand.uniformi(0, 2) ? house0 : house1;
 
-				float3 pos = base_pos + (float3((float)x,(float)y,0) + float3(0.5f)) * (float3(40,25,0) + street_size);
+				float3 pos = base_pos + (float3((float)x,(float)y,0) + float3(0.5f)) * (float3(40,25,0) + float3(road_layout->width, road_layout->width, 0));
 				auto& build = entities.buildings.emplace_back(std::make_unique<Building>(Building{ asset, pos }));
 
 				auto* a = get_node(x, y);
@@ -376,35 +439,42 @@ struct App : public Engine {
 
 			if (cit->path) {
 				auto& path = *cit->path;
-
-				auto count = [&] () {
-					return (int)path.nodes.size()-1 + 4;
-				};
+				
 				struct Move {
 					float3 a, b;
 				};
+				auto count = [&] () {
+					return (int)path.segments.size() + 2;
+				};
 				auto get_move = [&] (int idx) -> Move {
 					// Ughhh. Generator expressions would be sooo nice
+
+					auto s_seg = path.segments.front();
+					auto e_seg = path.segments.back();
+
+					auto s_lane = s_seg.seg->clac_lane_info(s_seg.lane);
+					auto e_lane = e_seg.seg->clac_lane_info(e_seg.lane);
+
 					float3 s0 = path.start->pos;
-					float3 s1 = (path.start->connected_segment->a->pos + path.start->connected_segment->b->pos) * 0.5f;
-					float3 e0 = (path.end->connected_segment->a->pos + path.end->connected_segment->b->pos) * 0.5f;
+					float3 s1 = (s_lane.a + s_lane.b) * 0.5f;
+					float3 e0 = (e_lane.a + e_lane.b) * 0.5f;
 					float3 e1 = path.end->pos;
 
 					if (idx == 0) {
 						return { s0, s1 };
 					}
-					if (idx == 1) {
-						return { s1, path.nodes.front()->pos };
-					}
+					else if (idx-1 < (int)path.segments.size()) {
+						int count = (int)path.segments.size();
 
-					if (idx-2 < (int)path.nodes.size()-1) {
-						return { path.nodes[idx-2]->pos, path.nodes[idx-2 + 1]->pos };
-					}
+						auto& seg = path.segments[idx-1];
+						auto lane_info = seg.seg->clac_lane_info(seg.lane);
 
-					if (idx == (int)path.nodes.size()-1 + 2) {
-						return { path.nodes.back()->pos, e0 };
+						Move m = { lane_info.a, lane_info.b };
+						if (idx-1 == 0)            m.a = s1;
+						else if (idx-1 == count-1) m.b = e0;
+						return m;
 					}
-					else /*idx == (int)path.nodes.size()-1 + 3*/ {
+					else {
 						return { e0, e1 };
 					}
 				};
@@ -416,7 +486,6 @@ struct App : public Engine {
 				auto move = get_move(path.idx);
 
 				float len = distance(move.a, move.b);
-
 				path.cur_t += (speed * input.dt) / len;
 
 				if (path.cur_t >= 1.0f) {
@@ -454,7 +523,7 @@ struct App : public Engine {
 				cur_pos = cit->building->pos;
 			}
 
-			float rad = cit == entities.citizens[0] ? 5.0f : 3.0f;
+			float rad = cit == entities.citizens[0] ? 5.0f : 2.0f;
 			renderer->dbgdraw.cylinder(cur_pos, rad, 1.7f, lrgba(cit->col, 1), 8);
 		}
 	}

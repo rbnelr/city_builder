@@ -32,16 +32,19 @@ struct TriRenderer {
 	std::vector<Vertex>   verticies;
 	std::vector<uint16_t> indices;
 
-	void push_path (float3 a, float3 b, float width, float4 col) {
+	void push_path (float3 a, float3 b, float width, float offset, float4 col) {
 		uint16_t idx = (uint16_t)verticies.size();
 
 		float2 dir2d = normalizesafe((float2)b - (float2)a);
-		float2 norm = rotate90(dir2d) * width*0.5f;
+		float2 norm = rotate90(-dir2d); // cw rotate
 
-		float3 a0 = float3((float2)a + norm, a.z + 0.1f);
-		float3 a1 = float3((float2)a - norm, a.z + 0.1f);
-		float3 b0 = float3((float2)b + norm, b.z + 0.1f);
-		float3 b1 = float3((float2)b - norm, b.z + 0.1f);
+		float2 half_width = norm * width*0.5f;
+		float2 offs = norm * offset;
+
+		float3 a0 = float3((float2)a - half_width + offs, a.z + 0.1f);
+		float3 a1 = float3((float2)a + half_width + offs, a.z + 0.1f);
+		float3 b0 = float3((float2)b - half_width + offs, b.z + 0.1f);
+		float3 b1 = float3((float2)b + half_width + offs, b.z + 0.1f);
 
 		auto* pv = push_back(verticies, 4);
 		pv[0] = { a0, float2(0,0), col };
@@ -60,7 +63,11 @@ struct TriRenderer {
 		indices.shrink_to_fit();
 
 		for (auto& seg : net.segments) {
-			push_path(seg->a->pos, seg->b->pos, 12, lrgba(lrgb(0.05f), 1.0f));
+			push_path(seg->a->pos, seg->b->pos, seg->layout->width, 0, lrgba(lrgb(0.05f), 1.0f));
+			
+			for (auto& lane : seg->layout->lanes) {
+				push_path(seg->a->pos + float3(0,0,0.01f), seg->b->pos + float3(0,0,0.01f), lane.width, lane.offset, lrgba(lrgb(0.08f), 1.0f));
+			}
 		}
 	}
 

@@ -79,6 +79,21 @@ struct AssetMesh {
 	}
 };
 
+	
+struct RoadLayout { // TODO: name?
+	struct Lane {
+		float offset;
+		float width;
+		int direction; // 0: forward  1: backwards
+		// agent types (cars, trams, pedestrian etc.)
+	};
+		
+	float width;
+	// for now: (RHD) outer forward, inner forward, ..., inner reverse, outer reverse
+	// (relevant for pathing)
+	std::vector<Lane> lanes;
+};
+
 // seperate into lists instead?
 // Or maybe give buildings sub-buildings of certain types (maybe even track individual homes/workplaces?
 enum BuildingType {
@@ -120,4 +135,15 @@ struct Assets {
 	using Collection = std::vector< std::unique_ptr<T> >;
 
 	Collection<BuildingAsset> buildings;
+	
+	Collection<RoadLayout> road_layouts;
+	
+	Assets () {
+		road_layouts.push_back(std::make_unique<RoadLayout>(RoadLayout{
+			12, {
+				{ +1.7f, 3.4f, 0 },
+				{ -1.7f, 3.4f, 1 }
+			}
+		}));
+	}
 };

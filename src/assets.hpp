@@ -82,7 +82,7 @@ struct AssetMesh {
 	
 struct RoadLayout { // TODO: name?
 	struct Lane {
-		float offset;
+		float shift;
 		float width;
 		int direction; // 0: forward  1: backwards
 		// agent types (cars, trams, pedestrian etc.)
@@ -141,8 +141,8 @@ struct Assets {
 	Assets () {
 		road_layouts.push_back(std::make_unique<RoadLayout>(RoadLayout{
 			12, {
-				{ +1.7f, 3.4f, 0 },
-				{ -1.7f, 3.4f, 1 }
+				{ +1.8f, 3.4f, 0 },
+				{ -1.8f, 3.4f, 1 }
 			}
 		}));
 	}

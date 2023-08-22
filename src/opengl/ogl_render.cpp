@@ -32,25 +32,32 @@ struct TriRenderer {
 	std::vector<Vertex>   verticies;
 	std::vector<uint16_t> indices;
 
-	void push_path (float3 a, float3 b, float width, float offset, float4 col) {
+	void push_path (float2 forw, float2 right, float3 a, float3 b, float width, float offset, float shift, float z, float4 col) {
 		uint16_t idx = (uint16_t)verticies.size();
+		
+		float2 half_width = width*0.5f;
 
-		float2 dir2d = normalizesafe((float2)b - (float2)a);
-		float2 norm = rotate90(-dir2d); // cw rotate
-
-		float2 half_width = norm * width*0.5f;
-		float2 offs = norm * offset;
-
-		float3 a0 = float3((float2)a - half_width + offs, a.z + 0.1f);
-		float3 a1 = float3((float2)a + half_width + offs, a.z + 0.1f);
-		float3 b0 = float3((float2)b - half_width + offs, b.z + 0.1f);
-		float3 b1 = float3((float2)b + half_width + offs, b.z + 0.1f);
+		float3 a0 = a + float3(right * (shift - half_width) + forw * offset, z);
+		float3 a1 = a + float3(right * (shift + half_width) + forw * offset, z);
+		float3 b0 = b + float3(right * (shift - half_width) - forw * offset, z);
+		float3 b1 = b + float3(right * (shift + half_width) - forw * offset, z);
 
 		auto* pv = push_back(verticies, 4);
 		pv[0] = { a0, float2(0,0), col };
 		pv[1] = { a1, float2(1,0), col };
 		pv[2] = { b1, float2(1,1), col };
 		pv[3] = { b0, float2(0,1), col };
+
+		render::shapes::push_quad_indices<uint16_t>(indices, idx+0u, idx+1u, idx+2u, idx+3u);
+	}
+	void push_node (float3 center, float radius, float z, float4 col) {
+		uint16_t idx = (uint16_t)verticies.size();
+		
+		auto* pv = push_back(verticies, 4);
+		pv[0] = { center + float3(-radius, -radius, z), float2(0,0), col };
+		pv[1] = { center + float3(+radius, -radius, z), float2(1,0), col };
+		pv[2] = { center + float3(+radius, +radius, z), float2(1,1), col };
+		pv[3] = { center + float3(-radius, +radius, z), float2(0,1), col };
 
 		render::shapes::push_quad_indices<uint16_t>(indices, idx+0u, idx+1u, idx+2u, idx+3u);
 	}
@@ -63,11 +70,22 @@ struct TriRenderer {
 		indices.shrink_to_fit();
 
 		for (auto& seg : net.segments) {
-			push_path(seg->a->pos, seg->b->pos, seg->layout->width, 0, lrgba(lrgb(0.05f), 1.0f));
+			auto v = seg->clac_seg_vecs();
+			float width = seg->layout->width;
+			float offs = width * 0.5f;
+
+			push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos, width, offs, 0.0f, 0.05f, lrgba(lrgb(0.05f), 1.0f));
 			
 			for (auto& lane : seg->layout->lanes) {
-				push_path(seg->a->pos + float3(0,0,0.01f), seg->b->pos + float3(0,0,0.01f), lane.width, lane.offset, lrgba(lrgb(0.08f), 1.0f));
+				push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos, lane.width, offs, lane.shift, 0.10f, lrgba(lrgb(0.08f), 1.0f));
 			}
+		}
+
+		for (auto& node : net.nodes) {
+			float width = net.segments[0]->layout->width;
+			float offs = width * 0.5f;
+
+			push_node(node->pos, offs, 0.05f, lrgba(lrgb(0.05f), 1.0f));
 		}
 	}
 

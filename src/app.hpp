@@ -50,28 +50,38 @@ struct Network {
 	// Segments are oriented from a -> b, such that the 'forward' lanes go from a->b and reverse lanes from b->a
 	struct Segment { // better name? Keep Path and call path Route?
 		RoadLayout* layout;
-		Node* a;
-		Node* b;
+		Node* node_a;
+		Node* node_b;
 
 		float calc_length () {
-			return distance(a->pos, b->pos);
+			return distance(node_a->pos, node_b->pos);
+		}
+		
+		// Segment direction vectors
+		struct Dirs {
+			float2 forw, right;
+		};
+		Dirs clac_seg_vecs () {
+			float2 ab = (float2)node_b->pos - (float2)node_a->pos;
+			float2 forw = normalizesafe(ab);
+			float2 right = rotate90(-forw); // cw rotate
+			return { forw, right };
 		}
 
-		struct LaneInfo {
+		struct Line {
 			float3 a, b;
 		};
-		LaneInfo clac_lane_info (int lane_i) {
+		Line clac_lane_info (int lane_i) {
+			auto v = clac_seg_vecs();
+
 			auto& lane = layout->lanes[lane_i];
+			float offset = layout->width * 0.5f; // offset of segment back from node center, ie "size" of intersection
 
-			float2 offs = (float2)b->pos - (float2)a->pos;
-			float2 dir = normalizesafe(offs);
-			float2 norm = rotate90(-dir); // cw rotate
+			float3 a = node_a->pos + float3(v.right * lane.shift + v.forw * offset, 0);
+			float3 b = node_b->pos + float3(v.right * lane.shift - v.forw * offset, 0);
 
-			float3 posa = a->pos + float3(norm * lane.offset, 0);
-			float3 posb = b->pos + float3(norm * lane.offset, 0);
-
-			if (lane.direction == 0) return { posa, posb };
-			else                     return { posb, posa };
+			if (lane.direction == 0) return { a, b };
+			else                     return { b, a };
 		}
 	};
 
@@ -117,12 +127,12 @@ struct Network {
 		//  (ie. don't allow crossing the road middle)
 		{ // handle the two start nodes
 			auto len = start->calc_length();
-			start->a->_cost = len / 0.5f; // pretend start point is at center of start segment for now
-			start->b->_cost = len / 0.5f;
+			start->node_a->_cost = len / 0.5f; // pretend start point is at center of start segment for now
+			start->node_b->_cost = len / 0.5f;
 		}
 
-		unvisited.push(start->a);
-		unvisited.push(start->b);
+		unvisited.push(start->node_a);
+		unvisited.push(start->node_b);
 
 		while (!unvisited.empty()) {
 			// visit node with min distance
@@ -139,8 +149,8 @@ struct Network {
 
 			// update neighbours with new minimum distances
 			for (auto& seg : cur_node->segments) {
-				int dir = cur_node == seg->a ? 0 : 1;
-				Node* other_node = dir ? seg->a : seg->b;
+				int dir = cur_node == seg->node_a ? 0 : 1;
+				Node* other_node = dir ? seg->node_a : seg->node_b;
 
 				int lane_i = 0;
 				for (auto& lane : seg->layout->lanes) {
@@ -162,17 +172,17 @@ struct Network {
 		}
 
 		//// make path out of dijkstra graph
-		if (target->a->_pred == nullptr && target->b->_pred == nullptr)
+		if (target->node_a->_pred == nullptr && target->node_b->_pred == nullptr)
 			return false; // no path found
 		
 		// additional distances from a and b of the target segment
 		float dist_from_a = 0.5f;
 		float dist_from_b = 0.5f;
 
-		float a_cost = target->a->_cost + dist_from_a;
-		float b_cost = target->b->_cost + dist_from_b;
+		float a_cost = target->node_a->_cost + dist_from_a;
+		float b_cost = target->node_b->_cost + dist_from_b;
 		// choose end node that end up fastest
-		Node* end_node = a_cost < b_cost ? target->a : target->b;
+		Node* end_node = a_cost < b_cost ? target->node_a : target->node_b;
 
 		assert(end_node->_cost < INF);
 
@@ -192,7 +202,7 @@ struct Network {
 
 		// start segment
 		// if start node is segment.a then we go from b->a and thus need to start on a reverse lane
-		int start_lane = start_node == start->b ? 0 : (int)start->layout->lanes.size()-1;
+		int start_lane = start_node == start->node_b ? 0 : (int)start->layout->lanes.size()-1;
 		path->segments.push_back({ start, start_lane });
 
 		// nodes
@@ -206,7 +216,7 @@ struct Network {
 
 		// end segment
 		// if end node is segment.a then we go from a->b and thus need to start on a forward lane
-		int end_lane = end_node == target->a ? 0 : (int)target->layout->lanes.size()-1;
+		int end_lane = end_node == target->node_a ? 0 : (int)target->layout->lanes.size()-1;
 		path->segments.push_back({ target, end_lane });
 
 		return true;
@@ -352,7 +362,7 @@ struct App : public Engine {
 				auto* a = get_node(x, y);
 				auto* b = get_node(x+1, y);
 				for (auto& seg : a->segments) {
-					auto* other_node = seg->a != a ? seg->a : seg->b;
+					auto* other_node = seg->node_a != a ? seg->node_a : seg->node_b;
 					if (other_node == b) {
 						// found path in front of building
 						build->connected_segment = seg;
@@ -444,7 +454,8 @@ struct App : public Engine {
 					float3 a, b;
 				};
 				auto count = [&] () {
-					return (int)path.segments.size() + 2;
+					assert(path.nodes.size() + 1 == path.segments.size());
+					return (int)path.nodes.size()*2 + 1 + 2;
 				};
 				auto get_move = [&] (int idx) -> Move {
 					// Ughhh. Generator expressions would be sooo nice
@@ -460,23 +471,37 @@ struct App : public Engine {
 					float3 e0 = (e_lane.a + e_lane.b) * 0.5f;
 					float3 e1 = path.end->pos;
 
+					int count = (int)path.nodes.size()*2 + 1;
+
 					if (idx == 0) {
 						return { s0, s1 };
 					}
-					else if (idx-1 < (int)path.segments.size()) {
-						int count = (int)path.segments.size();
+					idx -= 1; // ingore first
 
-						auto& seg = path.segments[idx-1];
-						auto lane_info = seg.seg->clac_lane_info(seg.lane);
+					if (idx < count) {
+						if (idx % 2 == 0) { // segment
 
-						Move m = { lane_info.a, lane_info.b };
-						if (idx-1 == 0)            m.a = s1;
-						else if (idx-1 == count-1) m.b = e0;
-						return m;
+							auto& seg = path.segments[idx/2];
+							auto lane_info = seg.seg->clac_lane_info(seg.lane);
+
+							Move m = { lane_info.a, lane_info.b };
+							if (idx == 0)            m.a = s1;
+							else if (idx == count-1) m.b = e0;
+							return m;
+						}
+						else { // node
+							
+							auto& sa = path.segments[idx/2];
+							auto& sb = path.segments[idx/2+1];
+							auto la = sa.seg->clac_lane_info(sa.lane);
+							auto lb = sb.seg->clac_lane_info(sb.lane);
+
+							Move m = { la.b, lb.a };
+							return m;
+						}
 					}
-					else {
-						return { e0, e1 };
-					}
+					
+					return { e0, e1 };
 				};
 
 				assert(path.nodes.size() >= 1);

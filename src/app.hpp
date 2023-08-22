@@ -243,7 +243,13 @@ struct Citizen {
 	//Building* home = nullptr;
 	//Building* work = nullptr;
 
+	CarAsset* asset;
+
 	lrgb col;
+
+	// TODO: get rid of this? This is not persistent data (and citizens in buildings don't need to be drawn)
+	float3 _pos;
+	float _rot;
 
 	Citizen (Random& r, Building* initial_building) { // TODO: spawn citizens on map edge (on path)
 		building = initial_building;
@@ -267,7 +273,6 @@ struct App : public Engine {
 	
 	friend SERIALIZE_TO_JSON(App)   { SERIALIZE_TO_JSON_EXPAND(cam, assets); }
     friend SERIALIZE_FROM_JSON(App) {
-		t.assets = Assets();
 		SERIALIZE_FROM_JSON_EXPAND(cam, assets);
 
 	}
@@ -379,6 +384,8 @@ struct App : public Engine {
 		if (ImGui::SliderInt("citizens_n", &citizens_n, 1, 1000) || entities.buildings_changed) {
 			ZoneScopedN("spawn citizens");
 
+			auto* car_asset = assets.cars[0].get();
+
 			if (entities.buildings_changed)
 				entities.citizens.clear(); // invalidated pointers
 
@@ -389,6 +396,7 @@ struct App : public Engine {
 				for (int i=old_size; i<citizens_n; ++i) {
 					auto* building = entities.buildings[random.uniformi(0, (int)entities.buildings.size())].get();
 					entities.citizens[i] = std::move( std::make_unique<Citizen>(Citizen{random, building}) );
+					entities.citizens[i]->asset = car_asset;
 				}
 			}
 		}
@@ -446,6 +454,7 @@ struct App : public Engine {
 			}
 
 			float3 cur_pos = 0;
+			float rot = 0;
 
 			if (cit->path) {
 				auto& path = *cit->path;
@@ -479,24 +488,20 @@ struct App : public Engine {
 					idx -= 1; // ingore first
 
 					if (idx < count) {
+						auto& seg = path.segments[idx/2];
+						auto l = seg.seg->clac_lane_info(seg.lane);
+
 						if (idx % 2 == 0) { // segment
-
-							auto& seg = path.segments[idx/2];
-							auto lane_info = seg.seg->clac_lane_info(seg.lane);
-
-							Move m = { lane_info.a, lane_info.b };
+							Move m = { l.a, l.b };
 							if (idx == 0)            m.a = s1;
 							else if (idx == count-1) m.b = e0;
 							return m;
 						}
 						else { // node
-							
-							auto& sa = path.segments[idx/2];
-							auto& sb = path.segments[idx/2+1];
-							auto la = sa.seg->clac_lane_info(sa.lane);
-							auto lb = sb.seg->clac_lane_info(sb.lane);
+							auto& seg2 = path.segments[idx/2+1];
+							auto l2 = seg2.seg->clac_lane_info(seg2.lane);
 
-							Move m = { la.b, lb.a };
+							Move m = { l.b, l2.a };
 							return m;
 						}
 					}
@@ -528,6 +533,9 @@ struct App : public Engine {
 				else {
 					cur_pos = lerp(move.a, move.b, path.cur_t);
 
+					float2 dir = move.b - move.a;
+					rot = length_sqr(dir) > 0 ? atan2f(-dir.x, dir.y) : 0; // atan with roated axes since rot=0 should be +y in my convention
+
 					if (cit == entities.citizens[0]) {
 
 						// draw target building
@@ -549,7 +557,9 @@ struct App : public Engine {
 			}
 
 			float rad = cit == entities.citizens[0] ? 5.0f : 2.0f;
-			renderer->dbgdraw.cylinder(cur_pos, rad, 1.7f, lrgba(cit->col, 1), 8);
+			//renderer->dbgdraw.cylinder(cur_pos, rad, 1.7f, lrgba(cit->col, 1), 8);
+			cit->_pos = cur_pos;
+			cit->_rot = rot;
 		}
 	}
 

@@ -16,6 +16,7 @@ struct MeshInstance {
 	uint  mesh_id;
 	float posx, posy, posz; // Avoid alignment, not needed here anyway
 	float rot;
+	float colr, colg, colb; // Avoid alignment, not needed here anyway
 };
 struct MeshInfo {
 	uint mesh_lod_id; // index of MeshLodInfos [lods]

@@ -4,10 +4,11 @@
 #include "kisslib/collision.hpp"
 #include "engine/camera.hpp"
 
-struct AssetMesh;
+template <typename VERT_T, typename IDX_T=uint16_t> struct AssetMesh;
+struct BasicVertex;
 
 namespace assimp {
-	bool load (char const* filename, AssetMesh* out_data);
+	bool load (char const* filename, AssetMesh<BasicVertex>* out_data);
 }
 
 // TODO: properly factor in base_size and custom lod curves into assets (especially if things like trees/rocks can be scaled)
@@ -37,28 +38,34 @@ struct LOD_Func {
 	}
 };
 
-struct Mesh {
-	struct Vertex {
-		float3 pos;
-		float3 normal;
-		float2 uv;
+struct BasicVertex {
+	float3 pos;
+	float3 normal;
+	float2 uv;
 		
-		VERTEX_CONFIG(
-			ATTRIB(FLT3, Vertex, pos),
-			ATTRIB(FLT3, Vertex, normal),
-			ATTRIB(FLT2, Vertex, uv),
-		)
-	};
-
-	std::vector<Vertex> vertices;
-	std::vector<uint16_t> indices;
+	VERTEX_CONFIG(
+		ATTRIB(FLT3, BasicVertex, pos),
+		ATTRIB(FLT3, BasicVertex, normal),
+		ATTRIB(FLT2, BasicVertex, uv),
+	)
 };
 
+template <typename VERT_T, typename IDX_T>
+struct Mesh {
+	std::vector<VERT_T> vertices;
+	std::vector<IDX_T> indices;
+};
+
+template <typename VERT_T, typename IDX_T>
 struct AssetMesh {
-	std::vector<Mesh> mesh_lods;
+	typedef VERT_T vert_t;
+	typedef IDX_T idx_t;
+	
+	std::vector< Mesh<VERT_T, IDX_T> > mesh_lods;
 
 	AABB aabb;
 
+	// recenter because I like putting all my (dev) assets into one blender file and this is a good way to load them centered
 	void recenter_xy () {
 		float3 center = aabb.center();
 		for (auto& m : mesh_lods) {
@@ -111,12 +118,17 @@ struct BuildingAsset {
 	int citizens = 10;
 
 	float3 size = 16;
-	AssetMesh mesh;
+	AssetMesh<BasicVertex> mesh;
+};
+struct CarAsset {
+	AssetMesh<BasicVertex> mesh;
 };
 
 struct Assets {
 	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(buildings); }
 	friend SERIALIZE_FROM_JSON(Assets) {
+		t.buildings = Collection<BuildingAsset>();
+
 		if (j.contains("buildings")) {
 			for (auto& build : j.at("buildings")) {
 				std::string    name     = build["name"];
@@ -126,6 +138,8 @@ struct Assets {
 				t.buildings.emplace_back(std::make_unique<BuildingAsset>(BuildingAsset{ name, type, citizens, size, prints("buildings/%s.fbx", name.c_str()).c_str() }));
 			}
 		}
+
+		t.assets_reloaded = true;
 	}
 
 	bool assets_reloaded = true;
@@ -135,6 +149,7 @@ struct Assets {
 	using Collection = std::vector< std::unique_ptr<T> >;
 
 	Collection<BuildingAsset> buildings;
+	Collection<CarAsset> cars;
 	
 	Collection<RoadLayout> road_layouts;
 	
@@ -144,6 +159,10 @@ struct Assets {
 				{ +1.8f, 3.4f, 0 },
 				{ -1.8f, 3.4f, 1 }
 			}
+		}));
+
+		cars.push_back(std::make_unique<CarAsset>(CarAsset{
+			"cars/kei0.fbx"
 		}));
 	}
 };

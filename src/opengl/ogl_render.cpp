@@ -544,400 +544,27 @@ struct OglRenderer : public Renderer {
 	
 	LOD_Func lod;
 
-	struct BuildingRenderer {
-		size_t drawn_vertices;
-		size_t drawn_indices;
+	template <typename ASSET_T>
+	struct EntityRenderer {
+		typedef typename decltype(ASSET_T().mesh)::vert_t vert_t;
+		typedef typename decltype(ASSET_T().mesh)::idx_t  idx_t;
 
-	#if 0
-	//// Normal drawcalls
-	/*
-	Normal Drawcalls:
-	Buildings NxN:  20,    500,    1000
-	cpu ms:         0.1,    40,    170
-	gpu fps:        ~144,   20,    6
-	*/
-		Shader* shad = g_shaders.compile("buildings", {{"MODE", "0"}});
-		
-		struct MeshBuf {
-			struct Lod {
-				VertexBufferI buf;
-				size_t vertex_count;
-				size_t index_count;
-			};
-			std::vector<Lod> lods;
-
-			MeshBuf (AssetMesh& mesh) {
-				for (auto& lod : mesh.mesh_lods) {
-					auto& buf = lods.emplace_back(Lod{ vertex_bufferI<Mesh::Vertex>("building"), lod.vertices.size(), lod.indices.size() });
-					buf.buf.upload(lod.vertices, lod.indices);
-				}
-			}
-		};
-		std::unordered_map<BuildingAsset*, MeshBuf> meshes;
-
-		void reload (Assets& assets) {
-			meshes.clear();
-			for (auto& asset : assets.buildings) {
-				meshes.emplace(asset.get(), asset->mesh);
-			}
-		}
-
-		void draw (OglRenderer& r, App& app) {
-			ZoneScoped;
-
-			drawn_vertices = 0;
-			drawn_indices = 0;
-
-			if (shad->prog) {
-
-				OGL_TRACE("render_buildings");
-				
-				PipelineState s;
-				s.depth_test = true;
-				s.blend_enable = false;
-				r.state.set(s);
-
-				glUseProgram(shad->prog);
-
-				r.state.bind_textures(shad, {
-					{"tex", r.textures.house_diffuse, r.textures.sampler_normal},
-				});
-
-				int i=0;
-				for (auto& instance : app.entities.buildings) {
-					shad->set_uniform("model2world", (float4x4)translate(instance->pos));
-
-					auto it = meshes.find(instance->asset);
-					assert(it != meshes.end());
-					auto& buf = it->second;
-					
-					int lod = r.lod.pick_lod(app.view, instance->pos, 32);
-					lod = min(lod, (int)buf.lods.size()-1); // don't allow obj to be not drawn due to lod
-
-					if (lod >= buf.lods.size())
-						continue;
-
-					glBindVertexArray(buf.lods[lod].buf.vao);
-					
-					glDrawElements(GL_TRIANGLES, (GLsizei)buf.lods[lod].index_count, GL_UNSIGNED_SHORT, (void*)0);
-
-					drawn_vertices += buf.lods[lod].vertex_count;
-					drawn_indices += buf.lods[lod].index_count;
-				}
-			}
-
-			ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f);
-		}
-	#elif 0
-	//// Instanced drawing (still streaming instance data)
-	/*
-	Instanced with instance streaming: 2x fps   10x cpu speedup
-	Buildings NxN:  20,    500,    1000
-	cpu ms:         0.038,  3,     18
-	gpu fps:        ~144,   40,    12
-	*/
-		Shader* shad = g_shaders.compile("buildings", {{"MODE", "1"}});
-		
-		struct BuildingInstance {
-			float3 pos;
-			float  rot;
-			
-			VERTEX_CONFIG_INSTANCED(
-				ATTRIB(FLT3, BuildingInstance, pos),
-				ATTRIB(FLT , BuildingInstance, rot),
-			)
-		};
-
-		typedef Mesh::Vertex vert_t;
-		typedef uint16_t     idx_t;
-
-		struct MeshBuf {
-			VertexBufferInstancedI buf = vertex_buffer_instacedI<Mesh::Vertex, BuildingInstance>("building");
-
-			struct Lod {
-				size_t vertex_base;
-				size_t vertex_count;
-				size_t index_base;
-				size_t index_count;
-			};
-			std::vector<Lod> lods;
-
-			MeshBuf (AssetMesh& mesh) {
-				size_t i=0, v=0;
-				for (auto& lod : mesh.mesh_lods) {
-					auto& l = lods.emplace_back();
-
-					l.vertex_base = v;
-					l.vertex_count = lod.vertices.size();
-					l.index_base = i;
-					l.index_count = lod.indices.size();
-
-					v += l.vertex_count;
-					i += l.index_count;
-				}
-				
-				glBindBuffer(GL_ARRAY_BUFFER, buf.vbo);
-				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buf.ebo);
-
-				glBufferData(GL_ARRAY_BUFFER,         v * sizeof(vert_t), nullptr, GL_STATIC_DRAW);
-				glBufferData(GL_ELEMENT_ARRAY_BUFFER, i * sizeof(idx_t),  nullptr, GL_STATIC_DRAW);
-				
-				for (size_t i=0; i<lods.size(); ++i) {
-					auto& asset_lod = mesh.mesh_lods[i];
-					auto& lod       = lods[i];
-					glBufferSubData(GL_ARRAY_BUFFER,         lod.vertex_base * sizeof(vert_t), lod.vertex_count * sizeof(vert_t), asset_lod.vertices.data());
-					glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, lod.index_base * sizeof(idx_t),   lod.index_count * sizeof(idx_t),   asset_lod.indices.data());
-				}
-
-				glBindBuffer(GL_ARRAY_BUFFER, 0);
-				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-			}
-		};
-		std::unordered_map<BuildingAsset*, MeshBuf> asset_meshes;
-
-		void reload (Assets& assets) {
-			for (auto& asset : assets.buildings) {
-				asset_meshes.emplace(asset.get(), asset->mesh);
-			}
-		}
-
-		void draw (OglRenderer& r, App& app) {
-			ZoneScoped;
-
-			if (shad->prog) {
-
-				OGL_TRACE("render_buildings");
-				
-				PipelineState s;
-				s.depth_test = true;
-				s.blend_enable = false;
-				r.state.set(s);
-
-				glUseProgram(shad->prog);
-
-				r.state.bind_textures(shad, {
-					{"tex", r.textures.house_diffuse, r.textures.sampler_normal},
-				});
-
-				struct Instances {
-					std::vector< std::vector<BuildingInstance> > lod_instances;
-				};
-				std::unordered_map<BuildingAsset*, Instances> asset_instances;
-
-				asset_instances.reserve(asset_meshes.size());
-				for (auto& asset : app.assets.buildings) {
-					auto& ins = asset_instances.emplace(asset.get(), Instances{}).first->second;
-					ins.lod_instances.resize(asset->mesh.mesh_lods.size());
-				}
-
-				for (auto& entity : app.entities.buildings) {
-					auto& instances = asset_instances.find(entity->asset)->second;
-					int lods = (int)instances.lod_instances.size();
-
-					int lod = r.lod.pick_lod(app.view, entity->pos, 32);
-					lod = min(lod, lods-1); // don't allow obj to be not drawn due to lod
-
-					if (lod < lods) {
-						auto& instance = instances.lod_instances[lod].emplace_back();
-						instance.pos = entity->pos;
-						instance.rot = 0;
-					}
-				}
-
-				drawn_vertices = 0;
-				drawn_indices = 0;
-				
-				for (auto& kv : asset_instances) {
-					auto* asset = kv.first;
-					auto& mesh_buf = asset_meshes.find(asset)->second;
-
-					for (int lod=0; lod<(int)kv.second.lod_instances.size(); ++lod) {
-						auto& mesh_lod = mesh_buf.lods[lod];
-						auto& instances = kv.second.lod_instances[lod];
-
-						mesh_buf.buf.stream_instances(instances);
-
-						glBindVertexArray(mesh_buf.buf.vao);
-						glDrawElementsInstancedBaseVertex(GL_TRIANGLES, (GLsizei)mesh_lod.index_count, GL_UNSIGNED_SHORT, (void*)(mesh_lod.index_base * sizeof(idx_t)), (GLsizei)instances.size(), (GLint)(mesh_lod.vertex_base));
-
-						drawn_vertices += mesh_lod.vertex_count * instances.size();
-						drawn_indices  += mesh_lod.index_count  * instances.size();
-					}
-				}
-
-				ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f);
-			}
-		}
-	#elif 0
-	//// glMultiDrawElementsIndirect drawing (cpu sided indirect buffer generation)
-	/*
-	Instanced with instance streaming: 2x fps   10x cpu speedup
-	Buildings NxN:  20,    500,    1000
-	cpu ms:         0.038,  3,     18
-	gpu fps:        ~144,   40,    12
-	*/
-		Shader* shad = g_shaders.compile("buildings", {{"MODE", "1"}});
-		
-		struct BuildingInstance {
-			float3 pos;
-			float  rot;
-			
-			VERTEX_CONFIG_INSTANCED(
-				ATTRIB(FLT3, BuildingInstance, pos),
-				ATTRIB(FLT , BuildingInstance, rot),
-			)
-		};
-
-		typedef Mesh::Vertex vert_t;
-		typedef uint16_t     idx_t;
-
-		// All meshes/lods vbo (indexed) GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER
-		// All entities instance data GL_ARRAY_BUFFER
-		VertexBufferInstancedI vbo = vertex_buffer_instacedI<Mesh::Vertex, BuildingInstance>("building");
-
-		// All entities lodded draw commands
-		Vbo indirect_vbo = {"DebugDraw.indirect_draw"};
-
-		struct Lod {
-			uint32_t vertex_base;
-			uint32_t vertex_count;
-			uint32_t index_base;
-			uint32_t index_count;
-		};
-		std::unordered_map<BuildingAsset*, std::vector<Lod>> mesh_lods;
-
-		void reload (Assets& assets) {
-			glBindBuffer(GL_ARRAY_BUFFER, vbo.vbo);
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo.ebo);
-
-			mesh_lods.clear();
-			
-			uint32_t indices=0, vertices=0;
-			for (auto& asset : assets.buildings) {
-				auto& lods = mesh_lods.emplace(asset.get(), std::vector<Lod>{}).first->second;
-
-				for (auto& lod : asset->mesh.mesh_lods) {
-					auto& l = lods.emplace_back();
-
-					l.vertex_base  = (uint32_t)vertices;
-					l.vertex_count = (uint32_t)lod.vertices.size();
-					l.index_base  = (uint32_t)indices;
-					l.index_count = (uint32_t)lod.indices.size();
-					
-					vertices += l.vertex_count;
-					indices += l.index_count;
-				}
-			}
-			
-			glBufferData(GL_ARRAY_BUFFER,         vertices * sizeof(vert_t), nullptr, GL_STATIC_DRAW);
-			glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices  * sizeof(idx_t),  nullptr, GL_STATIC_DRAW);
-			
-			for (auto& asset : assets.buildings) {
-				auto& lods = mesh_lods[asset.get()];
-
-				for (size_t i=0; i<lods.size(); ++i) {
-					auto& asset_lod = asset->mesh.mesh_lods[i];
-					auto& lod       = lods[i];
-					glBufferSubData(GL_ARRAY_BUFFER,         lod.vertex_base * sizeof(vert_t), lod.vertex_count * sizeof(vert_t), asset_lod.vertices.data());
-					glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, lod.index_base * sizeof(idx_t),   lod.index_count * sizeof(idx_t),   asset_lod.indices.data());
-				}
-			}
-
-			glBindBuffer(GL_ARRAY_BUFFER, 0);
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-		}
-
-		void draw (OglRenderer& r, App& app) {
-			ZoneScoped;
-
-			if (shad->prog) {
-
-				OGL_TRACE("render_buildings");
-				
-				PipelineState s;
-				s.depth_test = true;
-				s.blend_enable = false;
-				r.state.set(s);
-
-				glUseProgram(shad->prog);
-
-				r.state.bind_textures(shad, {
-					{"tex", r.textures.house_diffuse, r.textures.sampler_normal},
-				});
-
-				std::vector<BuildingInstance> instances;
-				std::vector<glDrawElementsIndirectCommand> cmds;
-
-				instances.resize(app.entities.buildings.size());
-				cmds.resize(app.entities.buildings.size());
-
-				drawn_vertices = 0;
-				drawn_indices = 0;
-
-				for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
-					auto& entity = app.entities.buildings[i];
-
-					auto& lods = mesh_lods.find(entity->asset)->second;
-					int lod_count = (int)lods.size();
-
-					int lod = r.lod.pick_lod(app.view, entity->pos, 32);
-					lod = min(lod, lod_count-1); // don't allow obj to be not drawn due to lod
-
-					if (lod < lod_count) {
-						instances[i].pos = entity->pos;
-						instances[i].rot = 0;
-
-						cmds[i].count         = lods[lod].index_count;
-						cmds[i].instanceCount = 1;
-						cmds[i].firstIndex    = lods[lod].index_base;
-						cmds[i].baseVertex    = lods[lod].vertex_base;
-						cmds[i].baseInstance  = i;
-
-						drawn_vertices += lods[lod].vertex_count;
-						drawn_indices  += lods[lod].index_count;
-					}
-				}
-
-				vbo.stream_instances(instances);
-				stream_buffer(GL_ARRAY_BUFFER, indirect_vbo, (GLsizeiptr)(cmds.size() * sizeof(glDrawElementsIndirectCommand)), cmds.data(), GL_STREAM_DRAW);
-				
-				glBindVertexArray(vbo.vao);
-				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_vbo);
-
-				glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, (GLsizei)cmds.size(), 0);
-				
-				glBindVertexArray(0);
-				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
-
-
-				ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f);
-			}
-		}
-	#else
-	//// glMultiDrawElementsIndirect drawing (cpu sided indirect buffer generation)
-	/*
-	Instanced with instance streaming: 2x fps   10x cpu speedup
-	Buildings NxN:  20,    500,    1000
-	cpu ms:         0.038,  3,     18
-	gpu fps:        ~144,   40,    12
-	*/
 		static constexpr uint32_t COMPUTE_GROUPSZ = 512;
-		
-		Shader* shad = g_shaders.compile("buildings", {{"MODE", "2"}});
+
+		Shader* shad = g_shaders.compile("buildings");
 		Shader* shad_lod_cull = g_shaders.compile("lod_cull", { {"GROUPSZ", prints("%d", COMPUTE_GROUPSZ)} }, { { shader::COMPUTE_SHADER } });
 
-		typedef Mesh::Vertex vert_t;
-		typedef uint16_t     idx_t;
-		
 		struct MeshInstance {
 			int    mesh_id;
 			float3 pos;
 			float  rot;
+			float3 col; // Just for debug?
 			
 			VERTEX_CONFIG_INSTANCED(
 				ATTRIB(INT , MeshInstance, mesh_id),
 				ATTRIB(FLT3, MeshInstance, pos),
 				ATTRIB(FLT , MeshInstance, rot),
+				ATTRIB(FLT3, MeshInstance, col),
 			)
 		};
 		struct MeshInfo {
@@ -953,7 +580,7 @@ struct OglRenderer : public Renderer {
 
 		// All meshes/lods vbo (indexed) GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER
 		// All entities instance data GL_ARRAY_BUFFER
-		VertexBufferInstancedI vbo = vertex_buffer_instacedI<Mesh::Vertex, MeshInstance>("meshes");
+		VertexBufferInstancedI vbo = vertex_buffer_instacedI<vert_t, MeshInstance>("meshes");
 		
 		Ssbo ssbo_mesh_info = {"mesh_info"};
 		Ssbo ssbo_mesh_lod_info = {"mesh_lod_info"};
@@ -961,9 +588,11 @@ struct OglRenderer : public Renderer {
 		// All entities lodded draw commands
 		Vbo indirect_vbo = {"DebugDraw.indirect_draw"};
 
-		std::unordered_map<BuildingAsset*, int> asset2mesh_id;
-
-		BuildingRenderer () {
+		std::unordered_map<ASSET_T*, int> asset2mesh_id;
+		
+		uint32_t entities;
+		
+		EntityRenderer () {
 			//int3 sz = -1;
 			//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &sz.x);
 			//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &sz.y);
@@ -975,7 +604,7 @@ struct OglRenderer : public Renderer {
 			//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 2, &cnt.z);
 		}
 
-		void reload (Assets& assets) {
+		void upload_meshes (Assets::Collection<ASSET_T> const& assets) {
 			std::vector<MeshInfo> mesh_infos;
 			std::vector<MeshLodInfo> mesh_lod_infos;
 
@@ -985,7 +614,7 @@ struct OglRenderer : public Renderer {
 			uint32_t indices=0, vertices=0;
 			uint32_t mesh_id=0;
 			uint32_t mesh_lod_id=0;
-			for (auto& asset : assets.buildings) {
+			for (auto& asset : assets) {
 				asset2mesh_id.emplace(asset.get(), mesh_id++);
 
 				auto& info = mesh_infos.emplace_back();
@@ -1011,7 +640,7 @@ struct OglRenderer : public Renderer {
 			glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices  * sizeof(idx_t),  nullptr, GL_STATIC_DRAW);
 			
 			mesh_id=0;
-			for (auto& asset : assets.buildings) {
+			for (auto& asset : assets) {
 				for (uint32_t i=0; i<asset->mesh.mesh_lods.size(); ++i) {
 					auto& asset_lod = asset->mesh.mesh_lods[i];
 					auto& lod = mesh_lod_infos[mesh_id++];
@@ -1026,35 +655,23 @@ struct OglRenderer : public Renderer {
 
 			upload_buffer(GL_SHADER_STORAGE_BUFFER, ssbo_mesh_info, sizeof(mesh_infos[0]) * mesh_infos.size(), mesh_infos.data(), GL_STATIC_DRAW);
 			upload_buffer(GL_SHADER_STORAGE_BUFFER, ssbo_mesh_lod_info, sizeof(mesh_lod_infos[0]) * mesh_lod_infos.size(), mesh_lod_infos.data(), GL_STATIC_DRAW);
-
 		}
 
-		void draw (OglRenderer& r, App& app) {
+		template <typename FUNC>
+		void update_instances (FUNC push_instances) {
 			ZoneScoped;
-			OGL_TRACE("render_buildings");
+			OGL_TRACE("update instances");
 
-			if (app.entities.buildings_changed) {
-				std::vector<MeshInstance> instances;
-				instances.resize(app.entities.buildings.size());
+			auto instances = push_instances();
+			vbo.stream_instances(instances);
 
-				drawn_vertices = 0;
-				drawn_indices = 0;
+			entities = (uint32_t)instances.size();
+		}
 
-				for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
-					auto& entity = app.entities.buildings[i];
+		void draw (OglRenderer& r, Texture2D& tex) {
+			ZoneScoped;
+			OGL_TRACE("draw entities");
 
-					//instances[i].mesh_id = asset2mesh_id[entity->asset];
-					//instances[i].pos = entity->pos;
-					//instances[i].rot = 0;
-					instances[i].mesh_id = asset2mesh_id[entity->asset];
-					instances[i].pos = entity->pos;
-					instances[i].rot = 0;
-				}
-
-				vbo.stream_instances(instances);
-			}
-		
-			uint32_t entities = (uint32_t)app.entities.buildings.size();
 			{
 				OGL_TRACE("lod_cull compute");
 				
@@ -1095,7 +712,7 @@ struct OglRenderer : public Renderer {
 				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_vbo);
 
 				r.state.bind_textures(shad, {
-					{"tex", r.textures.house_diffuse, r.textures.sampler_normal},
+					{"tex", tex, r.textures.sampler_normal},
 				});
 
 				glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, entities, 0);
@@ -1104,12 +721,12 @@ struct OglRenderer : public Renderer {
 				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 			}
 
-			ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f); // TODO: ????? How to get this info?
-			
+			//ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f); // TODO: ????? How to get this info?
 		}
-	#endif
 	};
-	BuildingRenderer building_renderer;
+
+	EntityRenderer<BuildingAsset> building_renderer;
+	EntityRenderer<CarAsset> car_renderer;
 
 	struct Textures {
 		//Texture2D clouds = load_texture<srgba8>("clouds", "textures/clouds.png");
@@ -1120,6 +737,7 @@ struct OglRenderer : public Renderer {
 		Sampler sampler_normal = sampler("sampler_normal",    FILTER_MIPMAPPED, GL_REPEAT, true);
 
 		Texture2D house_diffuse = load_texture<srgb8>("house_diffuse", "buildings/house.png");
+		Texture2D car_diffuse = load_texture<srgb8>("car_diffuse", "cars/car.png");
 
 		template <typename T>
 		static auto load_texture (std::string_view gl_label, const char* filepath) {
@@ -1142,10 +760,46 @@ struct OglRenderer : public Renderer {
 		ZoneScoped;
 
 		if (app.assets.assets_reloaded) {
-			building_renderer.reload(app.assets);
+			building_renderer.upload_meshes(app.assets.buildings);
+			car_renderer.upload_meshes(app.assets.cars);
 		}
 
 		network_renderer.update(app.net);
+
+		if (app.entities.buildings_changed) {
+			building_renderer.update_instances([&] () {
+				std::vector<decltype(building_renderer)::MeshInstance> instances;
+				instances.resize(app.entities.buildings.size());
+
+				for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
+					auto& entity = app.entities.buildings[i];
+
+					instances[i].mesh_id = building_renderer.asset2mesh_id[entity->asset];
+					instances[i].pos = entity->pos;
+					instances[i].rot = 0;
+					instances[i].col = 1;
+				}
+
+				return instances;
+			});
+		}
+		{
+			car_renderer.update_instances([&] () {
+				std::vector<decltype(car_renderer)::MeshInstance> instances;
+				instances.resize(app.entities.citizens.size());
+
+				for (uint32_t i=0; i<(uint32_t)app.entities.citizens.size(); ++i) {
+					auto& entity = app.entities.citizens[i];
+
+					instances[i].mesh_id = car_renderer.asset2mesh_id[entity->asset];
+					instances[i].pos = entity->_pos;
+					instances[i].rot = entity->_rot;
+					instances[i].col = entity->col;
+				}
+
+				return instances;
+			});
+		}
 
 		{
 			OGL_TRACE("setup");
@@ -1182,7 +836,8 @@ struct OglRenderer : public Renderer {
 
 			terrain_renderer.render_terrain(app.view, *this);
 		
-			building_renderer.draw(*this, app);
+			building_renderer.draw(*this, textures.house_diffuse);
+			car_renderer.draw(*this, textures.car_diffuse);
 
 			network_renderer.render(state);
 

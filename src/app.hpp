@@ -303,7 +303,7 @@ struct Test {
 			float ang = speed / r;
 			
 			float2 new_dir =  rotate2(ang) * dir;
-			float2 rot     = (rotate2(ang) * norm) - norm * r;
+			float2 rot     = (rotate2(ang) * center) - center;
 			float3 pos = prev - float3(rot, 0);
 
 			renderer->dbgdraw.line(prev, pos, lrgba(1,0,0,1));

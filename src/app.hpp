@@ -266,6 +266,49 @@ struct Entities {
 	bool buildings_changed = true;
 };
 
+struct Test {
+
+	float r = 50;
+	float dist = 200;
+	float speed = 1;
+
+	void update (Renderer* renderer) {
+		if (!ImGui::TreeNodeEx("test", ImGuiTreeNodeFlags_DefaultOpen)) return;
+
+		ImGui::DragFloat("r", &r, 0.1f);
+		ImGui::DragFloat("dist", &dist, 0.1f);
+		ImGui::DragFloat("speed", &speed, 0.1f);
+		speed = max(speed, 0.1f);
+
+		float t = 0;
+
+		float3 prev = 0;
+		float2 dir = float2(1,0);
+
+		while (t < dist) {
+
+			float2 center = rotate90(-dir) * r;
+
+			// r*2*pi (full circ) * deg / 360 = arclen
+			// -> deg = arclen / (360 * r*2*pi (full circ)) -> 2pi == 360 deg in radiants
+			// -> deg = arclen / r
+			float deg = speed / r;
+			
+			float2 new_dir = rotate2(deg) * dir;
+			float2 rot = rotate2(deg) * center;
+			float3 pos = prev - float3(rot, 0);
+
+			renderer->dbgdraw.line(prev, pos, lrgba(1,0,0,1));
+
+			t += speed;
+			prev = pos;
+			dir = new_dir;
+		}
+
+		ImGui::TreePop();
+	}
+};
+
 struct App : public Engine {
 
 	App (): Engine{"Kiss-Framework Project"} {}
@@ -563,15 +606,17 @@ struct App : public Engine {
 		}
 	}
 
+	Test test;
+
 	void update () {
 		ZoneScoped;
+
+		test.update(renderer.get());
 
 		spawn();
 
 		if (!day_pause) day_t = wrap(day_t + day_speed * input.dt, 1.0f);
 		sun_dir = rotate3_Z(sun_azim) * rotate3_X(sun_elev) * rotate3_Y(day_t * deg(360)) * float3(0,0,-1);
-
-		renderer->dbgdraw.clear();
 
 		view = cam.update(input, (float2)input.window_size);
 
@@ -605,6 +650,7 @@ struct App : public Engine {
 		ZoneScoped;
 		
 		renderer->begin(*this);
+		renderer->dbgdraw.clear();
 
 		update();
 

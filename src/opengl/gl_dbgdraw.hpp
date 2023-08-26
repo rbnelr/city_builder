@@ -9,7 +9,7 @@ struct glDebugDraw {
 	bool wireframe_no_cull  = false;
 	bool wireframe_no_blend = true;
 
-	float line_width = 1;
+	float line_width = 2;
 	
 	Shader* shad_lines = g_shaders.compile("dbg_lines");
 	Shader* shad_tris  = g_shaders.compile("dbg_tris");

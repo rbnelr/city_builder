@@ -268,16 +268,20 @@ struct Entities {
 
 struct Test {
 
-	float r = 50;
+	float init_r = 50;
+	float final_r = 50;
 	float dist = 200;
 	float speed = 1;
+	float dbg_t = 0;
 
 	void update (Renderer* renderer) {
 		if (!ImGui::TreeNodeEx("test", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
-		ImGui::DragFloat("r", &r, 0.1f);
+		ImGui::DragFloat("init_r", &init_r, 0.1f);
+		ImGui::DragFloat("final_r", &final_r, 0.1f);
 		ImGui::DragFloat("dist", &dist, 0.1f);
 		ImGui::DragFloat("speed", &speed, 0.1f);
+		ImGui::SliderFloat("dbg_t", &dbg_t, 0, 1);
 		speed = max(speed, 0.1f);
 
 		float t = 0;
@@ -285,20 +289,31 @@ struct Test {
 		float3 prev = 0;
 		float2 dir = float2(1,0);
 
-		while (t < dist) {
+		bool dbg = false;
 
-			float2 center = rotate90(-dir) * r;
+		while (t < dist) {
+			float r = map(t, 0, dist, init_r, final_r);
+
+			float2 center = rotate90(dir) * r;
+			float2 norm = rotate90(dir); // direction to center
 
 			// r*2*pi (full circ) * deg / 360 = arclen
 			// -> deg = arclen / (360 * r*2*pi (full circ)) -> 2pi == 360 deg in radiants
 			// -> deg = arclen / r
-			float deg = speed / r;
+			float ang = speed / r;
 			
-			float2 new_dir = rotate2(deg) * dir;
-			float2 rot = rotate2(deg) * center;
+			float2 new_dir =  rotate2(ang) * dir;
+			float2 rot     = (rotate2(ang) * norm) - norm * r;
 			float3 pos = prev - float3(rot, 0);
 
 			renderer->dbgdraw.line(prev, pos, lrgba(1,0,0,1));
+
+			if (t >= dbg_t*dist && !dbg) {
+				renderer->dbgdraw.point(prev, 1, lrgba(1,0.5f,0,0.5f));
+				renderer->dbgdraw.wire_circle(prev + float3(center, 0), r, lrgba(1,0.5f,0,0.5f), 128);
+
+				dbg = true;
+			}
 
 			t += speed;
 			prev = pos;

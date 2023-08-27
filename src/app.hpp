@@ -266,59 +266,80 @@ struct Entities {
 	bool buildings_changed = true;
 };
 
+inline float2 bezier3 (float t, float2 a, float2 b, float2 c) {
+	float2 ab = lerp(a, b, t);
+	float2 bc = lerp(b, c, t);
+
+	return lerp(ab, bc, t);
+	// a*(1 -2*t +t2) + b*(2*t -2*t2) + c*(t2)
+}
+_NOINLINE inline float2 bezier4 (float t, float2 a, float2 b, float2 c, float2 d) {
+#if 0
+	float2 ab = lerp(a, b, t);
+	float2 bc = lerp(b, c, t);
+	float2 cd = lerp(c, d, t);
+
+	float2 abc = lerp(ab, bc, t);
+	float2 bcd = lerp(bc, cd, t);
+
+	return lerp(abc, bcd, t);
+#else
+	float t2 = t*t;
+	float t3 = t2*t;
+
+	float _3t1 = 3.0f*t;
+	float _3t2 = 3.0f*t2;
+	float _6t2 = 6.0f*t2;
+	float _3t3 = 3.0f*t3;
+
+	float2 j = a*(1 -_3t1 +_3t2   -t3);
+	float2 k = b*(   _3t1 -_6t2 +_3t3);
+	float2 l = c*(         _3t2 -_3t3);
+	float2 m = d*(                 t3);
+	return (j+k)+(l+m);
+#endif
+}
+
 struct Test {
 
-	float init_r = 50;
-	float final_r = 50;
-	float dist = 200;
-	float speed = 1;
+	float2 a = float2(0,0);
+	float2 b = float2(50,0);
+	float2 c = float2(50,50);
+	float2 d = float2(0,50);
+	int count = 50;
+
 	float dbg_t = 0;
 
 	void update (Renderer* renderer) {
 		if (!ImGui::TreeNodeEx("test", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
-		ImGui::DragFloat("init_r", &init_r, 0.1f);
-		ImGui::DragFloat("final_r", &final_r, 0.1f);
-		ImGui::DragFloat("dist", &dist, 0.1f);
-		ImGui::DragFloat("speed", &speed, 0.1f);
+		ImGui::DragFloat2("a", &a.x, 0.1f);
+		ImGui::DragFloat2("b", &b.x, 0.1f);
+		ImGui::DragFloat2("c", &c.x, 0.1f);
+		ImGui::DragFloat2("d", &d.x, 0.1f);
+		ImGui::DragInt("count", &count, 1);
 		ImGui::SliderFloat("dbg_t", &dbg_t, 0, 1);
-		speed = max(speed, 0.1f);
 
-		float t = 0;
+		float2 prev3 = a;
+		float2 prev4 = a;
 
-		float3 prev = 0;
-		float2 dir = float2(1,0);
-
-		bool dbg = false;
-
-		while (t < dist) {
-			float r = map(t, 0, dist, init_r, final_r);
-
-			float2 center = rotate90(dir) * r;
-			float2 norm = rotate90(dir); // direction to center
-
-			// r*2*pi (full circ) * deg / 360 = arclen
-			// -> deg = arclen / (360 * r*2*pi (full circ)) -> 2pi == 360 deg in radiants
-			// -> deg = arclen / r
-			float ang = speed / r;
+		for (int i=0; i<count; ++i) {
+			float t = (float)i / (float)(count-1);
 			
-			float2 new_dir =  rotate2(ang) * dir;
-			float2 rot     = (rotate2(ang) * center) - center;
-			float3 pos = prev - float3(rot, 0);
+			float2 pos3 = bezier3(t, a,b,d);
+			float2 pos4 = bezier4(t, a,b,c,d);
 
-			renderer->dbgdraw.line(prev, pos, lrgba(1,0,0,1));
+			renderer->dbgdraw.line(float3(prev3,0), float3(pos3,0), lrgba(1,0,0,1));
+			renderer->dbgdraw.line(float3(prev4,0), float3(pos4,0), lrgba(1,0,1,1));
 
-			if (t >= dbg_t*dist && !dbg) {
-				renderer->dbgdraw.point(prev, 1, lrgba(1,0.5f,0,0.5f));
-				renderer->dbgdraw.wire_circle(prev + float3(center, 0), r, lrgba(1,0.5f,0,0.5f), 128);
-
-				dbg = true;
-			}
-
-			t += speed;
-			prev = pos;
-			dir = new_dir;
+			prev3 = pos3;
+			prev4 = pos4;
 		}
+
+		renderer->dbgdraw.wire_circle(float3(a,0), 1, lrgba(1,1,0,1));
+		renderer->dbgdraw.wire_circle(float3(b,0), 1, lrgba(1,1,0,1));
+		renderer->dbgdraw.wire_circle(float3(c,0), 1, lrgba(1,1,0,1));
+		renderer->dbgdraw.wire_circle(float3(d,0), 1, lrgba(1,1,0,1));
 
 		ImGui::TreePop();
 	}

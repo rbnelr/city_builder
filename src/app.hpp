@@ -266,41 +266,91 @@ struct Entities {
 	bool buildings_changed = true;
 };
 
-inline float2 bezier3 (float t, float2 a, float2 b, float2 c) {
-	float2 ab = lerp(a, b, t);
-	float2 bc = lerp(b, c, t);
-
-	return lerp(ab, bc, t);
-	// a*(1 -2*t +t2) + b*(2*t -2*t2) + c*(t2)
-}
-_NOINLINE inline float2 bezier4 (float t, float2 a, float2 b, float2 c, float2 d) {
-#if 0
-	float2 ab = lerp(a, b, t);
-	float2 bc = lerp(b, c, t);
-	float2 cd = lerp(c, d, t);
-
-	float2 abc = lerp(ab, bc, t);
-	float2 bcd = lerp(bc, cd, t);
-
-	return lerp(abc, bcd, t);
-#else
-	float t2 = t*t;
-	float t3 = t2*t;
-
-	float _3t1 = 3.0f*t;
-	float _3t2 = 3.0f*t2;
-	float _6t2 = 6.0f*t2;
-	float _3t3 = 3.0f*t3;
-
-	float2 j = a*(1 -_3t1 +_3t2   -t3);
-	float2 k = b*(   _3t1 -_6t2 +_3t3);
-	float2 l = c*(         _3t2 -_3t3);
-	float2 m = d*(                 t3);
-	return (j+k)+(l+m);
-#endif
-}
-
 struct Test {
+	
+	struct BezierRes {
+		float2 pos;
+		float2 vel;
+		float2 accel;
+		float  curv;
+	};
+	inline BezierRes bezier3 (float t, float2 a, float2 b, float2 c) {
+		//float2 ab = lerp(a, b, t);
+		//float2 bc = lerp(b, c, t);
+		//return lerp(ab, bc, t);
+		
+		//float t2 = t*t;
+		//
+		//float _2t1 = 2.0f*t;
+		//float _2t2 = 2.0f*t2;
+		//
+		//float ca = 1.0f -_2t1   +t2;
+		//float cb =       _2t1 -_2t2;
+		//float cc =               t2;
+		//
+		//return ca*a + cb*b + cc*c;
+
+		float2 c0 = a;
+		float2 c1 = 2 * (b - a);
+		float2 c2 = a - 2*b + c;
+		
+		float t2 = t*t;
+
+		float2 value = c2*t2    + c1*t + c0;
+		float2 deriv = c2*(t*2) + c1;
+		float2 accel = c2*2;
+
+		//float ang = atan2(deriv.y, deriv.x);
+
+		// curvature: https://math.stackexchange.com/questions/3276910/cubic-b%c3%a9zier-radius-of-curvature-calculation?rq=1
+		// wolframalpha: arctan(y/x) -> (x*dy - dx*y) / (x*x + y*y)
+		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
+		float curv = (accel.x*deriv.y - deriv.x*accel.y) / (denom * sqrt(denom)); // denom^(3/2)
+
+		return { value, deriv, accel, curv };
+	}
+	inline BezierRes bezier4 (float t, float2 a, float2 b, float2 c, float2 d) {
+		//float2 ab = lerp(a, b, t);
+		//float2 bc = lerp(b, c, t);
+		//float2 cd = lerp(c, d, t);
+		//
+		//float2 abc = lerp(ab, bc, t);
+		//float2 bcd = lerp(bc, cd, t);
+		//
+		//return lerp(abc, bcd, t);
+
+		//float t2 = t*t;
+		//float t3 = t2*t;
+		//
+		//float _3t1 = 3.0f*t;
+		//float _3t2 = 3.0f*t2;
+		//float _6t2 = 6.0f*t2;
+		//float _3t3 = 3.0f*t3;
+		//
+		//float ca = 1.0f -_3t1 +_3t2   -t3;
+		//float cb =       _3t1 -_6t2 +_3t3;
+		//float cc =             _3t2 -_3t3;
+		//float cd =                     t3;
+		//
+		//return (ca*a + cb*b) + (cc*c + cd*d);
+		
+		float2 c0 = a;
+		float2 c1 = 3 * (b - a);
+		float2 c2 = 3 * (a + c) - 6*b;
+		float2 c3 = 3 * (b - c) - a + d;
+
+		float t2 = t*t;
+		float t3 = t2*t;
+		
+		float2 value = c3*t3     + c2*t2    + c1*t + c0;
+		float2 deriv = c3*(t2*3) + c2*(t*2) + c1;
+		float2 accel = c3*(t*6)  + c2*2;
+		
+		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
+		float curv = (accel.x*deriv.y - deriv.x*accel.y) / (denom * sqrt(denom)); // denom^(3/2)
+		
+		return { value, deriv, accel, curv };
+	}
 
 	float2 a = float2(0,0);
 	float2 b = float2(50,0);
@@ -308,38 +358,84 @@ struct Test {
 	float2 d = float2(0,50);
 	int count = 50;
 
-	float dbg_t = 0;
+	float speed = 0.1f;
+	float cur_k = 0;
 
-	void update (Renderer* renderer) {
+	float2 prev_pos3 = 0;
+
+	void update (Renderer* renderer, Input& I) {
 		if (!ImGui::TreeNodeEx("test", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
 		ImGui::DragFloat2("a", &a.x, 0.1f);
 		ImGui::DragFloat2("b", &b.x, 0.1f);
 		ImGui::DragFloat2("c", &c.x, 0.1f);
 		ImGui::DragFloat2("d", &d.x, 0.1f);
-		ImGui::DragInt("count", &count, 1);
-		ImGui::SliderFloat("dbg_t", &dbg_t, 0, 1);
+		ImGui::DragInt("count", &count, 0.1f);
+
+		ImGui::DragFloat("speed", &speed, 0.1f);
+		ImGui::SliderFloat("cur_k", &cur_k, 0, 1);
 
 		float2 prev3 = a;
 		float2 prev4 = a;
 
+		// numerical length calc seemingly always within a few % (<1% often) even with just 10 segments!
+		// I don't think feasable analytical solutions exist, at least for bezier4
+		// bezier3 contained wierd trig functions already
+		// -> just cache the length for roads & intersections?
+		float len3 = 0;
+		float len4 = 0;
+
 		for (int i=0; i<count; ++i) {
-			float t = (float)i / (float)(count-1);
+			float t = (float)(i+1) / (float)count;
 			
-			float2 pos3 = bezier3(t, a,b,d);
-			float2 pos4 = bezier4(t, a,b,c,d);
+			auto val3 = bezier3(t, a,b,d);
+			auto val4 = bezier4(t, a,b,c,d);
 
-			renderer->dbgdraw.line(float3(prev3,0), float3(pos3,0), lrgba(1,0,0,1));
-			renderer->dbgdraw.line(float3(prev4,0), float3(pos4,0), lrgba(1,0,1,1));
+			renderer->dbgdraw.line(float3(prev3,0), float3(val3.pos,0), lrgba(1,0,0,1));
+			renderer->dbgdraw.line(float3(prev4,0), float3(val4.pos,0), lrgba(1,0,1,1));
 
-			prev3 = pos3;
-			prev4 = pos4;
+			len3 += distance(prev3, val3.pos);
+			len4 += distance(prev4, val4.pos);
+
+			prev3 = val3.pos;
+			prev4 = val4.pos;
 		}
 
 		renderer->dbgdraw.wire_circle(float3(a,0), 1, lrgba(1,1,0,1));
-		renderer->dbgdraw.wire_circle(float3(b,0), 1, lrgba(1,1,0,1));
-		renderer->dbgdraw.wire_circle(float3(c,0), 1, lrgba(1,1,0,1));
+		renderer->dbgdraw.wire_circle(float3(b,0), 1, lrgba(1,0.7f,0.3f,1));
+		renderer->dbgdraw.wire_circle(float3(c,0), 1, lrgba(1,0.7f,0.3f,1));
 		renderer->dbgdraw.wire_circle(float3(d,0), 1, lrgba(1,1,0,1));
+
+		ImGui::Text("len3: %.2f", len3);
+		ImGui::Text("len4: %.2f", len4);
+
+		{
+			auto val3 = bezier3(cur_k, a,b,d);
+			auto val4 = bezier4(cur_k, a,b,c,d);
+
+			// normalized 'velocity' per bezier k
+			//float2 approx_vel3 = (val3.pos - prev_pos3) / (I.dt * speed);
+
+			auto draw = [&] (BezierRes& val, lrgba col) {
+				renderer->dbgdraw.wire_circle(float3(val.pos,0), 1, col);
+				
+				renderer->dbgdraw.vector(float3(val.pos,0), float3(val.vel,0) * 0.1f, col);
+				//renderer->dbgdraw.vector(float3(val3.pos,0), float3(val3.accel,0) * 0.1f, lrgba(1,0,1,1));
+				renderer->dbgdraw.vector(float3(val.pos,0), float3(0,0,abs(val.curv))*20, col);
+
+				float turn_radius = 1.0f / val.curv;
+				float2 dir = normalizesafe(val.vel);
+				float2 circ_pos = val.pos + rotate90(-dir) * turn_radius;
+				renderer->dbgdraw.wire_circle(float3(circ_pos,0), turn_radius, col, 64);
+			};
+			draw(val3, lrgba(0,1,0,1));
+			draw(val4, lrgba(0,1,1,1));
+
+			cur_k += speed * I.dt;
+			cur_k = fmodf(cur_k, 1.0f);
+
+			//prev_pos3 = val3.pos;
+		}
 
 		ImGui::TreePop();
 	}
@@ -647,7 +743,7 @@ struct App : public Engine {
 	void update () {
 		ZoneScoped;
 
-		test.update(renderer.get());
+		test.update(renderer.get(), input);
 
 		spawn();
 

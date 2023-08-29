@@ -5,6 +5,114 @@
 #include "assets.hpp"
 
 #include <queue>
+#include <unordered_set>
+
+
+struct BezierRes {
+	float2 pos;
+	float2 vel;   // velocity (over bezier t)
+	float  curv;  // curvature (delta angle over dist along curve)
+};
+inline BezierRes bezier3 (float t, float2 a, float2 b, float2 c) {
+	//float2 ab = lerp(a, b, t);
+	//float2 bc = lerp(b, c, t);
+	//return lerp(ab, bc, t);
+		
+	//float t2 = t*t;
+	//
+	//float _2t1 = 2.0f*t;
+	//float _2t2 = 2.0f*t2;
+	//
+	//float ca = 1.0f -_2t1   +t2;
+	//float cb =       _2t1 -_2t2;
+	//float cc =               t2;
+	//
+	//return ca*a + cb*b + cc*c;
+
+	float2 c0 = a;           // a
+	float2 c1 = 2 * (b - a); // (-2a +2b)t
+	float2 c2 = a - 2*b + c; // (a -2b +c)t^2
+		
+	float t2 = t*t;
+
+	float2 value = c2*t2    + c1*t + c0; // f(t)
+	float2 deriv = c2*(t*2) + c1;        // f'(t)
+	float2 accel = c2*2;                 // f''(t)
+
+		
+	// angle of movement can be gotten via:
+	// ang = atan2(deriv.y, deriv.x)
+
+	// curvature can be defined as change in angle
+	// atan2(deriv.y, deriv.x)
+	// atan2 just offsets the result based on input signs, so derivative of atan2
+	// should be atan(y/x)
+		
+	// wolfram alpha: derive atan(y(t)/x(t)) with respect to x:
+	// gives me (x*dy - dx*y) / (x^2+y^2) (x would be deriv.x and dy would be accel.x)
+	// this formula from the https://math.stackexchange.com/questions/3276910/cubic-b%c3%a9zier-radius-of-curvature-calculation?rq=1
+	// seems to divide by the length of the sqrt(denom) as well, normalizing it by length(vel)
+	// vel = dpos / t -> (x/dt) / (dpos/dt) -> x/dpos
+	// so it seems this actually normalizes the curvature to be decoupled from your t (parameter) space
+	// and always be correct in position space
+	float denom = deriv.x*deriv.x + deriv.y*deriv.y;
+	float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
+
+	return { value, deriv, curv };
+}
+inline BezierRes bezier4 (float t, float2 a, float2 b, float2 c, float2 d) {
+	//float2 ab = lerp(a, b, t);
+	//float2 bc = lerp(b, c, t);
+	//float2 cd = lerp(c, d, t);
+	//
+	//float2 abc = lerp(ab, bc, t);
+	//float2 bcd = lerp(bc, cd, t);
+	//
+	//return lerp(abc, bcd, t);
+
+	//float t2 = t*t;
+	//float t3 = t2*t;
+	//
+	//float _3t1 = 3.0f*t;
+	//float _3t2 = 3.0f*t2;
+	//float _6t2 = 6.0f*t2;
+	//float _3t3 = 3.0f*t3;
+	//
+	//float ca = 1.0f -_3t1 +_3t2   -t3;
+	//float cb =       _3t1 -_6t2 +_3t3;
+	//float cc =             _3t2 -_3t3;
+	//float cd =                     t3;
+	//
+	//return (ca*a + cb*b) + (cc*c + cd*d);
+		
+	float2 c0 = a;                   // a
+	float2 c1 = 3 * (b - a);         // (-3a +3b)t
+	float2 c2 = 3 * (a + c) - 6*b;   // (3a -6b +3c)t^2
+	float2 c3 = 3 * (b - c) - a + d; // (-a +3b -3c +d)t^3
+
+	float t2 = t*t;
+	float t3 = t2*t;
+		
+	float2 value = c3*t3     + c2*t2    + c1*t + c0; // f(t)
+	float2 deriv = c3*(t2*3) + c2*(t*2) + c1;        // f'(t)
+	float2 accel = c3*(t*6)  + c2*2;                 // f''(t)
+		
+	float denom = deriv.x*deriv.x + deriv.y*deriv.y;
+	float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
+		
+	return { value, deriv, curv };
+}
+
+inline bool line_line_intersect (float2 a, float2 b, float2 c, float2 d, float2* out_point) {
+	// https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
+	float numer = (a.x-c.x)*(c.y-d.y) - (a.y-c.y)*(c.x-d.x);
+	float denom = (a.x-b.x)*(c.y-d.y) - (a.y-b.y)*(c.x-d.x);
+	if (denom == 0)
+		return false; // parallel, either overlapping (numer == 0) or not
+	float u = numer / denom;
+	*out_point = a + u*(b-a);
+	return true; // always intersect for now
+}
 
 struct App;
 
@@ -31,7 +139,39 @@ struct Network {
 	// general name to call a network edges? (road, pedestrian path, rail track etc.)
 	// how to call intersections? node seems fine
 
+	struct Node;
 	struct Segment;
+	struct Agent;
+
+	struct Agent {
+		struct Seg {
+			Segment* seg;
+			int      lane;
+		};
+
+		Citizen* cit;
+
+		float cur_t = 0;
+		int   idx = 0;
+		
+		std::vector<Node*> nodes;
+		std::vector<Seg>   segments;
+
+		Building* start = nullptr;
+		Building* end   = nullptr;
+	};
+	struct Agents {
+		//PathAgent* first_agent;
+		std::vector< std::unordered_set<Agent*> > lanes;
+		
+		void add (Agent* agent, int lane) {
+			lanes[lane].insert(agent);
+		}
+		void remove (Agent* agent, int lane) {
+			assert(lanes[lane].find(agent) != lanes[lane].end());
+			lanes[lane].erase(agent);
+		}
+	};
 
 	struct Node {
 		float3 pos;
@@ -52,6 +192,8 @@ struct Network {
 		RoadLayout* layout;
 		Node* node_a;
 		Node* node_b;
+
+		Agents agents;
 
 		float calc_length () {
 			return distance(node_a->pos, node_b->pos);
@@ -88,22 +230,7 @@ struct Network {
 	std::vector<std::unique_ptr<Node>> nodes;
 	std::vector<std::unique_ptr<Segment>> segments;
 
-	struct ActivePath {
-		struct Seg {
-			Segment* seg;
-			int      lane;
-		};
-
-		int   idx = 0;
-		float cur_t = 0;
-		std::vector<Node*> nodes;
-		std::vector<Seg>   segments;
-
-		Building* start = nullptr;
-		Building* end   = nullptr;
-	};
-
-	bool pathfind (Segment* start, Segment* target, ActivePath* path) {
+	bool pathfind (Segment* start, Segment* target, Agent* path) {
 		// use dijstra
 
 		struct Comparer {
@@ -221,6 +348,7 @@ struct Network {
 
 		return true;
 	}
+
 };
 
 struct Building {
@@ -236,9 +364,9 @@ struct Citizen {
 	// OR car/building etc needs to track citizen and we dont know where the citizen is
 	// probably best to first use double pointers everywhere, likely that this is not a problem in terms of memory
 
-	// TODO: i think some sort of CitizenLoc interface would work well here (implement in ActivePath 
+	// TODO: i think some sort of CitizenLoc interface would work well here
 	Building* building = nullptr;
-	std::unique_ptr<Network::ActivePath> path = nullptr;
+	std::unique_ptr<Network::Agent> path = nullptr;
 
 	//Building* home = nullptr;
 	//Building* work = nullptr;
@@ -268,101 +396,6 @@ struct Entities {
 
 struct Test {
 	
-	struct BezierRes {
-		float2 pos;
-		float2 vel;   // velocity (over bezier t)
-		float  curv;  // curvature (delta angle over dist along curve)
-	};
-	inline BezierRes bezier3 (float t, float2 a, float2 b, float2 c) {
-		//float2 ab = lerp(a, b, t);
-		//float2 bc = lerp(b, c, t);
-		//return lerp(ab, bc, t);
-		
-		//float t2 = t*t;
-		//
-		//float _2t1 = 2.0f*t;
-		//float _2t2 = 2.0f*t2;
-		//
-		//float ca = 1.0f -_2t1   +t2;
-		//float cb =       _2t1 -_2t2;
-		//float cc =               t2;
-		//
-		//return ca*a + cb*b + cc*c;
-
-		float2 c0 = a;           // a
-		float2 c1 = 2 * (b - a); // (-2a +2b)t
-		float2 c2 = a - 2*b + c; // (a -2b +c)t^2
-		
-		float t2 = t*t;
-
-		float2 value = c2*t2    + c1*t + c0; // f(t)
-		float2 deriv = c2*(t*2) + c1;        // f'(t)
-		float2 accel = c2*2;                 // f''(t)
-
-		
-		// angle of movement can be gotten via:
-		// ang = atan2(deriv.y, deriv.x)
-
-		// curvature can be defined as change in angle
-		// atan2(deriv.y, deriv.x)
-		// atan2 just offsets the result based on input signs, so derivative of atan2
-		// should be atan(y/x)
-		
-		// wolfram alpha: derive atan(y(t)/x(t)) with respect to x:
-		// gives me (x*dy - dx*y) / (x^2+y^2) (x would be deriv.x and dy would be accel.x)
-		// this formula from the https://math.stackexchange.com/questions/3276910/cubic-b%c3%a9zier-radius-of-curvature-calculation?rq=1
-		// seems to divide by the length of the sqrt(denom) as well, normalizing it by length(vel)
-		// vel = dpos / t -> (x/dt) / (dpos/dt) -> x/dpos
-		// so it seems this actually normalizes the curvature to be decoupled from your t (parameter) space
-		// and always be correct in position space
-		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
-		float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
-
-		return { value, deriv, curv };
-	}
-	inline BezierRes bezier4 (float t, float2 a, float2 b, float2 c, float2 d) {
-		//float2 ab = lerp(a, b, t);
-		//float2 bc = lerp(b, c, t);
-		//float2 cd = lerp(c, d, t);
-		//
-		//float2 abc = lerp(ab, bc, t);
-		//float2 bcd = lerp(bc, cd, t);
-		//
-		//return lerp(abc, bcd, t);
-
-		//float t2 = t*t;
-		//float t3 = t2*t;
-		//
-		//float _3t1 = 3.0f*t;
-		//float _3t2 = 3.0f*t2;
-		//float _6t2 = 6.0f*t2;
-		//float _3t3 = 3.0f*t3;
-		//
-		//float ca = 1.0f -_3t1 +_3t2   -t3;
-		//float cb =       _3t1 -_6t2 +_3t3;
-		//float cc =             _3t2 -_3t3;
-		//float cd =                     t3;
-		//
-		//return (ca*a + cb*b) + (cc*c + cd*d);
-		
-		float2 c0 = a;                   // a
-		float2 c1 = 3 * (b - a);         // (-3a +3b)t
-		float2 c2 = 3 * (a + c) - 6*b;   // (3a -6b +3c)t^2
-		float2 c3 = 3 * (b - c) - a + d; // (-a +3b -3c +d)t^3
-
-		float t2 = t*t;
-		float t3 = t2*t;
-		
-		float2 value = c3*t3     + c2*t2    + c1*t + c0; // f(t)
-		float2 deriv = c3*(t2*3) + c2*(t*2) + c1;        // f'(t)
-		float2 accel = c3*(t*6)  + c2*2;                 // f''(t)
-		
-		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
-		float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
-		
-		return { value, deriv, curv };
-	}
-
 	float2 a = float2(0,0);
 	float2 b = float2(50,0);
 	float2 c = float2(50,50);
@@ -394,7 +427,7 @@ struct Test {
 	RollingPlot plot_speed;
 
 	void update (Renderer* renderer, Input& I) {
-		if (!ImGui::TreeNodeEx("test", ImGuiTreeNodeFlags_DefaultOpen)) return;
+		if (!ImGui::TreeNodeEx("test")) return; // ImGuiTreeNodeFlags_DefaultOpen
 
 		ImGui::DragFloat2("a", &a.x, 0.1f);
 		ImGui::DragFloat2("b", &b.x, 0.1f);
@@ -478,8 +511,8 @@ struct Test {
 				plot_curv.update(val.curv, "curv", -0.2f, 0.2f);
 				plot_speed.update(capped_speed, "real speed", 0, 30);
 			};
-			//draw(val3, lrgba(0,1,0,1), k3);
-			draw(val4, lrgba(0,1,1,1), k4);
+			draw(val3, lrgba(0,1,0,1), k3);
+			//draw(val4, lrgba(0,1,1,1), k4);
 
 			//prev_pos3 = val3.pos;
 		}
@@ -521,9 +554,12 @@ struct App : public Engine {
 
 	void spawn () {
 		static int buildings_n = 10;
-		static int citizens_n = 50;
+		static int citizens_n = 200;
 
-		if (ImGui::SliderInt("buildings_n", &buildings_n, 1, 1000) || assets.assets_reloaded) {
+		bool buildings = ImGui::SliderInt("buildings_n", &buildings_n, 1, 1000) || assets.assets_reloaded;
+		bool citizens  = ImGui::SliderInt("citizens_n", &citizens_n, 1, 1000) || entities.buildings_changed;
+
+		if (buildings || citizens) {
 			ZoneScopedN("spawn buildings");
 
 			entities.buildings.clear();
@@ -559,6 +595,8 @@ struct App : public Engine {
 
 				a->segments.push_back(seg);
 				b->segments.push_back(seg);
+
+				seg->agents.lanes.resize(road_layout->lanes.size());
 			};
 
 			// create x paths
@@ -603,19 +641,16 @@ struct App : public Engine {
 			entities.buildings_changed = true;
 		}
 		
-		if (ImGui::SliderInt("citizens_n", &citizens_n, 1, 1000) || entities.buildings_changed) {
+		if (citizens) {
 			ZoneScopedN("spawn citizens");
 
 			auto* car_asset = assets.cars[0].get();
 
-			if (entities.buildings_changed)
-				entities.citizens.clear(); // invalidated pointers
-
-			int old_size = (int)entities.citizens.size();
+			entities.citizens.clear();
 			entities.citizens.resize(citizens_n);
 
 			if (entities.buildings.size() > 0) {
-				for (int i=old_size; i<citizens_n; ++i) {
+				for (int i=0; i<citizens_n; ++i) {
 					auto* building = entities.buildings[random.uniformi(0, (int)entities.buildings.size())].get();
 					entities.citizens[i] = std::move( std::make_unique<Citizen>(Citizen{random, building}) );
 					entities.citizens[i]->asset = car_asset;
@@ -651,21 +686,153 @@ struct App : public Engine {
 	void update_citizens () {
 		ZoneScoped;
 
-		static float speed = 100;
+		static float speed = 30;
 		ImGui::SliderFloat("speed", &speed, 0, 500);
+		
+		static int dbg_segment = 135;
+		ImGui::DragInt("dbg_segment", &dbg_segment, 0.1f);
+
+		auto update_agent = [&] (Network::Agent* agent) {
+			struct Move {
+				// bezier points
+				float3 a, b, c;
+				Network::Agents* agents = nullptr;
+				int lane = -1;
+			};
+			auto count = [&] () {
+				assert(agent->nodes.size() + 1 == agent->segments.size());
+				return (int)agent->nodes.size()*2 + 1 + 2;
+			};
+			auto get_move = [&] (int idx) -> Move {
+				// Ughhh. Generator expressions would be sooo nice
+
+				auto s_seg = agent->segments.front();
+				auto e_seg = agent->segments.back();
+
+				auto s_lane = s_seg.seg->clac_lane_info(s_seg.lane);
+				auto e_lane = e_seg.seg->clac_lane_info(e_seg.lane);
+
+				float3 s0 = agent->start->pos;
+				float3 s1 = (s_lane.a + s_lane.b) * 0.5f;
+				float3 e0 = (e_lane.a + e_lane.b) * 0.5f;
+				float3 e1 = agent->end->pos;
+
+				int count = (int)agent->nodes.size()*2 + 1;
+
+				if (idx == 0) {
+					return { s0, (s0+s1)*0.5f, s1 };
+				}
+				idx -= 1; // ingore first
+
+				if (idx < count) {
+					auto& seg = agent->segments[idx/2];
+					auto l = seg.seg->clac_lane_info(seg.lane);
+
+					if (idx % 2 == 0) { // segment
+						if (idx == 0)            l.a = s1;
+						else if (idx == count-1) l.b = e0;
+						return { l.a, (l.a+l.b)*0.5f, l.b, &seg.seg->agents, seg.lane };
+					}
+					else { // node
+						auto& seg2 = agent->segments[idx/2+1];
+						auto l2 = seg2.seg->clac_lane_info(seg2.lane);
+
+						float2 point;
+						if (!line_line_intersect((float2)l.a, (float2)l.b, (float2)l2.a, (float2)l2.b, &point))
+							point = (l.b+l2.a)*0.5f;
+
+						Move m = { l.b, float3(point, l.a.z), l2.a };
+						return m;
+					}
+				}
+					
+				return { e0, (e0+e1)*0.5f, e1 };
+			};
+			auto query_dist_to_next = [] (Network::Agents* agents, Network::Agent* agent, int lane) {
+				float min_dist = INF;
+				if (agents) {
+					for (auto& a : agents->lanes[lane]) {
+						if (a->cur_t <= agent->cur_t) {
+							// agent behind, can ignore
+							continue;
+						}
+						float dist = distance(a->cit->_pos, agent->cit->_pos);
+						if (dist < min_dist) {
+							min_dist = dist;
+						}
+					}
+				}
+				return min_dist;
+			};
+
+			assert(agent->nodes.size() >= 1);
+			assert(agent->idx < count());
+			assert(agent->cur_t < 1.0f);
+
+			auto move = get_move(agent->idx);
+
+			auto bez = bezier3(agent->cur_t, (float2)move.a, (float2)move.b, (float2)move.c);
+			float bez_speed = length(bez.vel); // delta pos / bezier t
+
+			float dist_to_next = query_dist_to_next(move.agents, agent, move.lane);
+			float slowdown = clamp(map(dist_to_next, 2.0f, 8.0f), 0.0f, 1.0f);
+			
+			agent->cit->_pos = float3(bez.pos, move.a.z);
+			agent->cit->_rot = bez_speed > 0 ? atan2f(-bez.vel.x, bez.vel.y) : 0; // atan with roated axes since rot=0 should be +y in my convention
+
+			if (agent->cit == entities.citizens[0].get()) {
+
+				// draw target building
+				float2 size = (float2)agent->end->asset->size;
+				renderer->dbgdraw.wire_quad(float3(agent->end->pos - float3(size*0.5f,0)), size, lrgba(0,1,0,1));
+
+				auto m = get_move(agent->idx);
+				renderer->dbgdraw.line(agent->cit->_pos + float3(0,0,1), m.c + float3(0,0,1), lrgba(0,1,0,1));
+				for (int i=agent->idx+1; i<count(); ++i) {
+					auto m = get_move(i);
+					renderer->dbgdraw.line(m.a + float3(0,0,1), m.c + float3(0,0,1), lrgba(0,1,0,1));
+				}
+			}
+
+			// (delta pos / delta time)[speed] * time[dt] / (delta pos / bezier delta t)[bez_speed]
+			// -> delta t
+			agent->cur_t += min(speed * input.dt * slowdown, dist_to_next) / bez_speed;
+
+			if (agent->cur_t >= 1.0f) {
+				agent->idx++;
+				agent->cur_t = 0;
+
+				if (move.agents) move.agents->remove(agent, move.lane); // exit current lane
+
+				if (agent->idx >= count()) {
+					// end of path reached
+					agent->cit->building = agent->end;
+					agent->cit->path = nullptr;
+					return;
+				}
+
+				move = get_move(agent->idx);
+				if (move.agents) move.agents->add(agent, move.lane); // enter next lane
+			}
+		};
 
 		for (auto& cit : entities.citizens) {
 			if (cit->building) {
 				auto* cur_target = entities.buildings[ random.uniformi(0, (int)entities.buildings.size()) ].get();
+				
+				cit->_pos = cit->building->pos;
+				cit->_rot = 0;
 
 				assert(cit->building->connected_segment);
 				if (cit->building->connected_segment) {
 					ZoneScopedN("pathfind");
 
-					auto path = std::make_unique<Network::ActivePath>();
+					auto path = std::make_unique<Network::Agent>();
+					path->cit = cit.get();
 					path->start = cit->building;
 					path->end   = cur_target;
 					bool valid = net.pathfind(cit->building->connected_segment, cur_target->connected_segment, path.get());
+
 					pathing_count++;
 
 					if (valid) {
@@ -674,114 +841,24 @@ struct App : public Engine {
 					}
 				}
 			}
-
-			float3 cur_pos = 0;
-			float rot = 0;
-
-			if (cit->path) {
-				auto& path = *cit->path;
-				
-				struct Move {
-					float3 a, b;
-				};
-				auto count = [&] () {
-					assert(path.nodes.size() + 1 == path.segments.size());
-					return (int)path.nodes.size()*2 + 1 + 2;
-				};
-				auto get_move = [&] (int idx) -> Move {
-					// Ughhh. Generator expressions would be sooo nice
-
-					auto s_seg = path.segments.front();
-					auto e_seg = path.segments.back();
-
-					auto s_lane = s_seg.seg->clac_lane_info(s_seg.lane);
-					auto e_lane = e_seg.seg->clac_lane_info(e_seg.lane);
-
-					float3 s0 = path.start->pos;
-					float3 s1 = (s_lane.a + s_lane.b) * 0.5f;
-					float3 e0 = (e_lane.a + e_lane.b) * 0.5f;
-					float3 e1 = path.end->pos;
-
-					int count = (int)path.nodes.size()*2 + 1;
-
-					if (idx == 0) {
-						return { s0, s1 };
-					}
-					idx -= 1; // ingore first
-
-					if (idx < count) {
-						auto& seg = path.segments[idx/2];
-						auto l = seg.seg->clac_lane_info(seg.lane);
-
-						if (idx % 2 == 0) { // segment
-							Move m = { l.a, l.b };
-							if (idx == 0)            m.a = s1;
-							else if (idx == count-1) m.b = e0;
-							return m;
-						}
-						else { // node
-							auto& seg2 = path.segments[idx/2+1];
-							auto l2 = seg2.seg->clac_lane_info(seg2.lane);
-
-							Move m = { l.b, l2.a };
-							return m;
-						}
-					}
-					
-					return { e0, e1 };
-				};
-
-				assert(path.nodes.size() >= 1);
-				assert(path.idx < count());
-				assert(path.cur_t < 1.0f);
-
-				auto move = get_move(path.idx);
-
-				float len = distance(move.a, move.b);
-				path.cur_t += (speed * input.dt) / len;
-
-				if (path.cur_t >= 1.0f) {
-					path.idx++;
-					path.cur_t = 0;
-
-					move = get_move(path.idx);
-				}
-
-				if (path.idx >= count()) {
-					// end of path reached
-					cit->building = path.end;
-					cit->path = nullptr;
-				}
-				else {
-					cur_pos = lerp(move.a, move.b, path.cur_t);
-
-					float2 dir = move.b - move.a;
-					rot = length_sqr(dir) > 0 ? atan2f(-dir.x, dir.y) : 0; // atan with roated axes since rot=0 should be +y in my convention
-
-					if (cit == entities.citizens[0]) {
-
-						// draw target building
-						float2 size = (float2)path.end->asset->size;
-						renderer->dbgdraw.wire_quad(float3(path.end->pos - float3(size*0.5f,0)), size, lrgba(0,1,0,1));
-
-						auto m = get_move(path.idx);
-						renderer->dbgdraw.line(cur_pos + float3(0,0,1), m.b + float3(0,0,1), lrgba(0,1,0,1));
-						for (int i=path.idx+1; i<count(); ++i) {
-							auto m = get_move(i);
-							renderer->dbgdraw.line(m.a + float3(0,0,1), m.b + float3(0,0,1), lrgba(0,1,0,1));
-						}
-					}
-				}
+			else {
+				update_agent(cit->path.get());
 			}
-
-			if (cit->building) {
-				cur_pos = cit->building->pos;
-			}
-
-			float rad = cit == entities.citizens[0] ? 5.0f : 2.0f;
+			
+			//float rad = cit == entities.citizens[0] ? 5.0f : 2.0f;
 			//renderer->dbgdraw.cylinder(cur_pos, rad, 1.7f, lrgba(cit->col, 1), 8);
-			cit->_pos = cur_pos;
-			cit->_rot = rot;
+		}
+
+		if (dbg_segment >= 0 && dbg_segment < (int)net.segments.size()) {
+			auto& seg = net.segments[dbg_segment];
+			
+			renderer->dbgdraw.line(seg->node_a->pos, seg->node_b->pos, lrgba(1,1,0,1));
+
+			for (auto& lane : seg->agents.lanes) {
+				for (auto& agent : lane) {
+					renderer->dbgdraw.wire_circle(agent->cit->_pos, 2, lrgba(1,1,0,1));
+				}
+			}
 		}
 	}
 

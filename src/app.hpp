@@ -270,9 +270,8 @@ struct Test {
 	
 	struct BezierRes {
 		float2 pos;
-		float2 vel;
-		float2 accel;
-		float  curv;
+		float2 vel;   // velocity (over bezier t)
+		float  curv;  // curvature (delta angle over dist along curve)
 	};
 	inline BezierRes bezier3 (float t, float2 a, float2 b, float2 c) {
 		//float2 ab = lerp(a, b, t);
@@ -290,24 +289,36 @@ struct Test {
 		//
 		//return ca*a + cb*b + cc*c;
 
-		float2 c0 = a;
-		float2 c1 = 2 * (b - a);
-		float2 c2 = a - 2*b + c;
+		float2 c0 = a;           // a
+		float2 c1 = 2 * (b - a); // (-2a +2b)t
+		float2 c2 = a - 2*b + c; // (a -2b +c)t^2
 		
 		float t2 = t*t;
 
-		float2 value = c2*t2    + c1*t + c0;
-		float2 deriv = c2*(t*2) + c1;
-		float2 accel = c2*2;
+		float2 value = c2*t2    + c1*t + c0; // f(t)
+		float2 deriv = c2*(t*2) + c1;        // f'(t)
+		float2 accel = c2*2;                 // f''(t)
 
-		//float ang = atan2(deriv.y, deriv.x);
+		
+		// angle of movement can be gotten via:
+		// ang = atan2(deriv.y, deriv.x)
 
-		// curvature: https://math.stackexchange.com/questions/3276910/cubic-b%c3%a9zier-radius-of-curvature-calculation?rq=1
-		// wolframalpha: arctan(y/x) -> (x*dy - dx*y) / (x*x + y*y)
+		// curvature can be defined as change in angle
+		// atan2(deriv.y, deriv.x)
+		// atan2 just offsets the result based on input signs, so derivative of atan2
+		// should be atan(y/x)
+		
+		// wolfram alpha: derive atan(y(t)/x(t)) with respect to x:
+		// gives me (x*dy - dx*y) / (x^2+y^2) (x would be deriv.x and dy would be accel.x)
+		// this formula from the https://math.stackexchange.com/questions/3276910/cubic-b%c3%a9zier-radius-of-curvature-calculation?rq=1
+		// seems to divide by the length of the sqrt(denom) as well, normalizing it by length(vel)
+		// vel = dpos / t -> (x/dt) / (dpos/dt) -> x/dpos
+		// so it seems this actually normalizes the curvature to be decoupled from your t (parameter) space
+		// and always be correct in position space
 		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
-		float curv = (accel.x*deriv.y - deriv.x*accel.y) / (denom * sqrt(denom)); // denom^(3/2)
+		float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
 
-		return { value, deriv, accel, curv };
+		return { value, deriv, curv };
 	}
 	inline BezierRes bezier4 (float t, float2 a, float2 b, float2 c, float2 d) {
 		//float2 ab = lerp(a, b, t);
@@ -334,22 +345,22 @@ struct Test {
 		//
 		//return (ca*a + cb*b) + (cc*c + cd*d);
 		
-		float2 c0 = a;
-		float2 c1 = 3 * (b - a);
-		float2 c2 = 3 * (a + c) - 6*b;
-		float2 c3 = 3 * (b - c) - a + d;
+		float2 c0 = a;                   // a
+		float2 c1 = 3 * (b - a);         // (-3a +3b)t
+		float2 c2 = 3 * (a + c) - 6*b;   // (3a -6b +3c)t^2
+		float2 c3 = 3 * (b - c) - a + d; // (-a +3b -3c +d)t^3
 
 		float t2 = t*t;
 		float t3 = t2*t;
 		
-		float2 value = c3*t3     + c2*t2    + c1*t + c0;
-		float2 deriv = c3*(t2*3) + c2*(t*2) + c1;
-		float2 accel = c3*(t*6)  + c2*2;
+		float2 value = c3*t3     + c2*t2    + c1*t + c0; // f(t)
+		float2 deriv = c3*(t2*3) + c2*(t*2) + c1;        // f'(t)
+		float2 accel = c3*(t*6)  + c2*2;                 // f''(t)
 		
 		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
-		float curv = (accel.x*deriv.y - deriv.x*accel.y) / (denom * sqrt(denom)); // denom^(3/2)
+		float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
 		
-		return { value, deriv, accel, curv };
+		return { value, deriv, curv };
 	}
 
 	float2 a = float2(0,0);
@@ -358,10 +369,29 @@ struct Test {
 	float2 d = float2(0,50);
 	int count = 50;
 
-	float speed = 0.1f;
-	float cur_k = 0;
+	//float speed = 0.3f;
+	float speed = 10;
+	float k3 = 0;
+	float k4 = 0;
+
+	float curv_limit = 1;
 
 	float2 prev_pos3 = 0;
+
+	struct RollingPlot {
+		float buf[1024] = {};
+		int cur = 0;
+
+		void update (float val, const char* label, float min, float max) {
+			buf[cur] = val;
+			ImGui::PlotLines(label, buf, ARRLEN(buf), cur, 0, min, max, ImVec2(0, 100), sizeof(buf[0]));
+			
+			cur = (cur+1) % ARRLEN(buf);
+		}
+	};
+	RollingPlot plot_vel;
+	RollingPlot plot_curv;
+	RollingPlot plot_speed;
 
 	void update (Renderer* renderer, Input& I) {
 		if (!ImGui::TreeNodeEx("test", ImGuiTreeNodeFlags_DefaultOpen)) return;
@@ -372,8 +402,11 @@ struct Test {
 		ImGui::DragFloat2("d", &d.x, 0.1f);
 		ImGui::DragInt("count", &count, 0.1f);
 
+		ImGui::SliderAngle("curv_limit", &curv_limit, 0, 180);
+
 		ImGui::DragFloat("speed", &speed, 0.1f);
-		ImGui::SliderFloat("cur_k", &cur_k, 0, 1);
+		ImGui::SliderFloat("k3", &k3, 0, 1);
+		ImGui::SliderFloat("k4", &k4, 0, 1);
 
 		float2 prev3 = a;
 		float2 prev4 = a;
@@ -410,13 +443,13 @@ struct Test {
 		ImGui::Text("len4: %.2f", len4);
 
 		{
-			auto val3 = bezier3(cur_k, a,b,d);
-			auto val4 = bezier4(cur_k, a,b,c,d);
+			auto val3 = bezier3(k3, a,b,d);
+			auto val4 = bezier4(k4, a,b,c,d);
 
 			// normalized 'velocity' per bezier k
 			//float2 approx_vel3 = (val3.pos - prev_pos3) / (I.dt * speed);
 
-			auto draw = [&] (BezierRes& val, lrgba col) {
+			auto draw = [&] (BezierRes& val, lrgba col, float& k) {
 				renderer->dbgdraw.wire_circle(float3(val.pos,0), 1, col);
 				
 				renderer->dbgdraw.vector(float3(val.pos,0), float3(val.vel,0) * 0.1f, col);
@@ -425,14 +458,28 @@ struct Test {
 
 				float turn_radius = 1.0f / val.curv;
 				float2 dir = normalizesafe(val.vel);
-				float2 circ_pos = val.pos + rotate90(-dir) * turn_radius;
+				float2 circ_pos = val.pos + rotate90(dir) * turn_radius;
 				renderer->dbgdraw.wire_circle(float3(circ_pos,0), turn_radius, col, 64);
-			};
-			draw(val3, lrgba(0,1,0,1));
-			draw(val4, lrgba(0,1,1,1));
 
-			cur_k += speed * I.dt;
-			cur_k = fmodf(cur_k, 1.0f);
+				float capped_speed = speed;
+				float ang_per_sec = abs(val.curv) * speed; // ang/dist (curv) * dist/sec (speed) -> ang/sec
+				if (ang_per_sec > curv_limit) // curv_limit (ang/sec) / val.curv (ang/dist) = speed (dist/sec)
+					capped_speed = curv_limit / abs(val.curv);
+
+				//float curv_max_speed = curv_limit / val.curv;
+				//float capped_speed = min(curv_max_speed, speed);
+
+				float speed_over_k = length(val.vel);
+				k += (capped_speed * I.dt) / speed_over_k;
+				//k += speed * I.dt;
+				k = fmodf(k, 1.0f);
+
+				plot_vel.update(length(val.vel), "bezier speed", 0, 200);
+				plot_curv.update(val.curv, "curv", -0.2f, 0.2f);
+				plot_speed.update(capped_speed, "real speed", 0, 30);
+			};
+			//draw(val3, lrgba(0,1,0,1), k3);
+			draw(val4, lrgba(0,1,1,1), k4);
 
 			//prev_pos3 = val3.pos;
 		}

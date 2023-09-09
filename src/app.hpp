@@ -7,6 +7,10 @@
 #include <queue>
 #include <unordered_set>
 
+inline int length2int (float len) {
+	return ceili(len * 100.0f);
+}
+inline constexpr float CAR_SIZE = 3.5f;
 
 struct BezierRes {
 	float2 pos;
@@ -150,6 +154,13 @@ struct Network {
 	struct SegLane {
 		Segment* seg;
 		int      lane;
+
+		inline bool operator== (SegLane const& r) const {
+			return seg == r.seg && lane == r.lane;
+		}
+		inline bool operator!= (SegLane const& r) const {
+			return seg != r.seg || lane != r.lane;
+		}
 	};
 
 	struct Agent {
@@ -157,6 +168,8 @@ struct Network {
 
 		float cur_t = 0;
 		int   idx = 0;
+
+		float _break;
 		
 		std::vector<Node*>   nodes;
 		std::vector<SegLane> segments;
@@ -165,15 +178,16 @@ struct Network {
 		Building* end   = nullptr;
 	};
 	struct AgentList { // TODO: optimize agents in lane to only look at agent in front of them, and speed up insert/erase by using linked list
-		std::unordered_set<Agent*> list;
-		
+		std::vector<Agent*> list;
+
 		void add (Agent* agent) {
-			assert(list.find(agent) == list.end());
-			list.insert(agent);
+			assert(std::find(list.begin(), list.end(), agent) == list.end());
+			list.push_back(agent);
 		}
 		void remove (Agent* agent) {
-			assert(list.find(agent) != list.end());
-			list.erase(agent);
+			auto it = std::find(list.begin(), list.end(), agent);
+			assert(it != list.end());
+			list.erase(it);
 		}
 	};
 	struct SegAgents {
@@ -185,6 +199,7 @@ struct Network {
 
 	struct Node {
 		float3 pos;
+		float radius; // offset of segments
 		// for editing and drawing?
 		std::vector<Segment*> segments;
 
@@ -205,10 +220,11 @@ struct Network {
 		Node* node_a;
 		Node* node_b;
 
+		float length; // for pathfinding
 		SegAgents agents;
 
-		float calc_length () {
-			return distance(node_a->pos, node_b->pos);
+		void update_cached () {
+			length = distance(node_a->pos, node_b->pos);
 		}
 		
 		// Segment direction vectors
@@ -229,15 +245,39 @@ struct Network {
 			auto v = clac_seg_vecs();
 
 			auto& lane = layout->lanes[lane_i];
-			float offset = layout->width * 0.5f; // offset of segment back from node center, ie "size" of intersection
 
-			float3 a = node_a->pos + float3(v.right * lane.shift + v.forw * offset, 0);
-			float3 b = node_b->pos + float3(v.right * lane.shift - v.forw * offset, 0);
+			float3 a = node_a->pos + float3(v.right * lane.shift + v.forw * node_a->radius, 0);
+			float3 b = node_b->pos + float3(v.right * lane.shift - v.forw * node_b->radius, 0);
 
 			if (lane.direction == 0) return { a, b };
 			else                     return { b, a };
 		}
 	};
+
+	template <typename FUNC>
+	static void for_outgoing_lanes (Node* node, FUNC func) {
+		for (auto* seg : node->segments) {
+			int dir = node == seg->node_a ? 0 : 1;
+			for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
+				auto& lane = seg->layout->lanes[i];
+				if (lane.direction == dir) {
+					func(SegLane{ seg, i });
+				}
+			}
+		}
+	}
+	template <typename FUNC>
+	static void for_ingoing_lanes (Node* node, FUNC func) {
+		for (auto* seg : node->segments) {
+			int dir = node == seg->node_a ? 1 : 0;
+			for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
+				auto& lane = seg->layout->lanes[i];
+				if (lane.direction == dir) {
+					func(SegLane{ seg, i });
+				}
+			}
+		}
+	}
 
 	std::vector<std::unique_ptr<Node>> nodes;
 	std::vector<std::unique_ptr<Segment>> segments;
@@ -265,9 +305,8 @@ struct Network {
 		// TODO: could actually start only on the lane facing the target building
 		//  (ie. don't allow crossing the road middle)
 		{ // handle the two start nodes
-			auto len = start->calc_length();
-			start->node_a->_cost = len / 0.5f; // pretend start point is at center of start segment for now
-			start->node_b->_cost = len / 0.5f;
+			start->node_a->_cost = start->length / 0.5f; // pretend start point is at center of start segment for now
+			start->node_b->_cost = start->length / 0.5f;
 		}
 
 		unvisited.push(start->node_a);
@@ -291,20 +330,20 @@ struct Network {
 				int dir = cur_node == seg->node_a ? 0 : 1;
 				Node* other_node = dir ? seg->node_a : seg->node_b;
 
-				int lane_i = 0;
-				for (auto& lane : seg->layout->lanes) {
+				for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
+					auto& lane = seg->layout->lanes[i];
+
 					if (lane.direction == dir) { // TODO: could cache list to avoid this check and iterate half as many lanes
 
-						float new_cost = cur_node->_cost + seg->calc_length(); // TODO: cache length?
+						float new_cost = cur_node->_cost + seg->length;
 						if (new_cost < other_node->_cost) {
 							other_node->_pred      = cur_node;
-							other_node->_pred_seg  = { seg, lane_i };
+							other_node->_pred_seg  = { seg, i };
 							other_node->_cost      = new_cost;
 
 							unvisited.push(other_node); // push updated neighbour (duplicate)
 						}
 					}
-					lane_i++;
 				}
 			}
 		}
@@ -565,14 +604,25 @@ struct App : public Engine {
 
 	bool sim_paused = false;
 
+	Random test_rand;
+
 	void spawn () {
 		static int buildings_n = 10;
 		static int citizens_n = 600;
 
-		bool buildings = ImGui::SliderInt("buildings_n", &buildings_n, 1, 1000) || assets.assets_reloaded;
-		bool citizens  = ImGui::SliderInt("citizens_n", &citizens_n, 1, 1000) || entities.buildings_changed;
+		static float intersection_scale = 1;
 
-		if (buildings || citizens) {
+		bool buildings = ImGui::SliderInt("buildings_n", &buildings_n, 1, 1000)
+			|| assets.assets_reloaded;
+		buildings = ImGui::Button("Respawn buildings") || buildings;
+
+		bool citizens  = ImGui::SliderInt("citizens_n",  &citizens_n,  1, 1000)
+			|| assets.assets_reloaded || buildings;
+		citizens = ImGui::Button("Respawn Citizens") || citizens;
+
+		ImGui::SliderFloat("intersection_scale", &intersection_scale, 0.1f, 4);
+
+		if (buildings) {
 			ZoneScopedN("spawn buildings");
 
 			entities.buildings.clear();
@@ -591,12 +641,14 @@ struct App : public Engine {
 			};
 			
 			auto* road_layout = assets.road_layouts[0].get();
+			
+			float node_r = road_layout->width*0.5f * intersection_scale;
 
 			// create path nodes grid
 			for (int y=0; y<buildings_n+1; ++y)
 			for (int x=0; x<buildings_n+1; ++x) {
-				float3 pos = base_pos + float3((float)x,(float)y,0) * (float3(40,25,0) + float3(road_layout->width, road_layout->width, 0));
-				net.nodes[y * (buildings_n+1) + x] = std::make_unique<Network::Node>(Network::Node{pos});
+				float3 pos = base_pos + float3((float)x,(float)y,0) * float3(40 + node_r, 25 + node_r, 0);
+				net.nodes[y * (buildings_n+1) + x] = std::make_unique<Network::Node>(Network::Node{pos, node_r});
 			}
 			
 			auto create_segment = [&] (Network::Node* a, Network::Node* b) {
@@ -610,6 +662,8 @@ struct App : public Engine {
 				b->segments.push_back(seg);
 
 				seg->agents.lanes.resize(road_layout->lanes.size());
+
+				seg->update_cached();
 			};
 
 			// create x paths
@@ -628,13 +682,13 @@ struct App : public Engine {
 					create_segment(a, b);
 				}
 			}
-			
+
 			for (int y=0; y<buildings_n; ++y)
 			for (int x=0; x<buildings_n; ++x) {
 				Random rand(hash(int2(x,y))); // position-based rand
 				auto* asset = rand.uniformi(0, 2) ? house0 : house1;
 
-				float3 pos = base_pos + (float3((float)x,(float)y,0) + float3(0.5f)) * (float3(40,25,0) + float3(road_layout->width, road_layout->width, 0));
+				float3 pos = base_pos + (float3((float)x,(float)y,0) + float3(0.5f)) * float3(40 + node_r, 25 + node_r, 0);
 				auto& build = entities.buildings.emplace_back(std::make_unique<Building>(Building{ asset, pos }));
 
 				auto* a = get_node(x, y);
@@ -659,13 +713,26 @@ struct App : public Engine {
 
 			auto* car_asset = assets.cars[0].get();
 
+			// remove references
+			for (auto& node : net.nodes) {
+				node->agents.free.list.clear();
+			}
+			for (auto& seg : net.segments) {
+				for (auto& lane : seg->agents.lanes) {
+					lane.list.clear();
+				}
+			}
+
 			entities.citizens.clear();
 			entities.citizens.resize(citizens_n);
 
+			Random rand(0);
+			test_rand = Random(0);
+
 			if (entities.buildings.size() > 0) {
 				for (int i=0; i<citizens_n; ++i) {
-					auto* building = entities.buildings[random.uniformi(0, (int)entities.buildings.size())].get();
-					entities.citizens[i] = std::move( std::make_unique<Citizen>(Citizen{random, building}) );
+					auto* building = entities.buildings[rand.uniformi(0, (int)entities.buildings.size())].get();
+					entities.citizens[i] = std::move( std::make_unique<Citizen>(Citizen{rand, building}) );
 					entities.citizens[i]->asset = car_asset;
 				}
 			}
@@ -704,10 +771,61 @@ struct App : public Engine {
 		static float speed = 20;
 		ImGui::SliderFloat("speed", &speed, 0, 500);
 		
-		static int dbg_segment = 135;
-		ImGui::DragInt("dbg_segment", &dbg_segment, 0.1f);
+		static int dbg_node = 61;
+		ImGui::DragInt("dbg_node", &dbg_node, 0.1f);
 
-		auto update_agent = [&] (Network::Agent* agent) {
+		static float cone = deg(45);
+		ImGui::SliderAngle("cone", &cone, 0, 180);
+
+		auto brake_for_dist = [] (float obstacle_dist) {
+			return clamp(map(obstacle_dist, 0.0f, 8.0f), 0.0f, 1.0f);
+		};
+
+		////
+
+		auto do_pathfind = [&] (Citizen* cit) {
+			auto* cur_target = entities.buildings[ test_rand.uniformi(0, (int)entities.buildings.size()) ].get();
+			
+			cit->_pos = cit->building->pos;
+			cit->_rot = 0;
+
+			assert(cit->building->connected_segment);
+			if (cit->building->connected_segment) {
+				ZoneScopedN("pathfind");
+
+				pathing_count++;
+
+				auto path = std::make_unique<Network::Agent>();
+				path->cit = cit;
+				path->start = cit->building;
+				path->end   = cur_target;
+				bool valid = net.pathfind(cit->building->connected_segment, cur_target->connected_segment, path.get());
+				if (valid) {
+					cit->building = nullptr;
+					cit->path = std::move(path);
+					// keep _pos & _rot
+				}
+			}
+		};
+
+
+		enum State { EXIT_BUILDING, ENTER_BUILDING, SEGMENT, NODE };
+		struct Bezier3 {
+			float3 a, b, c;
+		};
+
+		struct AgentState {
+			State state;
+			float end_t = 1.0f;
+			float next_start_t = 0.0f;
+			Bezier3 bezier;
+
+			Network::AgentList* cur_agents = nullptr;
+			Network::AgentList* next_agents = nullptr;
+			Network::SegLane* seg_after_node = nullptr;
+		};
+		auto get_agent_state = [] (Network::Agent* agent) {
+			AgentState s;
 
 			int num_nodes  = (int)agent->nodes.size();
 			int num_seg    = (int)agent->segments.size();
@@ -718,31 +836,18 @@ struct App : public Engine {
 			assert(agent->idx < num_moves);
 			assert(agent->cur_t < 1.0f);
 
-			enum State { EXIT_BUILDING, ENTER_BUILDING, SEGMENT, NODE };
-			struct Bezier3 {
-				float3 a, b, c;
-			};
-
-			State state;
-			float end_t = 1.0f;
-			float next_start_t = 0.0f;
-			Bezier3 bezier;
-
-			Network::AgentList* cur_agents = nullptr;
-			Network::AgentList* next_agents = nullptr;
-
 			if (agent->idx == 0) {
 				auto s_seg = agent->segments.front();
 				auto s_lane = s_seg.seg->clac_lane_info(s_seg.lane);
 				float3 s0 = agent->start->pos;
 				float3 s1 = (s_lane.a + s_lane.b) * 0.5f;
 
-				state = EXIT_BUILDING;
-				next_start_t = 0.5f;
+				s.state = EXIT_BUILDING;
+				s.next_start_t = 0.5f;
 
-				next_agents = &s_seg.seg->agents.lanes[s_seg.lane];
+				s.next_agents = &s_seg.seg->agents.lanes[s_seg.lane];
 
-				bezier = { s0, (s0+s1)*0.5f, s1 };
+				s.bezier = { s0, (s0+s1)*0.5f, s1 };
 			}
 			else if (agent->idx == num_moves-1) {
 				auto e_seg = agent->segments.back();
@@ -750,111 +855,134 @@ struct App : public Engine {
 				float3 e0 = (e_lane.a + e_lane.b) * 0.5f;
 				float3 e1 = agent->end->pos;
 
-				state = ENTER_BUILDING;
+				s.state = ENTER_BUILDING;
 
-				bezier = { e0, (e0+e1)*0.5f, e1 };
+				s.bezier = { e0, (e0+e1)*0.5f, e1 };
 			}
 			else {
 				int i = agent->idx - 1;
+				
+				bool last_seg = i/2+1 >= num_seg;
+				assert(i/2 < num_nodes == !last_seg);
 
 				auto* seg = &agent->segments[i/2];
 				auto l = seg->seg->clac_lane_info(seg->lane);
 
-				auto* seg2 = i/2+1 < num_seg ? &agent->segments[i/2+1] : nullptr;
+				auto* node = !last_seg ? agent->nodes[i/2] : nullptr;
+
+				auto* seg2 = !last_seg ? &agent->segments[i/2+1] : nullptr;
 				auto l2 = seg2 ? seg2->seg->clac_lane_info(seg2->lane) : Network::Segment::Line{0,0};
 
 				if (i % 2 == 0) {
-					state = SEGMENT;
+					assert(seg);
 
-					bool last_seg = i == num_nodes + num_seg -1;
+					s.state = SEGMENT;
 
-					cur_agents = &seg->seg->agents.lanes[seg->lane];
-					if (!last_seg)
-						next_agents = &agent->nodes[i/2]->agents.free;
+					s.cur_agents = &seg->seg->agents.lanes[seg->lane];
+					s.next_agents = node ? &node->agents.free : nullptr;
+					s.seg_after_node = seg2;
 
 					// handle enter building
 					if (last_seg)
-						end_t = 0.5f;
+						s.end_t = 0.5f;
 
-					bezier = { l.a, (l.a+l.b)*0.5f, l.b };
+					s.bezier = { l.a, (l.a+l.b)*0.5f, l.b };
 				}
 				else {
-					auto& node = agent->nodes[i/2];
+					assert(seg && node && seg2);
 
-					state = NODE;
+					s.state = NODE;
 
-					cur_agents = &node->agents.free;
-					next_agents = &seg2->seg->agents.lanes[seg2->lane];
+					s.cur_agents = &node->agents.free;
+					s.next_agents = &seg2->seg->agents.lanes[seg2->lane];
 
 					float2 point;
 					if (!line_line_intersect((float2)l.a, (float2)l.b, (float2)l2.a, (float2)l2.b, &point))
 						point = (l.b+l2.a)*0.5f;
+						//point = (l0.b+l1.a)*0.5f + 0.5f * distance(l0.a, l1.b) * normalizesafe(l0.b - l0.a);
 					
-					bezier = { l.b, float3(point, l.a.z), l2.a };
+					s.bezier = { l.b, float3(point, l.a.z), l2.a };
 				}
 			}
-			
-			auto dist_to_next_agent = [] (Network::AgentList* agents, Network::AgentList* next_agents, Network::Agent* agent) {
-				float2 forw = rotate2(agent->cit->_rot) * float2(0,1);
 
+			return s;
+		};
+
+		auto update_agent = [&] (Network::Agent* agent) {
+
+			auto brake_for_cars = [&] (Network::AgentList* agents, Network::AgentList* next_agents, Network::Agent* agent) {
 				float min_dist = INF;
-				if (agents) {
-					for (auto& a : agents->list) {
-						float2 offs = a->cit->_pos - agent->cit->_pos;
-						float d = dot(forw, offs);
-						if (d > 0.0f) // in front of us
-							min_dist = min(min_dist, length(offs));
+			
+				float2 forw = rotate2(agent->cit->_rot) * float2(0,1);
+				float cone_dot = cos(cone);
+
+				bool has_priority = false;
+				bool priority = false;
+			
+				auto check = [&] (Network::Agent* other) {
+					assert(agent != other);
+					
+					float2 offs = other->cit->_pos - agent->cit->_pos;
+					float2 dir = normalize(offs);
+					
+					float y = dot(forw, dir);
+					
+					//if (y > cone_dot) // in cone
+					if (y > 0.0f) { // in cone
+						min_dist = min(min_dist, length(offs));
+						priority = has_priority;
 					}
-				}
+				};
+				
+				// checks car against all higher priority cars (cars that came first)
 				if (next_agents) {
 					for (auto& a : next_agents->list) {
-						float2 offs = a->cit->_pos - agent->cit->_pos;
-						float d = dot(forw, offs);
-						if (d > 0.0f) // in front of us
-							min_dist = min(min_dist, length(offs));
+						assert(a != agent); // cant be in this list
+						check(a);
 					}
 				}
-				return min_dist;
+				if (agents) {
+					for (auto& a : agents->list) {
+						//// don't check ourself or any cars that cam after us
+						//if (a == agent) break;
+						if (a == agent)
+							break;
+						else
+							check(a);
+					}
+				}
+
+				min_dist -= CAR_SIZE + 1;
+
+				return brake_for_dist(min_dist);
 			};
 
-			//auto spaces_avail_in_lane = [] (Network::SegLane* seg) {
-			//	if (!seg) return INT_MAX;
-			//
-			//	float last = 1.0f;
-			//	for (auto& a : seg->seg->agents.lanes[seg->lane]) {
-			//		if (a->cur_t < last) {
-			//			last = a->cur_t;
-			//		}
-			//	}
-			//	return (int)(last * 10.0f); // TODO: ???
-			//};
+			auto s = get_agent_state(agent);
 
 			{ // move
-				float car_length = 4.0f; // approx car length + seperation
-				
-				float dist_to_next = dist_to_next_agent(cur_agents, next_agents, agent) - car_length;
-				float slowdown = clamp(map(dist_to_next, 0.0f, 8.0f), 0.0f, 1.0f);
+				float brake = brake_for_cars(s.cur_agents, s.next_agents, agent);
+				brake = min(brake, agent->_break);
 
-				auto bez = bezier3(agent->cur_t, (float2)bezier.a, (float2)bezier.b, (float2)bezier.c);
+				auto bez = bezier3(agent->cur_t, (float2)s.bezier.a, (float2)s.bezier.b, (float2)s.bezier.c);
 				float bez_speed = length(bez.vel); // delta pos / bezier t
 
 			
-				agent->cit->_pos = float3(bez.pos, bezier.a.z);
+				agent->cit->_pos = float3(bez.pos, s.bezier.a.z);
 				agent->cit->_rot = bez_speed > 0 ? atan2f(-bez.vel.x, bez.vel.y) : 0; // atan with roated axes since rot=0 should be +y in my convention
 
 				// (delta pos / delta time)[speed] * time[dt] / (delta pos / bezier delta t)[bez_speed]
 				// -> delta t
-				agent->cur_t += speed * input.dt * slowdown / bez_speed;
+				agent->cur_t += speed * input.dt * brake / bez_speed;
 			}
 			
-			if (agent->cur_t >= end_t) {
+			if (agent->cur_t >= s.end_t) {
 				agent->idx++;
-				agent->cur_t = next_start_t;
+				agent->cur_t = s.next_start_t;
 
-				if (cur_agents)  cur_agents ->remove(agent);
-				if (next_agents) next_agents->add(agent);
+				if (s.cur_agents)  s.cur_agents ->remove(agent);
+				if (s.next_agents) s.next_agents->add(agent);
 
-				if (state == ENTER_BUILDING) {
+				if (s.state == ENTER_BUILDING) {
 					// end path
 					agent->cit->building = agent->end;
 					agent->cit->path = nullptr;
@@ -878,49 +1006,92 @@ struct App : public Engine {
 		
 		if (!sim_paused) {
 			for (auto& cit : entities.citizens) {
-				if (cit->building) {
-					auto* cur_target = entities.buildings[ random.uniformi(0, (int)entities.buildings.size()) ].get();
-					
-					cit->_pos = cit->building->pos;
-					cit->_rot = 0;
+				if (cit->building) continue;
+				cit->path->_break = 1;
+			}
+			
+			int i = 0;
+			for (auto& node : net.nodes) {
+				bool dbg = dbg_node == i++;
 
-					assert(cit->building->connected_segment);
-					if (cit->building->connected_segment) {
-						ZoneScopedN("pathfind");
-
-						auto path = std::make_unique<Network::Agent>();
-						path->cit = cit.get();
-						path->start = cit->building;
-						path->end   = cur_target;
-						bool valid = net.pathfind(cit->building->connected_segment, cur_target->connected_segment, path.get());
-
-						pathing_count++;
-
-						if (valid) {
-							cit->building = nullptr;
-							cit->path = std::move(path);
-						}
+				Network::for_outgoing_lanes(node.get(), [&] (Network::SegLane lane_out) {
+					float avail_space = lane_out.seg->length;
+					for (auto* a : lane_out.seg->agents.lanes[lane_out.lane].list) {
+						avail_space -= CAR_SIZE + 1; // Use real car length for specific car here
 					}
+
+					Network::for_ingoing_lanes(node.get(), [&] (Network::SegLane lane_in) {
+						auto& agents = lane_in.seg->agents.lanes[lane_in.lane];
+						
+						float2 lane_end = (float2)lane_in.seg->clac_lane_info(lane_in.lane).b;
+						
+						for (auto* agent : agents.list) {
+							auto s = get_agent_state(agent);
+
+							if (!s.seg_after_node || *s.seg_after_node != lane_in) continue;
+
+							if (avail_space < CAR_SIZE) {
+								float dist = distance((float2)agent->cit->_pos, lane_end) - CAR_SIZE*0.5f;
+								agent->_break = min(agent->_break, brake_for_dist(dist));
+
+								avail_space -= CAR_SIZE + 1;
+							}
+						}
+					});
+				});
+			}
+
+			for (auto& cit : entities.citizens) {
+				if (cit->building) {
+					do_pathfind(cit.get());
 				}
 				else {
 					update_agent(cit->path.get());
 				}
-			
-				//float rad = cit == entities.citizens[0] ? 5.0f : 2.0f;
-				//renderer->dbgdraw.cylinder(cur_pos, rad, 1.7f, lrgba(cit->col, 1), 8);
 			}
 		}
 
-		if (dbg_segment >= 0 && dbg_segment < (int)net.segments.size()) {
-			auto& seg = net.segments[dbg_segment];
+		if (dbg_node >= 0 && dbg_node < (int)net.nodes.size()) {
+			auto& node = net.nodes[dbg_node];
 			
-			renderer->dbgdraw.line(seg->node_a->pos, seg->node_b->pos, lrgba(1,1,0,1));
+			renderer->dbgdraw.wire_circle(node->pos, 8, lrgba(1,1,0,1));
 
-			for (auto& lane : seg->agents.lanes) {
-				for (auto& agent : lane.list) {
-					renderer->dbgdraw.wire_circle(agent->cit->_pos, 2, lrgba(1,1,0,1));
-				}
-			}
+			Network::for_outgoing_lanes(node.get(), [&] (Network::SegLane lane_out) {
+				auto li = lane_out.seg->clac_lane_info(lane_out.lane);
+
+				renderer->dbgdraw.line(li.a, li.b, lrgba(1,1,0,1));
+			});
+
+			// TODO: dbg draw all node lane connections
+			
+			int col_i = 0;
+			Network::for_ingoing_lanes(node.get(), [&] (Network::SegLane lane_in) {
+				auto l0 = lane_in.seg->clac_lane_info(lane_in.lane);
+				
+				lrgba col = renderer->dbgdraw.COLS[col_i++ % ARRLEN(renderer->dbgdraw.COLS)];
+				
+				Network::for_outgoing_lanes(node.get(), [&] (Network::SegLane lane_out) {
+					auto l1 = lane_out.seg->clac_lane_info(lane_out.lane);
+				
+					float2 point;
+					if (!line_line_intersect((float2)l0.a, (float2)l0.b, (float2)l1.a, (float2)l1.b, &point))
+						point = (l0.b+l1.a)*0.5f;
+					
+					Bezier3 bezier = { l0.b, float3(point, l0.a.z), l1.a };
+
+					int count = 10;
+					float2 prev = (float2)bezier.a;
+					for (int i=0; i<count; ++i) {
+						float t = (float)(i+1) / count;
+
+						auto res = bezier3(t, (float2)bezier.a, (float2)bezier.b, (float2)bezier.c);
+						
+						renderer->dbgdraw.line(float3(prev, bezier.a.z), float3(res.pos, bezier.a.z), col);
+
+						prev = res.pos;
+					}
+				});
+			});
 		}
 	}
 

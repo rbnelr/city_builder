@@ -32,15 +32,15 @@ struct TriRenderer {
 	std::vector<Vertex>   verticies;
 	std::vector<uint16_t> indices;
 
-	void push_path (float2 forw, float2 right, float3 a, float3 b, float width, float offset, float shift, float z, float4 col) {
+	void push_path (float2 forw, float2 right, float3 a, float3 b, float width, float2 offsets, float shift, float z, float4 col) {
 		uint16_t idx = (uint16_t)verticies.size();
 		
 		float2 half_width = width*0.5f;
 
-		float3 a0 = a + float3(right * (shift - half_width) + forw * offset, z);
-		float3 a1 = a + float3(right * (shift + half_width) + forw * offset, z);
-		float3 b0 = b + float3(right * (shift - half_width) - forw * offset, z);
-		float3 b1 = b + float3(right * (shift + half_width) - forw * offset, z);
+		float3 a0 = a + float3(right * (shift - half_width) + forw * offsets[0], z);
+		float3 a1 = a + float3(right * (shift + half_width) + forw * offsets[0], z);
+		float3 b0 = b + float3(right * (shift - half_width) - forw * offsets[1], z);
+		float3 b1 = b + float3(right * (shift + half_width) - forw * offsets[1], z);
 
 		auto* pv = push_back(verticies, 4);
 		pv[0] = { a0, float2(0,0), col };
@@ -72,20 +72,17 @@ struct TriRenderer {
 		for (auto& seg : net.segments) {
 			auto v = seg->clac_seg_vecs();
 			float width = seg->layout->width;
-			float offs = width * 0.5f;
+			float2 offsets = { seg->node_a->radius, seg->node_b->radius };
 
-			push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos, width, offs, 0.0f, 0.05f, lrgba(lrgb(0.05f), 1.0f));
+			push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos, width, offsets, 0.0f, 0.05f, lrgba(lrgb(0.05f), 1.0f));
 			
 			for (auto& lane : seg->layout->lanes) {
-				push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos, lane.width, offs, lane.shift, 0.10f, lrgba(lrgb(0.08f), 1.0f));
+				push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos, lane.width, offsets, lane.shift, 0.10f, lrgba(lrgb(0.08f), 1.0f));
 			}
 		}
 
 		for (auto& node : net.nodes) {
-			float width = net.segments[0]->layout->width;
-			float offs = width * 0.5f;
-
-			push_node(node->pos, offs, 0.05f, lrgba(lrgb(0.05f), 1.0f));
+			push_node(node->pos, node->radius, 0.05f, lrgba(lrgb(0.05f), 1.0f));
 		}
 	}
 

@@ -761,9 +761,9 @@ struct OglRenderer : public Renderer {
 			car_renderer.upload_meshes(app.assets.cars);
 		}
 
-		network_renderer.update(app.net);
-
 		if (app.entities.buildings_changed) {
+			network_renderer.update(app.net);
+
 			building_renderer.update_instances([&] () {
 				std::vector<decltype(building_renderer)::MeshInstance> instances;
 				instances.resize(app.entities.buildings.size());

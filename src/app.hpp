@@ -220,11 +220,11 @@ struct Network {
 		Node* node_a;
 		Node* node_b;
 
-		float length; // for pathfinding
+		float lane_length; // length of segment - node radii
 		SegAgents agents;
 
 		void update_cached () {
-			length = distance(node_a->pos, node_b->pos);
+			lane_length = distance(node_a->pos, node_b->pos) - (node_a->radius + node_b->radius);
 		}
 		
 		// Segment direction vectors
@@ -305,8 +305,8 @@ struct Network {
 		// TODO: could actually start only on the lane facing the target building
 		//  (ie. don't allow crossing the road middle)
 		{ // handle the two start nodes
-			start->node_a->_cost = start->length / 0.5f; // pretend start point is at center of start segment for now
-			start->node_b->_cost = start->length / 0.5f;
+			start->node_a->_cost = start->lane_length / 0.5f; // pretend start point is at center of start segment for now
+			start->node_b->_cost = start->lane_length / 0.5f;
 		}
 
 		unvisited.push(start->node_a);
@@ -335,7 +335,7 @@ struct Network {
 
 					if (lane.direction == dir) { // TODO: could cache list to avoid this check and iterate half as many lanes
 
-						float new_cost = cur_node->_cost + seg->length;
+						float new_cost = cur_node->_cost + seg->lane_length + seg->node_a->radius + seg->node_b->radius; // TODO: ??
 						if (new_cost < other_node->_cost) {
 							other_node->_pred      = cur_node;
 							other_node->_pred_seg  = { seg, i };
@@ -895,6 +895,7 @@ struct App : public Engine {
 
 					s.cur_agents = &node->agents.free;
 					s.next_agents = &seg2->seg->agents.lanes[seg2->lane];
+					s.seg_after_node = seg2;
 
 					float2 point;
 					if (!line_line_intersect((float2)l.a, (float2)l.b, (float2)l2.a, (float2)l2.b, &point))
@@ -927,7 +928,7 @@ struct App : public Engine {
 					
 					float y = dot(forw, dir);
 					
-					//if (y > cone_dot) // in cone
+					//if (y > cone_dot) { // in cone
 					if (y > 0.0f) { // in cone
 						min_dist = min(min_dist, length(offs));
 						priority = has_priority;
@@ -1010,16 +1011,39 @@ struct App : public Engine {
 				cit->path->_break = 1;
 			}
 			
-			int i = 0;
+			int col_i=0, dbg_i=0;
+
 			for (auto& node : net.nodes) {
-				bool dbg = dbg_node == i++;
+				bool dbg = dbg_node == dbg_i++;
 
 				Network::for_outgoing_lanes(node.get(), [&] (Network::SegLane lane_out) {
-					float avail_space = lane_out.seg->length;
+					lrgba col = renderer->dbgdraw.COLS[col_i++ % ARRLEN(renderer->dbgdraw.COLS)];
+					
+					float avail_space = lane_out.seg->lane_length;
 					for (auto* a : lane_out.seg->agents.lanes[lane_out.lane].list) {
+						if (dbg) {
+							auto p = lane_out.seg->clac_lane_info(lane_out.lane);
+							auto pos = lerp(p.a, p.b, avail_space / lane_out.seg->lane_length);
+							renderer->dbgdraw.point(pos, 1, col);
+						}
+
+						avail_space -= CAR_SIZE + 1; // Use real car length for specific car here
+					}
+					for (auto* a : node->agents.free.list) {
+						auto s = get_agent_state(a);
+						if (*s.seg_after_node != lane_out) continue;
+
+						if (dbg) {
+							auto p = lane_out.seg->clac_lane_info(lane_out.lane);
+							auto pos = lerp(p.a, p.b, avail_space / lane_out.seg->lane_length);
+							renderer->dbgdraw.point(pos, 1, col);
+						}
+
 						avail_space -= CAR_SIZE + 1; // Use real car length for specific car here
 					}
 
+					if (dbg) ImGui::TextColored(ImVec4(col.x, col.y, col.z, col.w), "%.3f / %.3f", avail_space, lane_out.seg->lane_length);
+					
 					Network::for_ingoing_lanes(node.get(), [&] (Network::SegLane lane_in) {
 						auto& agents = lane_in.seg->agents.lanes[lane_in.lane];
 						
@@ -1028,7 +1052,7 @@ struct App : public Engine {
 						for (auto* agent : agents.list) {
 							auto s = get_agent_state(agent);
 
-							if (!s.seg_after_node || *s.seg_after_node != lane_in) continue;
+							if (!s.seg_after_node || *s.seg_after_node != lane_out) continue;
 
 							if (avail_space < CAR_SIZE) {
 								float dist = distance((float2)agent->cit->_pos, lane_end) - CAR_SIZE*0.5f;
@@ -1054,7 +1078,7 @@ struct App : public Engine {
 		if (dbg_node >= 0 && dbg_node < (int)net.nodes.size()) {
 			auto& node = net.nodes[dbg_node];
 			
-			renderer->dbgdraw.wire_circle(node->pos, 8, lrgba(1,1,0,1));
+			renderer->dbgdraw.wire_circle(node->pos, node->radius, lrgba(1,1,0,1));
 
 			Network::for_outgoing_lanes(node.get(), [&] (Network::SegLane lane_out) {
 				auto li = lane_out.seg->clac_lane_info(lane_out.lane);

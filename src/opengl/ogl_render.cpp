@@ -62,7 +62,7 @@ struct TriRenderer {
 		render::shapes::push_quad_indices<uint16_t>(indices, idx+0u, idx+1u, idx+2u, idx+3u);
 	}
 
-	void update (Network& net) {
+	void update (network::Network& net) {
 
 		verticies.clear();
 		verticies.shrink_to_fit();
@@ -278,7 +278,7 @@ struct OglRenderer : public Renderer {
 			int2 prev_bound1 = 0;
 			
 			if (dbg)
-				r.dbgdraw.wire_quad(float3(0), (float2)MAP_SZ, lrgba(0,0,0,1));
+				g_dbgdraw.wire_quad(float3(0), (float2)MAP_SZ, lrgba(0,0,0,1));
 
 			// iterate lods
 			for (int lod=base_lod;; lod++) {
@@ -332,7 +332,7 @@ struct OglRenderer : public Renderer {
 						continue;
 					
 					if (dbg)
-						r.dbgdraw.wire_quad(float3((float2)int2(x,y), 0), (float2)(float)sz, render::DebugDraw::COLS[wrap(lod, ARRLEN(render::DebugDraw::COLS))]);
+						g_dbgdraw.wire_quad(float3((float2)int2(x,y), 0), (float2)(float)sz, g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))]);
 
 					// draw chunk with this lod
 					shad->set_uniform("offset", float2(int2(x,y)));
@@ -847,7 +847,7 @@ struct OglRenderer : public Renderer {
 
 			//terrain_renderer.render_ocean(g, *this);
 
-			gl_dbgdraw.render(state, dbgdraw);
+			gl_dbgdraw.render(state, g_dbgdraw);
 		}
 
 		// 

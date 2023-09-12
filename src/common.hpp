@@ -45,12 +45,17 @@
 #include "assert.h"
 #include "stdio.h"
 
+#include <memory>
 #include <cmath>
 #include <string>
 #include <string_view>
 #include <vector>
 #include <unordered_map>
-#include <memory>
+#include <unordered_set>
+#include <queue>
+
+#include <variant>
+
 
 // kisslib
 #include "engine/kisslib/kissmath.hpp"
@@ -80,6 +85,8 @@ using namespace kiss;
 #include "dear_imgui.hpp"
 #include "engine.hpp"
 #include "engine/agnostic_render.hpp"
+
+inline render::DebugDraw g_dbgdraw; // really need something like this to be global
 
 inline void imgui_style () {
 	auto& style = ImGui::GetStyle();

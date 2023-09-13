@@ -17,6 +17,11 @@ struct Node;
 struct Segment;
 struct Agent;
 	
+
+struct Line {
+	float3 a, b;
+};
+
 struct SegLane {
 	Segment* seg;
 	int      lane;
@@ -27,6 +32,8 @@ struct SegLane {
 	inline bool operator!= (SegLane const& r) const {
 		return seg != r.seg || lane != r.lane;
 	}
+	
+	Line clac_lane_info ();
 };
 
 struct Agent {
@@ -35,7 +42,7 @@ struct Agent {
 	float cur_t = 0;
 	int   idx = 0;
 
-	float _break;
+	float brake;
 		
 	std::vector<Node*>   nodes;
 	std::vector<SegLane> segments;
@@ -79,30 +86,39 @@ struct Node {
 
 	NodeAgents agents;
 	
-	template <typename FUNC>
-	void for_outgoing_lanes (FUNC func) const {
-		for (auto* seg : segments) {
-			int dir = this == seg->node_a ? 0 : 1;
-			for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
-				auto& lane = seg->layout->lanes[i];
-				if (lane.direction == dir) {
-					func(SegLane{ seg, i });
-				}
-			}
-		}
-	}
-	template <typename FUNC>
-	void for_ingoing_lanes (FUNC func) const {
-		for (auto* seg : segments) {
-			int dir = this == seg->node_a ? 1 : 0;
-			for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
-				auto& lane = seg->layout->lanes[i];
-				if (lane.direction == dir) {
-					func(SegLane{ seg, i });
-				}
-			}
-		}
-	}
+	//template <typename FUNC>
+	//void for_outgoing_lanes (FUNC func) const {
+	//	for (auto* seg : segments) {
+	//		int dir = this == seg->node_a ? 0 : 1;
+	//		for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
+	//			auto& lane = seg->layout->lanes[i];
+	//			if (lane.direction == dir) {
+	//				func(SegLane{ seg, i });
+	//			}
+	//		}
+	//	}
+	//}
+	//template <typename FUNC>
+	//void for_ingoing_lanes (FUNC func) const {
+	//	for (auto* seg : segments) {
+	//		int dir = this == seg->node_a ? 1 : 0;
+	//		for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
+	//			auto& lane = seg->layout->lanes[i];
+	//			if (lane.direction == dir) {
+	//				func(SegLane{ seg, i });
+	//			}
+	//		}
+	//	}
+	//}
+
+	// TODO: can we get this info without needing so much memory
+	std::vector<SegLane> in_lanes;
+	std::vector<SegLane> out_lanes;
+	
+	// NOTE: this allows U-turns
+	int num_conns () { return (int)in_lanes.size() * (int)out_lanes.size(); }
+	
+	void update_cached ();
 	
 	SelCircle get_sel_shape () {
 		return { pos, radius, lrgb(0.04f, 0.04f, 1) };
@@ -132,22 +148,39 @@ struct Segment { // better name? Keep Path and call path Route?
 		float2 right = rotate90(-forw); // cw rotate
 		return { forw, right };
 	}
-
-	struct Line {
-		float3 a, b;
-	};
-	Line clac_lane_info (int lane_i) {
-		auto v = clac_seg_vecs();
-
-		auto& lane = layout->lanes[lane_i];
-
-		float3 a = node_a->pos + float3(v.right * lane.shift + v.forw * node_a->radius, 0);
-		float3 b = node_b->pos + float3(v.right * lane.shift - v.forw * node_b->radius, 0);
-
-		if (lane.direction == 0) return { a, b };
-		else                     return { b, a };
-	}
 };
+inline Line SegLane::clac_lane_info () {
+	auto v = seg->clac_seg_vecs();
+
+	auto& l = seg->layout->lanes[lane];
+
+	float3 a = seg->node_a->pos + float3(v.right * l.shift + v.forw * seg->node_a->radius, 0);
+	float3 b = seg->node_b->pos + float3(v.right * l.shift - v.forw * seg->node_b->radius, 0);
+
+	if (l.direction == 0) return { a, b };
+	else                  return { b, a };
+}
+
+//inline float lane_angle (Node* node, SegLane& lane) {
+//	return atan2f();
+//}
+
+inline void Node::update_cached () {
+	for (auto* seg : segments) {
+		int dir = this == seg->node_a ? 0 : 1; // 0: segment points 'away' from this node
+
+		for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
+			auto& lane = seg->layout->lanes[i];
+
+			auto& vec = lane.direction == dir ? out_lanes : in_lanes;
+			vec.push_back(SegLane{ seg, i });
+		}
+	}
+
+	//std::sort(in_lanes.begin(), in_lanes.end(), [] (SegLane& l, SegLane& r) {
+	//	return std::less<float>()( l.clac_lane_info(). );
+	//});
+}
 
 struct Network {
 	std::vector<std::unique_ptr<Node>> nodes;

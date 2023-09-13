@@ -120,6 +120,14 @@ struct App : public Engine {
 
 	Random test_rand;
 
+	sel_ptr selection;
+	
+	template <typename T>
+	void clear_sel () {
+		if (selection.get<T>())
+			selection = nullptr;
+	}
+
 	void spawn () {
 		using namespace network;
 
@@ -141,6 +149,9 @@ struct App : public Engine {
 		if (buildings) {
 			ZoneScopedN("spawn buildings");
 
+			clear_sel<Node*>();
+			//clear_sel<Segment*>();
+
 			entities.buildings.clear();
 			net = {};
 
@@ -159,11 +170,12 @@ struct App : public Engine {
 			auto* road_layout = assets.road_layouts[0].get();
 			
 			float node_r = road_layout->width*0.5f * intersection_scale;
+			float2 spacing = float2(50, 50) + node_r;
 
 			// create path nodes grid
 			for (int y=0; y<buildings_n+1; ++y)
 			for (int x=0; x<buildings_n+1; ++x) {
-				float3 pos = base_pos + float3((float)x,(float)y,0) * float3(40 + node_r, 25 + node_r, 0);
+				float3 pos = base_pos + float3((float)x,(float)y,0) * float3(spacing, 0);
 				net.nodes[y * (buildings_n+1) + x] = std::make_unique<Node>(Node{pos, node_r});
 			}
 			
@@ -199,13 +211,18 @@ struct App : public Engine {
 				}
 			}
 
+			for (auto& node : net.nodes) {
+				node->update_cached(); // update seg connections
+			}
+
 			for (int y=0; y<buildings_n; ++y)
 			for (int x=0; x<buildings_n; ++x) {
 				Random rand(hash(int2(x,y))); // position-based rand
 				auto* asset = rand.uniformi(0, 2) ? house0 : house1;
 
-				float3 pos = base_pos + (float3((float)x,(float)y,0) + float3(0.5f)) * float3(40 + node_r, 25 + node_r, 0);
-				auto& build = entities.buildings.emplace_back(std::make_unique<Building>(Building{ asset, pos }));
+				float3 pos = base_pos + (float3((float)x,(float)y,0) + float3(0.5f)) * float3(spacing, 0);
+				float rot = deg(90);
+				auto& build = entities.buildings.emplace_back(std::make_unique<Building>(Building{ asset, pos, rot }));
 
 				auto* a = get_node(x, y);
 				auto* b = get_node(x+1, y);
@@ -227,7 +244,7 @@ struct App : public Engine {
 		if (citizens) {
 			ZoneScopedN("spawn citizens");
 
-			auto* car_asset = assets.cars[0].get();
+			clear_sel<Citizen*>();
 
 			// remove references
 			for (auto& node : net.nodes) {
@@ -244,6 +261,8 @@ struct App : public Engine {
 
 			Random rand(0);
 			test_rand = Random(0);
+
+			auto* car_asset = assets.cars[0].get();
 
 			if (entities.buildings.size() > 0) {
 				for (int i=0; i<citizens_n; ++i) {
@@ -283,8 +302,6 @@ struct App : public Engine {
 
 		net.imgui();
 	}
-
-	sel_ptr selection;
 
 	void update_selection () {
 		Ray ray;
@@ -368,8 +385,8 @@ struct App : public Engine {
 	virtual void frame () {
 		ZoneScoped;
 		
-		renderer->begin(*this);
 		g_dbgdraw.clear();
+		renderer->begin(*this);
 
 		update();
 

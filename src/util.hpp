@@ -1,6 +1,10 @@
 #pragma once
 #include "common.hpp"
 
+inline float angle2d (float2 dir) {
+	return length_sqr(dir) > 0 ? atan2f(dir.y, dir.x) : 0;
+}
+
 struct BezierRes {
 	float2 pos;
 	float2 vel;   // velocity (over bezier t)
@@ -132,16 +136,23 @@ inline bool intersect_circle_ray (float3 pos, float r, Ray const& ray, float* hi
 
 template <typename... TYPES>
 struct NullableVariant {
-	std::variant<std::nullptr_t, TYPES...> var;
-
+	typedef std::monostate null_t;
+	std::variant<null_t, TYPES...> var;
 
 	template <typename T>
-	NullableVariant (T x) {
-		if (x == nullptr) var = nullptr;
-		else var = x;
+	NullableVariant (T ref) {
+		assert((bool)ref); // Assert that normal references are never null (should have assigned nullptr instead)
+		var = ref;
 	}
 
-	NullableVariant () {}
+	template<>
+	NullableVariant (nullptr_t ref) {
+		var = null_t();
+	}
+
+	NullableVariant () {
+		var = null_t();
+	}
 
 	template<typename... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 	template<typename... Ts> overloaded(Ts...) -> overloaded<Ts...>;
@@ -149,7 +160,7 @@ struct NullableVariant {
 	template <typename FUNC>
 	auto visit (FUNC func) {
 		return std::visit(overloaded{
-			[] (std::nullptr_t x) { assert(false); _UNREACHABLE; },
+			[] (null_t x) { assert(false); _UNREACHABLE; },
 			func,
 		}, var);
 	}

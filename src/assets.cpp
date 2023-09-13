@@ -5,6 +5,9 @@
 #include "assimp/scene.h"
 #include "assimp/postprocess.h"
 
+// TODO: Why did I not use blender files directly?
+// I think there might have been some issues with trying to do that?
+
 namespace assimp {
 	void print_scene (aiNode const* node, int depth, float4x4 const& transform) {
 		auto& t = node->mTransformation;

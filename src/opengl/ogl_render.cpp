@@ -5,6 +5,7 @@
 #include "agnostic_render.hpp"
 #include "gl_dbgdraw.hpp"
 #include "render_passes.hpp"
+#include "engine/text_render.hpp"
 
 namespace ogl {
 
@@ -128,7 +129,7 @@ struct OglRenderer : public Renderer {
 			ImGui::Checkbox("reverse_depth", &ogl::reverse_depth);
 		#endif
 
-			gl_dbgdraw.imgui();
+			gl_dbgdraw.imgui(g_dbgdraw.text);
 
 			lod.imgui();
 
@@ -140,6 +141,8 @@ struct OglRenderer : public Renderer {
 	}
 
 	StateManager state;
+
+	glDebugDraw gl_dbgdraw;
 	
 	struct Lighting {
 		SERIALIZE(Lighting, sun_col, sky_col, fog_col, fog_base, fog_falloff)
@@ -205,7 +208,6 @@ struct OglRenderer : public Renderer {
 
 	Lighting lighting;
 
-	glDebugDraw gl_dbgdraw;
 
 	struct TerrainRenderer {
 		
@@ -577,7 +579,7 @@ struct OglRenderer : public Renderer {
 
 		// All meshes/lods vbo (indexed) GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER
 		// All entities instance data GL_ARRAY_BUFFER
-		VertexBufferInstancedI vbo = vertex_buffer_instacedI<vert_t, MeshInstance>("meshes");
+		VertexBufferInstancedI vbo = vertex_buffer_instancedI<vert_t, MeshInstance>("meshes");
 		
 		Ssbo ssbo_mesh_info = {"mesh_info"};
 		Ssbo ssbo_mesh_lod_info = {"mesh_lod_info"};
@@ -731,7 +733,7 @@ struct OglRenderer : public Renderer {
 		Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
 	
 		//Sampler sampler_heightmap = sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
-		Sampler sampler_normal = sampler("sampler_normal",    FILTER_MIPMAPPED, GL_REPEAT, true);
+		Sampler sampler_normal = sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
 
 		Texture2D house_diffuse = load_texture<srgb8>("house_diffuse", "buildings/house.png");
 		Texture2D car_diffuse = load_texture<srgb8>("car_diffuse", "cars/car.png");
@@ -751,7 +753,8 @@ struct OglRenderer : public Renderer {
 	}
 	
 	virtual void begin (App& app) {
-		
+		ZoneScoped;
+		gl_dbgdraw.gl_text_render.begin(g_dbgdraw.text); // upload text and init data structures to allow text printing
 	}
 	virtual void end (App& app) {
 		ZoneScoped;
@@ -773,7 +776,7 @@ struct OglRenderer : public Renderer {
 
 					instances[i].mesh_id = building_renderer.asset2mesh_id[entity->asset];
 					instances[i].pos = entity->pos;
-					instances[i].rot = 0;
+					instances[i].rot = entity->rot;
 					instances[i].col = 1;
 				}
 

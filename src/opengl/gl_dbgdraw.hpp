@@ -3,6 +3,86 @@
 #include "agnostic_render.hpp"
 
 namespace ogl {
+	
+struct glTextRenderer {
+	Shader* shad;
+	Texture2D atlas_tex = {"TextRenderer::atlas_tex"};
+	
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<TextRenderer::GlyphQuad, TextRenderer::GlyphInstance>("text");
+
+	glTextRenderer () {
+		upload_buffer(GL_ARRAY_BUFFER        , vbo.vbo, sizeof(TextRenderer::GLYPH_QUAD), TextRenderer::GLYPH_QUAD);
+		upload_buffer(GL_ELEMENT_ARRAY_BUFFER, vbo.ebo, sizeof(render::shapes::QUAD_INDICES), render::shapes::QUAD_INDICES);
+	}
+	
+	void upload_texture (Image<uint8_t>& atlas, int2 atlas_size) {
+		ZoneScoped;
+
+		glBindTexture(GL_TEXTURE_2D, atlas_tex);
+
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, atlas_size.x, atlas_size.y, 0, GL_RED, GL_UNSIGNED_BYTE, atlas.pixels);
+
+		glGenerateMipmap(GL_TEXTURE_2D);
+
+		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, mipmaps);
+
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	void begin (TextRenderer& text) {
+		text.begin();
+		if (text.texture_changed) {
+			shad = g_shaders.compile("text", {{"SDF", text.enable_sdf ? "1":"0"}});
+
+			auto atlas_img = text.generate_tex();
+			upload_texture(atlas_img, text.atlas_size);
+
+			text.texture_changed = false;
+		}
+	}
+
+	void render (StateManager& state, TextRenderer& text) {
+		OGL_TRACE("TextRenderer")
+		ZoneScoped;
+
+		glUseProgram(shad->prog);
+
+		PipelineState s;
+		s.depth_test = false;
+		s.blend_enable = true; 
+		s.blend_func.equation = GL_FUNC_ADD; 
+		s.blend_func.sfactor = GL_ONE; // for outlined SDF math it's simpler to multiply alpha ourselves
+		s.blend_func.dfactor = GL_ONE_MINUS_SRC_ALPHA;
+		state.set(s);
+
+		state.bind_textures(shad, {
+			{ "atlas_tex", atlas_tex }
+		});
+
+		if (text.enable_sdf) {
+			shad->set_uniform("sdf_onedge", (float)text.sdf_onedge / 255.0f);
+			shad->set_uniform("sdf_scale", 255.0f / text.sdf_scale);
+
+			shad->set_uniform("sdf_outline_w", text.sdf_outline ? text.sdf_outline_w : 0.0f);
+			shad->set_uniform("sdf_outline_col", text.sdf_outline_col);
+			shad->set_uniform("sdf_grow", text.sdf_grow);
+		}
+
+		vbo.stream_instances(text.glyph_instances);
+
+		glBindVertexArray(vbo.vao);
+		glDrawElementsInstanced(GL_TRIANGLES, (GLsizei)ARRLEN(render::shapes::QUAD_INDICES),
+			GL_UNSIGNED_SHORT, (void*)0, (GLsizei)text.glyph_instances.size());
+	}
+};
 
 struct glDebugDraw {
 	bool wireframe          = false;
@@ -16,6 +96,8 @@ struct glDebugDraw {
 
 	VertexBuffer vbo_lines = vertex_buffer<render::DebugDraw::LineVertex>("Dbg.LineVertex");
 	VertexBuffer vbo_tris  = vertex_buffer<render::DebugDraw::TriVertex>("Dbg.TriVertex");
+
+	glTextRenderer gl_text_render;
 
 
 	//VertexBufferInstancedI vbo_wire_cube   = indexed_instanced_buffer<DebugDraw::PosVertex, DebugDraw::Instance>("DebugDraw.vbo_wire_cube");
@@ -160,7 +242,7 @@ struct glDebugDraw {
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
 
-	void imgui () {
+	void imgui (TextRenderer& text) {
 		if (ImGui::TreeNode("Debug Draw")) {
 
 			ImGui::Checkbox("wireframe", &wireframe);
@@ -175,6 +257,8 @@ struct glDebugDraw {
 			_clear_indirect = ImGui::Button("clear_indirect") || _clear_indirect;
 			ImGui::SameLine();
 			ImGui::Checkbox("accum_indirect", &accum_indirect);
+
+			text.imgui();
 
 			ImGui::TreePop();
 		}
@@ -232,6 +316,9 @@ struct glDebugDraw {
 		}
 		
 		glBindVertexArray(0);
+
+		
+		gl_text_render.render(state, dbg.text);
 	}
 };
 

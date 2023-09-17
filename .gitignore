@@ -1,9 +1,9 @@
 /msvc/*
 
-!/msvc/ships.sln
-!/msvc/ships.vcxproj
-!/msvc/ships.vcxproj.filters
-!/msvc/ships.vcxproj.user
+!/msvc/city_builder.sln
+!/msvc/city_builder.vcxproj
+!/msvc/city_builder.vcxproj.filters
+!/msvc/city_builder.vcxproj.user
 
 textures/*
 

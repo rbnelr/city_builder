@@ -81,6 +81,37 @@ struct Entities {
 };
 
 
+struct Test {
+	float2 a = float2(0, 0);
+	float2 b = float2(50, 50);
+	float2 c = float2(0, 50);
+	float2 d = float2(50, 0);
+
+	void update () {
+		ImGui::DragFloat2("a", &a.x, 1);
+		ImGui::DragFloat2("b", &b.x, 1);
+		ImGui::DragFloat2("c", &c.x, 1);
+		ImGui::DragFloat2("d", &d.x, 1);
+
+		float u, v;
+		float dist = sqrt(line_line_dist_sqr(a, b, c, d, &u, &v));
+
+		g_dbgdraw.point(float3(a,0), 5, lrgba(1,0,0,1));
+		g_dbgdraw.point(float3(b,0), 5, lrgba(1,1,0,1));
+		g_dbgdraw.point(float3(c,0), 5, lrgba(0,1,0,1));
+		g_dbgdraw.point(float3(d,0), 5, lrgba(0,0,1,1));
+		
+		g_dbgdraw.line(float3(a,0), float3(b,0), lrgba(1,0,0,1));
+		g_dbgdraw.line(float3(c,0), float3(d,0), lrgba(0,1,0,1));
+
+		float2 j = a + (b-a)*u;
+		float2 k = c + (d-c)*v;
+		g_dbgdraw.line(float3(j,0), float3(k,0), lrgba(0,1,1,1));
+
+		g_dbgdraw.point(float3(j,0), 5, lrgba(0,1,1,1));
+	}
+};
+
 struct App : public Engine {
 
 	App (): Engine{"Kiss-Framework Project"} {}
@@ -119,6 +150,8 @@ struct App : public Engine {
 	bool sim_paused = false;
 
 	Random test_rand;
+
+	Test test;
 
 	sel_ptr selection;
 	
@@ -345,6 +378,8 @@ struct App : public Engine {
 
 	void update () {
 		ZoneScoped;
+
+		test.update();
 		
 		if (input.buttons[KEY_P].went_down) {
 			view_dbg_cam = !view_dbg_cam;

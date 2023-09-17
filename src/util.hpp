@@ -134,6 +134,73 @@ inline bool intersect_circle_ray (float3 pos, float r, Ray const& ray, float* hi
 	return true;
 }
 
+inline float line_line_dist_sqr (float2 a, float2 b, float2 c, float2 d, float* out_u, float* out_v) {
+	float2 ab = b - a;
+	float2 cd = d - c;
+
+	float2 ac = c - a;
+
+	float denom = ab.x*cd.y - ab.y*cd.x;
+	if (denom != 0.0f) {
+		denom = 1.0f / denom;
+		float u = (ac.x*cd.y - ac.y*cd.x) * denom;
+		float v = (ac.x*ab.y - ac.y*ab.x) * denom;
+
+		if (u >= 0.0f && v >= 0.0f && u <= 1.0f && v <= 1.0f) {
+			*out_u = u;
+			*out_v = v;
+			return 0.0f; // intersecting
+		}
+	}
+
+	// TODO: early out in parallel case (denom == 0) ?
+	
+	float2 ca = a - c;
+	float2 cb = b - c;
+	float2 ad = d - a;
+
+	float u0=0.0f, u1=0.0f, v0=0.0f, v1=0.0f;
+
+	float ab_len = length_sqr(ab);
+	if (ab_len != 0.0f) {
+		u0 = clamp(dot(ab, ac) / ab_len, 0.0f, 1.0f);
+		u1 = clamp(dot(ab, ad) / ab_len, 0.0f, 1.0f);
+	}
+	float cd_len = length_sqr(cd);
+	if (cd_len != 0.0f) {
+		v0 = clamp(dot(cd, ca) / cd_len, 0.0f, 1.0f);
+		v1 = clamp(dot(cd, cb) / cd_len, 0.0f, 1.0f);
+	}
+
+	float len0 = length_sqr((u0 * ab) - ac);
+	float len1 = length_sqr((u1 * ab) - ad);
+	float len2 = length_sqr((v0 * cd) - ca); // TODO: ac - (v0 * cd) -> avoid ca compute
+	float len3 = length_sqr((v1 * cd) - cb);
+	
+	float min_len;
+	float u, v;
+	{
+		min_len = len0;
+		u = u0; v = 0.0f;
+	}
+	if (len1 < min_len) {
+		min_len = len1;
+		u = u1; v = 1.0f;
+	}
+	if (len2 < min_len) {
+		min_len = len2;
+		u = 0.0f; v = v0;
+	}
+	if (len3 < min_len) {
+		min_len = len3;
+		u = 1.0f; v = v1;
+	}
+	
+	*out_u = u;
+	*out_v = v;
+	return min_len;
+}
+
 template <typename... TYPES>
 struct NullableVariant {
 	typedef std::monostate null_t;

@@ -402,7 +402,6 @@ void debug_node (App& app, Node* node) {
 		}
 	
 		ImGui::TextColored(ImVec4(col.x, col.y, col.z, col.w), "%.3f / %.3f", avail_space, lane_out.seg->lane_length);
-			
 	}
 }
 
@@ -521,6 +520,19 @@ void Network::simulate (App& app) {
 	
 	// to avoid debugging overlays only showing while not paused, only skip moving the car when paused, later actually skip sim steps
 	//if (!app.sim_paused) {
+		auto update_segment = [&] (Segment* seg) {
+			for (auto& lane : seg->agents.lanes) {
+				for (int i=1; i<(int)lane.list.size(); ++i) {
+					Agent* prev = lane.list[i-1];
+					Agent* cur = lane.list[i];
+					
+					float dist = distance((float2)cur->cit->_pos, (float2)prev->cit->_pos);
+					dist -= CAR_SIZE + 1;
+					cur->brake = min(cur->brake, brake_for_dist(dist));
+				}
+			}
+		};
+		
 		auto update_node = [&] (Node* node) {
 			for (auto& lane_out : node->out_lanes) {
 				float avail_space = lane_out.seg->lane_length;
@@ -536,87 +548,128 @@ void Network::simulate (App& app) {
 
 				for (auto& lane_in : node->in_lanes) {
 					auto& agents = lane_in.seg->agents.lanes[lane_in.lane];
-						
-					float2 lane_end = (float2)lane_in.clac_lane_info().b;
 					
 					for (auto* agent : agents.list) {
 						auto s = get_agent_state(agent, agent->idx);
 						if (!s.seg_after_node || *s.seg_after_node != lane_out) continue;
 
 						if (avail_space < CAR_SIZE) {
+							float2 lane_end = (float2)lane_in.clac_lane_info().b;
+							
 							float dist = distance((float2)agent->cit->_pos, lane_end) - CAR_SIZE*0.5f;
 							agent->brake = min(agent->brake, brake_for_dist(dist));
-
-							avail_space -= CAR_SIZE + 1;
+							break;
 						}
+
+						avail_space -= CAR_SIZE + 1;
 					}
 				}
 			}
 
+			// TODO: reserve space only if car is not waiting for other cars, probably by doing it in the loops below
+			
+			auto vehicle_conflict = [&] (Agent* a, Agent* b) {
+				assert(a != b);
+
+				float a_dist, b_dist;
+				if (!check_conflict(a, b, &a_dist, &b_dist))
+					return;
+
+				auto sa = get_agent_state(a, a->idx);
+				auto sb = get_agent_state(b, b->idx);
+
+				auto a_lane = sa.seg_before_node->clac_lane_info();
+				auto b_lane = sb.seg_before_node->clac_lane_info();
+
+				float2 a_dir = normalizesafe(a_lane.b - a_lane.a);
+				float2 b_dir = normalizesafe(b_lane.b - b_lane.a);
+				float ab_cross = cross(a_dir, b_dir);
+				bool a_has_prio = ab_cross < -0.2f;
+				bool b_has_prio = ab_cross > 0.2f;
+
+				float e_a_dist = a_dist;
+				float e_b_dist = b_dist;
+
+				if (     a_has_prio) e_a_dist *= 0.33f;
+				else if (b_has_prio) e_b_dist *= 0.33f;
+
+				Agent* waiting     = e_a_dist > e_b_dist ? a : b;
+				float waiting_dist = e_a_dist > e_b_dist ? a_dist : b_dist;
+
+				if (a->cit == app.selection.get<Citizen*>()) {
+					auto c = a == waiting ? lrgba(1,0,0,1) : lrgba(0.1f,0,0,1);
+					debug_collision_points(b, c);
+
+					float2 dir = normalizesafe(a->collision_points[0] - (float2)a->cit->_pos);
+					
+					g_dbgdraw.point(a->cit->_pos + float3(dir,0) * a_dist, 2, c);
+					if (a == waiting)
+						g_dbgdraw.wire_circle(b->cit->_pos, CAR_SIZE/2, lrgba(1,0,0,1));
+				}
+				if (b->cit == app.selection.get<Citizen*>()) {
+					auto c = b == waiting ? lrgba(1,0,0,1) : lrgba(0.1f,0,0,1);
+					debug_collision_points(a, c);
+
+					float2 dir = normalizesafe(b->collision_points[0] - (float2)b->cit->_pos);
+					
+					g_dbgdraw.point(b->cit->_pos + float3(dir,0) * b_dist, 2, c);
+					if (b == waiting)
+						g_dbgdraw.wire_circle(a->cit->_pos, CAR_SIZE/2, lrgba(1,0,0,1));
+				}
+				
+				float dist = waiting_dist;
+
+				auto s = get_agent_state(waiting, waiting->idx);
+				if (s.state == SEGMENT) {
+					float2 lane_end = (float2)s.seg_before_node->clac_lane_info().b;
+					
+					dist = distance((float2)waiting->cit->_pos, lane_end) - CAR_SIZE*0.5f;
+				}
+				waiting->brake = min(waiting->brake, brake_for_dist(dist));
+			};
+
+			for (int i=0; i<(int)node->agents.free.list.size(); ++i) {
+				auto* a = node->agents.free.list[i];
+
+				// process remaining node agents
+				for (int j=i+1; j<(int)node->agents.free.list.size(); ++j) {
+					vehicle_conflict(a, node->agents.free.list[j]);
+				}
+				
+				// process last agents in outgoing lanes
+				for (auto& out_lane : node->out_lanes) {
+					auto& agents = out_lane.seg->agents.lanes[out_lane.lane].list;
+					if (!agents.empty())
+						vehicle_conflict(a, agents.back());
+				}
+
+				// process ingoing lanes
+				for (auto& in_lane : node->in_lanes) {
+					for (auto& b : in_lane.seg->agents.lanes[in_lane.lane].list) {
+						vehicle_conflict(a, b);
+					}
+				}
+			}
+			
+			// process ingoing lanes
+			for (int i=0; i<(int)node->in_lanes.size()-1; ++i) {
+				auto& in_lane0 = node->in_lanes[i];
+				for (auto& a : in_lane0.seg->agents.lanes[in_lane0.lane].list) {
+				
+					// process remaining ingoing lanes
+					for (int j=i+1; j<(int)node->in_lanes.size(); ++j) {
+						auto& in_lane1 = node->in_lanes[j];
+						
+						for (auto& b : in_lane1.seg->agents.lanes[in_lane1.lane].list) {
+							vehicle_conflict(a, b);
+						}
+					}
+				}
+			}
 		};
 		
 		auto update_vehile1 = [&] (Agent* agent) {
-			auto s = get_agent_state(agent, agent->idx);
 
-			float min_dist = INF;
-			
-			bool come_later = false;
-
-			auto check = [&] (Agent* other) {
-				auto other_s = get_agent_state(other, other->idx);
-				
-				assert(agent != other);
-
-				// skip later cars in same lane (segement) or coming from same lane (node)
-				if (come_later && *s.seg_before_node == *other_s.seg_before_node)
-					return;
-
-				float dist_a, dist_b;
-				if (!check_conflict(agent, other, &dist_a, &dist_b))
-					return;
-
-				float2 dir       = agent->collision_points[0] - (float2)agent->cit->_pos;
-				float2 other_dir = other->collision_points[0] - (float2)other->cit->_pos;
-				bool other_is_right = cross(dir, other_dir) > 0.2f;
-
-				if (agent->cit == app.selection.get<Citizen*>()) {
-					debug_collision_points(other, other_is_right ? lrgba(1,0,0,1) : lrgba(0.1f,0,0,1));
-
-					float3 obstacle = agent->cit->_pos + float3(normalizesafe(dir),0) * dist_a;
-
-					g_dbgdraw.point(obstacle, 2, lrgba(1,0.25f,1,1));
-				}
-
-				bool us_prio    = dist_a < dist_b * 0.5f;
-				bool other_prio = dist_b < dist_a * 0.5f;
-
-				if (!us_prio && !other_prio)
-					us_prio = come_later;
-
-				if (!us_prio) {
-					dist_a -= CAR_SIZE/2 + 1 - LANE_COLLISION_R;
-					min_dist = min(min_dist, dist_a);
-				}
-			};
-		
-			// checks car against all higher priority cars (cars that came first)
-			if (s.next_agents) {
-				for (auto& a : s.next_agents->list) {
-					assert(a != agent); // cant be in this list
-					check(a);
-				}
-			}
-			if (s.cur_agents) {
-				for (auto& a : s.cur_agents->list) {
-					// don't check ourself or any cars that cam after us
-					if (a == agent)
-						come_later = true;
-					else
-						check(a);
-				}
-			}
-		
-			agent->brake = min(agent->brake, brake_for_dist(min_dist));
 		};
 		auto update_vehicle = [&] (Agent* agent) {
 			assert(agent->cur_t < 1.0f);
@@ -659,6 +712,12 @@ void Network::simulate (App& app) {
 			}
 		}
 		
+		{
+			ZoneScopedN("update nodes");
+			for (auto& seg : segments) {
+				update_segment(seg.get());
+			}
+		}
 		{
 			ZoneScopedN("update nodes");
 			for (auto& node : nodes) {

@@ -24,6 +24,7 @@ std::unique_ptr<Renderer> create_ogl_backend ();
 inline int length2int (float len) {
 	return ceili(len * 100.0f);
 }
+inline constexpr float LANE_COLLISION_R = 1.3f;
 inline constexpr float CAR_SIZE = 3.5f;
 
 
@@ -87,28 +88,28 @@ struct Test {
 	float2 c = float2(0, 50);
 	float2 d = float2(50, 0);
 
+	float r = 10;
+
 	void update () {
 		ImGui::DragFloat2("a", &a.x, 1);
 		ImGui::DragFloat2("b", &b.x, 1);
 		ImGui::DragFloat2("c", &c.x, 1);
 		ImGui::DragFloat2("d", &d.x, 1);
 
-		float u, v;
-		float dist = sqrt(line_line_dist_sqr(a, b, c, d, &u, &v));
-
 		g_dbgdraw.point(float3(a,0), 5, lrgba(1,0,0,1));
 		g_dbgdraw.point(float3(b,0), 5, lrgba(1,1,0,1));
 		g_dbgdraw.point(float3(c,0), 5, lrgba(0,1,0,1));
 		g_dbgdraw.point(float3(d,0), 5, lrgba(0,0,1,1));
 		
-		g_dbgdraw.line(float3(a,0), float3(b,0), lrgba(1,0,0,1));
-		g_dbgdraw.line(float3(c,0), float3(d,0), lrgba(0,1,0,1));
+		dbg_draw_boxy_line(float3(a,0), float3(b,0), r, lrgba(1,0,0,1));
+		dbg_draw_boxy_line(float3(c,0), float3(d,0), r, lrgba(0,1,0,1));
+
+		float u;
+		if (!ray_box_intersection(a, b-a, c, d-c, r, &u))
+			return;
 
 		float2 j = a + (b-a)*u;
-		float2 k = c + (d-c)*v;
-		g_dbgdraw.line(float3(j,0), float3(k,0), lrgba(0,1,1,1));
-
-		g_dbgdraw.point(float3(j,0), 5, lrgba(0,1,1,1));
+		g_dbgdraw.point(float3(j,0), 2.5f, lrgba(0,1,1,1));
 	}
 };
 
@@ -190,7 +191,7 @@ struct App : public Engine {
 
 			Random rand(0);
 
-			auto base_pos = float3(8,8,0)*1024;
+			auto base_pos = float3(100,100,0);
 			auto* house0 = assets.buildings[0].get();
 			auto* house1 = assets.buildings[1].get();
 

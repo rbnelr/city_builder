@@ -135,16 +135,18 @@ inline bool intersect_circle_ray (float3 pos, float r, Ray const& ray, float* hi
 }
 
 inline float line_line_dist_sqr (float2 a, float2 b, float2 c, float2 d, float* out_u, float* out_v) {
+	constexpr float eps = 0.0001f;
+	
 	float2 ab = b - a;
 	float2 cd = d - c;
 
 	float2 ac = c - a;
 
 	float denom = ab.x*cd.y - ab.y*cd.x;
-	if (denom != 0.0f) {
-		denom = 1.0f / denom;
-		float u = (ac.x*cd.y - ac.y*cd.x) * denom;
-		float v = (ac.x*ab.y - ac.y*ab.x) * denom;
+	if (abs(denom) > eps) {
+		//denom = 1.0f / denom;
+		float u = (ac.x*cd.y - ac.y*cd.x) / denom;
+		float v = (ac.x*ab.y - ac.y*ab.x) / denom;
 
 		if (u >= 0.0f && v >= 0.0f && u <= 1.0f && v <= 1.0f) {
 			*out_u = u;
@@ -161,44 +163,97 @@ inline float line_line_dist_sqr (float2 a, float2 b, float2 c, float2 d, float* 
 
 	float u0=0.0f, u1=0.0f, v0=0.0f, v1=0.0f;
 
+	float cd_len = length_sqr(cd); // TODO: should not happen in our inputs
+	if (cd_len != 0.0f) {
+		v0 = clamp(dot(cd, ca) / cd_len, 0.0f, 1.0f);
+		v1 = clamp(dot(cd, cb) / cd_len, 0.0f, 1.0f);
+	}
 	float ab_len = length_sqr(ab);
 	if (ab_len != 0.0f) {
 		u0 = clamp(dot(ab, ac) / ab_len, 0.0f, 1.0f);
 		u1 = clamp(dot(ab, ad) / ab_len, 0.0f, 1.0f);
 	}
-	float cd_len = length_sqr(cd);
-	if (cd_len != 0.0f) {
-		v0 = clamp(dot(cd, ca) / cd_len, 0.0f, 1.0f);
-		v1 = clamp(dot(cd, cb) / cd_len, 0.0f, 1.0f);
-	}
-
-	float len0 = length_sqr((u0 * ab) - ac);
-	float len1 = length_sqr((u1 * ab) - ad);
-	float len2 = length_sqr((v0 * cd) - ca); // TODO: ac - (v0 * cd) -> avoid ca compute
-	float len3 = length_sqr((v1 * cd) - cb);
+	
+	float len0 = length_sqr((v0 * cd) - ca); // TODO: ac - (v0 * cd) -> avoid ca compute
+	float len1 = length_sqr((v1 * cd) - cb);
+	float len2 = length_sqr((u0 * ab) - ac);
+	float len3 = length_sqr((u1 * ab) - ad);
 	
 	float min_len;
 	float u, v;
 	{
 		min_len = len0;
-		u = u0; v = 0.0f;
+		u = 0.0f; v = v0;
 	}
 	if (len1 < min_len) {
 		min_len = len1;
-		u = u1; v = 1.0f;
+		u = 1.0f; v = v1;
 	}
 	if (len2 < min_len) {
 		min_len = len2;
-		u = 0.0f; v = v0;
+		u = u0; v = 0.0f;
 	}
 	if (len3 < min_len) {
 		min_len = len3;
-		u = 1.0f; v = v1;
+		u = u1; v = 1.0f;
 	}
 	
 	*out_u = u;
 	*out_v = v;
 	return min_len;
+}
+
+inline bool ray_box_intersection (float2 a, float2 da, float2 b, float2 db, float r, float* out_u) {
+	float len_b = length(db);
+
+	db = normalize(db);
+	float2 db_n = float2(-db.y, db.x);
+
+	float x = dot(a - b, db);
+	float dx = dot(da, db);
+	
+	float y = dot(a - b, db_n);
+	float dy = dot(da, db_n);
+
+	float offs_x0 =        -r  - x;
+	float offs_x1 = (len_b +r) - x;
+	float offs_y0 = -r - y;
+	float offs_y1 = +r - y;
+
+	float tx0 = -INF, tx1 = +INF;
+	if (dx != 0.0f) {
+		float t0 = offs_x0 / dx;
+		float t1 = offs_x1 / dx;
+		tx0 = min(t0, t1);
+		tx1 = max(t0, t1);
+	}
+	else {
+		if (offs_x0 > 0.0f || offs_x1 < 0.0f)
+			return false; // miss
+	}
+	
+	float ty0 = -INF, ty1 = +INF;
+	if (dy != 0.0f) {
+		float t0 = offs_y0 / dy;
+		float t1 = offs_y1 / dy;
+		ty0 = min(t0, t1);
+		ty1 = max(t0, t1);
+	}
+	else {
+		if (offs_y0 > 0.0f || offs_y1 < 0.0f)
+			return false; // miss
+	}
+
+	float t0 = max(tx0, ty0);
+	float t1 = min(tx1, ty1);
+
+	t0 = max(t0, 0.0f);
+
+	if (t0 > t1 || t0 > 1.0f)
+		return false;
+
+	*out_u = t0;
+	return true;
 }
 
 template <typename... TYPES>
@@ -256,3 +311,15 @@ struct SelCircle {
 		g_dbgdraw.wire_circle(pos, radius, lrgba(col,1), 32);
 	}
 };
+
+inline void dbg_draw_boxy_line (float3 a, float3 b, float r, lrgba col) {
+	
+	float2 offs = b - a;
+	float2 forw = normalizesafe(offs) * r;
+	float2 right = float2(forw.y, -forw.x);
+
+	g_dbgdraw.line(a + float3(-forw -right, 0.0f), a + float3(-forw +right, 0.0f), col);
+	g_dbgdraw.line(a + float3(-forw +right, 0.0f), b + float3(+forw +right, 0.0f), col);
+	g_dbgdraw.line(b + float3(+forw +right, 0.0f), b + float3(+forw -right, 0.0f), col);
+	g_dbgdraw.line(b + float3(+forw -right, 0.0f), a + float3(-forw -right, 0.0f), col);
+}

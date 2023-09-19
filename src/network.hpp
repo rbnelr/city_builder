@@ -36,6 +36,8 @@ struct SegLane {
 	Line clac_lane_info ();
 };
 
+inline constexpr int COLLISION_STEPS = 4;
+
 struct Agent {
 	Citizen* cit;
 
@@ -49,6 +51,8 @@ struct Agent {
 
 	Building* start = nullptr;
 	Building* end   = nullptr;
+
+	float2 collision_points[COLLISION_STEPS];
 };
 struct AgentList { // TODO: optimize agents in lane to only look at agent in front of them, and speed up insert/erase by using linked list
 	std::vector<Agent*> list;

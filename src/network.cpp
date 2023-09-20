@@ -534,6 +534,23 @@ void Network::simulate (App& app) {
 		};
 		
 		auto update_node = [&] (Node* node) {
+			struct Connection {
+				Segment* seg_a;
+				Segment* seg_b;
+				int      lane_a;
+				int      lane_b;
+
+				Connection (SegLane const& a, SegLane const& b): seg_a{a.seg}, seg_b{b.seg}, lane_a{a.lane}, lane_b{b.lane} {}
+
+				bool operator== (Connection const& other) const {
+					return memcmp(this, &other, sizeof(*this)) == 0;
+				}
+				bool operator!= (Connection const& other) const {
+					return !(*this == other);
+				}
+			};
+			std::unordered_map<Connection, float> _avail_space;
+
 			for (auto& lane_out : node->out_lanes) {
 				float avail_space = lane_out.seg->lane_length;
 				for (auto* a : lane_out.seg->agents.lanes[lane_out.lane].list) {

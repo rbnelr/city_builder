@@ -63,7 +63,7 @@ struct AssetMesh {
 	
 	std::vector< Mesh<VERT_T, IDX_T> > mesh_lods;
 
-	AABB aabb;
+	AABB<float3> aabb;
 
 	// recenter because I like putting all my (dev) assets into one blender file and this is a good way to load them centered
 	void recenter_xy () {

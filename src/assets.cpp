@@ -53,7 +53,7 @@ namespace assimp {
 		printf("}\n");
 	}
 
-	void load_mesh_data (aiMesh const* mesh, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB& aabb) {
+	void load_mesh_data (aiMesh const* mesh, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB3& aabb) {
 		int first_vertex = (int)data.vertices.size();
 		
 		for (unsigned j=0; j<mesh->mNumVertices; ++j) {
@@ -86,7 +86,7 @@ namespace assimp {
 	}
 
 	// Recursively load fbx tree, applying transformations to vertices
-	void load_join_mesh_recurse (aiScene const* scene, aiNode const* node, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB& aabb) {
+	void load_join_mesh_recurse (aiScene const* scene, aiNode const* node, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB3& aabb) {
 		auto& t = node->mTransformation;
 		float4x4 mat = float4x4(t.a1,t.a2,t.a3,t.a4,  t.b1,t.b2,t.b3,t.b4, t.c1,t.c2,t.c3,t.c4,  t.d1,t.d2,t.d3,t.d4);
 		mat = transform * mat;

@@ -105,7 +105,7 @@ struct Test {
 		dbg_draw_boxy_line(float3(c,0), float3(d,0), r, lrgba(0,1,0,1));
 
 		float u;
-		if (!ray_box_intersection(a, b-a, c, d-c, r, &u))
+		if (!ray_box_intersection(a, b-a, c, d-c, length(d-c), r, &u))
 			return;
 
 		float2 j = a + (b-a)*u;

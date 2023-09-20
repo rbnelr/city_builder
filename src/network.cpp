@@ -167,7 +167,7 @@ struct AgentState {
 	network::SegLane* seg_before_node = nullptr;
 	network::SegLane* seg_after_node = nullptr;
 };
-AgentState get_agent_state (Agent* agent, int idx) {
+AgentState _FORCEINLINE get_agent_state (Agent* agent, int idx) {
 	AgentState s;
 
 	int num_nodes  = (int)agent->nodes.size();
@@ -437,6 +437,8 @@ void update_collision_points (Agent* agent) {
 
 	float t = agent->cur_t;
 
+	AABB2 bounds;
+
 	for (int i=0; i<COLLISION_STEPS; ++i) {
 		t += 0.25f;
 		if (t > s.end_t) {
@@ -447,11 +449,20 @@ void update_collision_points (Agent* agent) {
 
 		auto bez = bezier3(t, s.bezier.a, s.bezier.b, s.bezier.c);
 		agent->collision_points[i] = bez.pos;
+
+		bounds.add(bez.pos);
 	}
+
+	bounds.lo -= LANE_COLLISION_R * SQRT_2; // account for collision radius with boxy radius
+	bounds.hi += LANE_COLLISION_R * SQRT_2;
+	agent->collision_points_bounds = bounds;
 }
 
 bool check_conflict (Agent* a, Agent* b, float* out_a_dist, float* out_b_dist) {
 	assert(a != b);
+
+	if (!a->collision_points_bounds.overlap( b->collision_points_bounds ))
+		return false;
 
 	float min_a_dist = INF;
 	float min_b_dist = INF;
@@ -469,8 +480,8 @@ bool check_conflict (Agent* a, Agent* b, float* out_a_dist, float* out_b_dist) {
 			float b_len = length(db);
 
 			float u, v;
-			bool hit_a = ray_box_intersection(prev_pa, da, prev_pb, db, LANE_COLLISION_R*2, &u);
-			bool hit_b = ray_box_intersection(prev_pb, db, prev_pa, da, LANE_COLLISION_R*2, &v);
+			bool hit_a = ray_box_intersection(prev_pa, da, prev_pb, db, b_len, LANE_COLLISION_R*2, &u);
+			bool hit_b = ray_box_intersection(prev_pb, db, prev_pa, da, a_len, LANE_COLLISION_R*2, &v);
 			if (hit_a) min_a_dist = min(min_a_dist, a_dist + u*a_len);
 			if (hit_b) min_b_dist = min(min_b_dist, b_dist + v*b_len);
 			
@@ -713,7 +724,7 @@ void Network::simulate (App& app) {
 		}
 		
 		{
-			ZoneScopedN("update nodes");
+			ZoneScopedN("update segments");
 			for (auto& seg : segments) {
 				update_segment(seg.get());
 			}

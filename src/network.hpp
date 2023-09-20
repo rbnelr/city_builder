@@ -52,6 +52,7 @@ struct Agent {
 	Building* start = nullptr;
 	Building* end   = nullptr;
 
+	AABB<float2> collision_points_bounds;
 	float2 collision_points[COLLISION_STEPS];
 };
 struct AgentList { // TODO: optimize agents in lane to only look at agent in front of them, and speed up insert/erase by using linked list

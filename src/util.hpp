@@ -203,10 +203,8 @@ inline float line_line_dist_sqr (float2 a, float2 b, float2 c, float2 d, float* 
 	return min_len;
 }
 
-inline bool ray_box_intersection (float2 a, float2 da, float2 b, float2 db, float r, float* out_u) {
-	float len_b = length(db);
-
-	db = normalize(db);
+inline _FORCEINLINE bool ray_box_intersection (float2 a, float2 da, float2 b, float2 db, float len_b, float r, float* out_u) {
+	db /= len_b;
 	float2 db_n = float2(-db.y, db.x);
 
 	float x = dot(a - b, db);
@@ -222,8 +220,9 @@ inline bool ray_box_intersection (float2 a, float2 da, float2 b, float2 db, floa
 
 	float tx0 = -INF, tx1 = +INF;
 	if (dx != 0.0f) {
-		float t0 = offs_x0 / dx;
-		float t1 = offs_x1 / dx;
+		dx = 1.0f / dx;
+		float t0 = offs_x0 * dx;
+		float t1 = offs_x1 * dx;
 		tx0 = min(t0, t1);
 		tx1 = max(t0, t1);
 	}
@@ -234,8 +233,9 @@ inline bool ray_box_intersection (float2 a, float2 da, float2 b, float2 db, floa
 	
 	float ty0 = -INF, ty1 = +INF;
 	if (dy != 0.0f) {
-		float t0 = offs_y0 / dy;
-		float t1 = offs_y1 / dy;
+		dy = 1.0f / dy;
+		float t0 = offs_y0 * dy;
+		float t1 = offs_y1 * dy;
 		ty0 = min(t0, t1);
 		ty1 = max(t0, t1);
 	}

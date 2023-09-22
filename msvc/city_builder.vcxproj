@@ -29,77 +29,14 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">common.hpp</PrecompiledHeaderFile>
     </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui\imgui.cpp">
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-      </PrecompiledHeaderFile>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui\imgui_demo.cpp">
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-      </PrecompiledHeaderFile>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui\imgui_draw.cpp">
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-      </PrecompiledHeaderFile>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui\imgui_tables.cpp">
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-      </PrecompiledHeaderFile>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui\imgui_widgets.cpp">
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-      </PrecompiledHeaderFile>
-    </ClCompile>
+    <ClCompile Include="..\src\engine\dear_imgui\imgui.cpp" />
+    <ClCompile Include="..\src\engine\dear_imgui\imgui_demo.cpp" />
+    <ClCompile Include="..\src\engine\dear_imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\src\engine\dear_imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\src\engine\dear_imgui\imgui_widgets.cpp" />
     <ClCompile Include="..\src\engine\dear_imgui\misc\cpp\imgui_stdlib.cpp" />
-    <ClCompile Include="..\src\engine\dear_imgui_custom\imgui_impl_glfw.cpp">
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-      </PrecompiledHeaderFile>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.cpp">
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-      </PrecompiledHeaderFile>
-    </ClCompile>
+    <ClCompile Include="..\src\engine\dear_imgui_custom\imgui_impl_glfw.cpp" />
+    <ClCompile Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.cpp" />
     <ClCompile Include="..\src\engine\engine.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">common.hpp</PrecompiledHeaderFile>
@@ -306,13 +243,14 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\grapher\repo\src\engine\dear_imgui_custom\dear_imgui.hpp" />
-    <ClInclude Include="..\..\..\grapher\repo\src\engine\dear_imgui_custom\imconfig.hpp" />
-    <ClInclude Include="..\..\..\grapher\repo\src\engine\dear_imgui_custom\imgui_impl_glfw.h" />
-    <ClInclude Include="..\..\..\grapher\repo\src\engine\dear_imgui_custom\imgui_impl_opengl3.h" />
     <ClInclude Include="..\src\app.hpp" />
     <ClInclude Include="..\src\assets.hpp" />
     <ClInclude Include="..\src\common.hpp" />
+    <ClInclude Include="..\src\engine\dear_imgui\imgui.h" />
+    <ClInclude Include="..\src\engine\dear_imgui_custom\dear_imgui.hpp" />
+    <ClInclude Include="..\src\engine\dear_imgui_custom\imconfig.hpp" />
+    <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_glfw.h" />
+    <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.h" />
     <ClInclude Include="..\src\network.hpp" />
     <ClInclude Include="..\src\engine\camera.hpp" />
     <ClInclude Include="..\src\engine\agnostic_render.hpp" />
@@ -449,7 +387,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>BUILD_DEBUG;_DEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>IMGUI_USER_CONFIG="engine/dear_imgui_custom/imconfig.hpp";BUILD_DEBUG;_DEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)..\src\;$(SolutionDir)..\src\engine\;$(SolutionDir)..\src\engine\dear_imgui;$(SolutionDir)..\src\engine\dear_imgui_custom;$(SolutionDir)..\src\engine\kisslib\nlohmann_json\include;$(SolutionDir)..\src\engine\tracy\Public;$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\include;$(SolutionDir)..\..\libs\Assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -468,7 +406,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>false</SDLCheck>
-      <PreprocessorDefinitions>BUILD_RELEASE;NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>IMGUI_USER_CONFIG="engine/dear_imgui_custom/imconfig.hpp";BUILD_RELEASE;NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)..\src\;$(SolutionDir)..\src\engine\;$(SolutionDir)..\src\engine\dear_imgui;$(SolutionDir)..\src\engine\dear_imgui_custom;$(SolutionDir)..\src\engine\kisslib\nlohmann_json\include;$(SolutionDir)..\src\engine\tracy\Public;$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\include;$(SolutionDir)..\..\libs\Assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -490,7 +428,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>false</SDLCheck>
-      <PreprocessorDefinitions>BUILD_TRACY;NDEBUG;TRACY_ENABLE;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>IMGUI_USER_CONFIG="engine/dear_imgui_custom/imconfig.hpp";BUILD_TRACY;NDEBUG;TRACY_ENABLE;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)..\src\;$(SolutionDir)..\src\engine\;$(SolutionDir)..\src\engine\dear_imgui;$(SolutionDir)..\src\engine\dear_imgui_custom;$(SolutionDir)..\src\engine\kisslib\nlohmann_json\include;$(SolutionDir)..\src\engine\tracy\Public;$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\include;$(SolutionDir)..\..\libs\Assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -512,7 +450,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>false</SDLCheck>
-      <PreprocessorDefinitions>BUILD_VALIDATE;NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>IMGUI_USER_CONFIG="engine/dear_imgui_custom/imconfig.hpp";BUILD_VALIDATE;NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)..\src\;$(SolutionDir)..\src\engine\;$(SolutionDir)..\src\engine\dear_imgui;$(SolutionDir)..\src\engine\dear_imgui_custom;$(SolutionDir)..\src\engine\kisslib\nlohmann_json\include;$(SolutionDir)..\src\engine\tracy\Public;$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\include;$(SolutionDir)..\..\libs\Assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>

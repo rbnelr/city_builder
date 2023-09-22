@@ -256,6 +256,18 @@ inline _FORCEINLINE bool ray_box_intersection (float2 a, float2 da, float2 b, fl
 	return true;
 }
 
+inline void dbg_draw_boxy_line (float3 a, float3 b, float r, lrgba col) {
+	
+	float2 offs = b - a;
+	float2 forw = normalizesafe(offs) * r;
+	float2 right = float2(forw.y, -forw.x);
+
+	g_dbgdraw.line(a + float3(-forw -right, 0.0f), a + float3(-forw +right, 0.0f), col);
+	g_dbgdraw.line(a + float3(-forw +right, 0.0f), b + float3(+forw +right, 0.0f), col);
+	g_dbgdraw.line(b + float3(+forw +right, 0.0f), b + float3(+forw -right, 0.0f), col);
+	g_dbgdraw.line(b + float3(+forw -right, 0.0f), a + float3(-forw -right, 0.0f), col);
+}
+
 template <typename... TYPES>
 struct NullableVariant {
 	typedef std::monostate null_t;
@@ -312,14 +324,34 @@ struct SelCircle {
 	}
 };
 
-inline void dbg_draw_boxy_line (float3 a, float3 b, float r, lrgba col) {
-	
-	float2 offs = b - a;
-	float2 forw = normalizesafe(offs) * r;
-	float2 right = float2(forw.y, -forw.x);
+template <typename KEY_T, typename VAL_T, typename HASHER=std::hash<KEY_T>, typename EQUAL=std::equal_to<KEY_T>>
+struct Hashmap : public std::unordered_map<KEY_T, VAL_T, HASHER> {
+	// Not tested with move only types yet (avoiding copies can be hard with try_add etc)
 
-	g_dbgdraw.line(a + float3(-forw -right, 0.0f), a + float3(-forw +right, 0.0f), col);
-	g_dbgdraw.line(a + float3(-forw +right, 0.0f), b + float3(+forw +right, 0.0f), col);
-	g_dbgdraw.line(b + float3(+forw +right, 0.0f), b + float3(+forw -right, 0.0f), col);
-	g_dbgdraw.line(b + float3(+forw -right, 0.0f), a + float3(-forw -right, 0.0f), col);
-}
+	template <typename T, typename V>
+	VAL_T* try_add (T&& key, V&& val) {
+		auto ret = this->try_emplace(key, val);
+		return ret.second ? &ret.first->second : nullptr; // lmao, nice API guys
+	}
+
+	template <typename T, typename V>
+	VAL_T& add (T&& key, V&& val) {
+		auto* ptr = try_add(key, val);
+		assert(ptr);
+		return *ptr;
+	}
+
+	template <typename T>
+	VAL_T* try_get (T const& key) {
+		auto it = this->find(key);
+		return it != this->end() ? &it->second : nullptr;
+	}
+
+	template <typename T>
+	VAL_T& operator[] (T const& key) {
+		auto* ptr = try_get(key);
+		assert(ptr);
+		// deref null, hopefully crash instead of causing bugs like unordered_map::operator[] does by inserting a bogous value
+		return *ptr;
+	}
+};

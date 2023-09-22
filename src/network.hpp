@@ -33,7 +33,7 @@ struct SegLane {
 		return seg != r.seg || lane != r.lane;
 	}
 	
-	Line clac_lane_info ();
+	Line clac_lane_info () const;
 };
 
 inline constexpr int COLLISION_STEPS = 4;
@@ -43,14 +43,15 @@ struct Agent {
 
 	float cur_t = 0;
 	int   idx = 0;
-
-	float brake;
-		
+	
 	std::vector<Node*>   nodes;
 	std::vector<SegLane> segments;
 
 	Building* start = nullptr;
 	Building* end   = nullptr;
+	
+	float brake;
+	bool  blocked;
 
 	AABB<float2> collision_points_bounds;
 	float2 collision_points[COLLISION_STEPS];
@@ -154,7 +155,7 @@ struct Segment { // better name? Keep Path and call path Route?
 		return { forw, right };
 	}
 };
-inline Line SegLane::clac_lane_info () {
+inline Line SegLane::clac_lane_info () const {
 	auto v = seg->clac_seg_vecs();
 
 	auto& l = seg->layout->lanes[lane];

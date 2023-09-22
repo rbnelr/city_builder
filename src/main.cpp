@@ -1,7 +1,10 @@
 #include "common.hpp"
-#include "app.hpp"
+
+Engine* new_app ();
 
 int main () {
-	App a;
-	return a.main_loop();
+	Engine* app = new_app();
+	int ret = app->main_loop();
+	delete app;
+	return ret;
 }

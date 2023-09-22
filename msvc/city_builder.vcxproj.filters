@@ -1,30 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="..\src\main.cpp" />
     <ClCompile Include="..\src\engine\engine.cpp">
       <Filter>engine</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui\imgui.cpp">
-      <Filter>engine\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui\imgui_demo.cpp">
-      <Filter>engine\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui\imgui_draw.cpp">
-      <Filter>engine\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui_custom\imgui_impl_glfw.cpp">
-      <Filter>engine\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.cpp">
-      <Filter>engine\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui\imgui_tables.cpp">
-      <Filter>engine\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\engine\dear_imgui\imgui_widgets.cpp">
-      <Filter>engine\imgui</Filter>
     </ClCompile>
     <ClCompile Include="..\src\engine\kisslib\stb_image.cpp">
       <Filter>engine\stb</Filter>
@@ -83,9 +61,31 @@
     <ClCompile Include="..\src\engine\text_render.cpp">
       <Filter>engine</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\engine\dear_imgui\imgui_demo.cpp">
+      <Filter>engine\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\engine\dear_imgui\imgui_draw.cpp">
+      <Filter>engine\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\engine\dear_imgui\imgui_tables.cpp">
+      <Filter>engine\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\engine\dear_imgui\imgui_widgets.cpp">
+      <Filter>engine\imgui</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\engine\dear_imgui\misc\cpp\imgui_stdlib.cpp">
       <Filter>engine\imgui</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\engine\dear_imgui_custom\imgui_impl_glfw.cpp">
+      <Filter>engine\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.cpp">
+      <Filter>engine\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\engine\dear_imgui\imgui.cpp">
+      <Filter>engine\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="engine">
@@ -131,18 +131,6 @@
       <Filter>opengl</Filter>
     </ClInclude>
     <ClInclude Include="..\src\app.hpp" />
-    <ClInclude Include="..\..\..\grapher\repo\src\engine\dear_imgui_custom\dear_imgui.hpp">
-      <Filter>engine\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\grapher\repo\src\engine\dear_imgui_custom\imconfig.hpp">
-      <Filter>engine\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\grapher\repo\src\engine\dear_imgui_custom\imgui_impl_glfw.h">
-      <Filter>engine\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\grapher\repo\src\engine\dear_imgui_custom\imgui_impl_opengl3.h">
-      <Filter>engine\imgui</Filter>
-    </ClInclude>
     <ClInclude Include="..\src\game_camera.hpp" />
     <ClInclude Include="..\src\assets.hpp" />
     <ClInclude Include="..\src\engine\kisslib\allocator.hpp">
@@ -239,6 +227,21 @@
     </ClInclude>
     <ClInclude Include="..\src\engine\opengl.hpp">
       <Filter>engine</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\engine\dear_imgui_custom\dear_imgui.hpp">
+      <Filter>engine\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\engine\dear_imgui_custom\imconfig.hpp">
+      <Filter>engine\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_glfw.h">
+      <Filter>engine\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.h">
+      <Filter>engine\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\engine\dear_imgui\imgui.h">
+      <Filter>engine\imgui</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

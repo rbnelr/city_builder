@@ -433,3 +433,7 @@ struct App : public Engine {
 		entities.buildings_changed = false;
 	}
 };
+
+extern inline Engine* new_app () {
+	return new App();
+}

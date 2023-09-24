@@ -35,6 +35,19 @@ struct SegLane {
 	
 	Line clac_lane_info () const;
 };
+VALUE_HASHER(SegLane, t.seg, t.lane);
+
+struct Connection {
+	SegLane a, b;
+	
+	bool operator== (Connection const& other) const {
+		return a == other.a && b == other.b;
+	}
+	bool operator!= (Connection const& other) const {
+		return !(*this == other);
+	}
+};
+//VALUE_HASHER(Connection, t.a.seg, t.b.seg, t.a.lane, t.b.lane);
 
 inline constexpr int COLLISION_STEPS = 4;
 
@@ -52,9 +65,6 @@ struct Agent {
 	
 	float brake;
 	bool  blocked;
-
-	AABB<float2> collision_points_bounds;
-	float2 collision_points[COLLISION_STEPS];
 };
 struct AgentList { // TODO: optimize agents in lane to only look at agent in front of them, and speed up insert/erase by using linked list
 	std::vector<Agent*> list;
@@ -186,6 +196,20 @@ inline void Node::update_cached () {
 	//std::sort(in_lanes.begin(), in_lanes.end(), [] (SegLane& l, SegLane& r) {
 	//	return std::less<float>()( l.clac_lane_info(). );
 	//});
+}
+
+// max lanes/segment and max segments per node == 256
+inline uint32_t conn_id (Node* node, Connection const& conn) {
+	int a_idx = indexof(node->segments, conn.a.seg); // TODO: optimize this? or just cache conn_id of cars instead?
+	int b_idx = indexof(node->segments, conn.b.seg);
+
+	uint32_t a = (uint32_t)a_idx | ((uint32_t)conn.a.lane << 8);
+	uint32_t b = (uint32_t)b_idx | ((uint32_t)conn.b.lane << 8);
+
+	return a | (b << 16);
+}
+inline uint64_t conn_pair_id (uint32_t conn_a_id, uint32_t conn_b_id) {
+	return (uint64_t)conn_a_id | ((uint64_t)conn_b_id << 32);
 }
 
 struct Network {

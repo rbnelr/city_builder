@@ -10,98 +10,125 @@ struct BezierRes {
 	float2 vel;   // velocity (over bezier t)
 	float  curv;  // curvature (delta angle over dist along curve)
 };
-inline BezierRes bezier3 (float t, float2 a, float2 b, float2 c) {
-	//float2 ab = lerp(a, b, t);
-	//float2 bc = lerp(b, c, t);
-	//return lerp(ab, bc, t);
-		
-	//float t2 = t*t;
-	//
-	//float _2t1 = 2.0f*t;
-	//float _2t2 = 2.0f*t2;
-	//
-	//float ca = 1.0f -_2t1   +t2;
-	//float cb =       _2t1 -_2t2;
-	//float cc =               t2;
-	//
-	//return ca*a + cb*b + cc*c;
-
-	float2 c0 = a;           // a
-	float2 c1 = 2 * (b - a); // (-2a +2b)t
-	float2 c2 = a - 2*b + c; // (a -2b +c)t^2
-		
-	float t2 = t*t;
-
-	float2 value = c2*t2    + c1*t + c0; // f(t)
-	float2 deriv = c2*(t*2) + c1;        // f'(t)
-	float2 accel = c2*2;                 // f''(t)
-
-		
-	// angle of movement can be gotten via:
-	// ang = atan2(deriv.y, deriv.x)
-
-	// curvature can be defined as change in angle
-	// atan2(deriv.y, deriv.x)
-	// atan2 just offsets the result based on input signs, so derivative of atan2
-	// should be atan(y/x)
-		
-	// wolfram alpha: derive atan(y(t)/x(t)) with respect to x:
-	// gives me (x*dy - dx*y) / (x^2+y^2) (x would be deriv.x and dy would be accel.x)
-	// this formula from the https://math.stackexchange.com/questions/3276910/cubic-b%c3%a9zier-radius-of-curvature-calculation?rq=1
-	// seems to divide by the length of the sqrt(denom) as well, normalizing it by length(vel)
-	// vel = dpos / t -> (x/dt) / (dpos/dt) -> x/dpos
-	// so it seems this actually normalizes the curvature to be decoupled from your t (parameter) space
-	// and always be correct in position space
-	float denom = deriv.x*deriv.x + deriv.y*deriv.y;
-	float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
-
-	return { value, deriv, curv };
-}
-inline BezierRes bezier4 (float t, float2 a, float2 b, float2 c, float2 d) {
-	//float2 ab = lerp(a, b, t);
-	//float2 bc = lerp(b, c, t);
-	//float2 cd = lerp(c, d, t);
-	//
-	//float2 abc = lerp(ab, bc, t);
-	//float2 bcd = lerp(bc, cd, t);
-	//
-	//return lerp(abc, bcd, t);
-
-	//float t2 = t*t;
-	//float t3 = t2*t;
-	//
-	//float _3t1 = 3.0f*t;
-	//float _3t2 = 3.0f*t2;
-	//float _6t2 = 6.0f*t2;
-	//float _3t3 = 3.0f*t3;
-	//
-	//float ca = 1.0f -_3t1 +_3t2   -t3;
-	//float cb =       _3t1 -_6t2 +_3t3;
-	//float cc =             _3t2 -_3t3;
-	//float cd =                     t3;
-	//
-	//return (ca*a + cb*b) + (cc*c + cd*d);
-		
-	float2 c0 = a;                   // a
-	float2 c1 = 3 * (b - a);         // (-3a +3b)t
-	float2 c2 = 3 * (a + c) - 6*b;   // (3a -6b +3c)t^2
-	float2 c3 = 3 * (b - c) - a + d; // (-a +3b -3c +d)t^3
-
-	float t2 = t*t;
-	float t3 = t2*t;
-		
-	float2 value = c3*t3     + c2*t2    + c1*t + c0; // f(t)
-	float2 deriv = c3*(t2*3) + c2*(t*2) + c1;        // f'(t)
-	float2 accel = c3*(t*6)  + c2*2;                 // f''(t)
-		
-	float denom = deriv.x*deriv.x + deriv.y*deriv.y;
-	float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
-		
-	return { value, deriv, curv };
-}
-
 struct Bezier3 {
-	float3 a, b, c;
+	float2 a;
+	float2 b;
+	float2 c;
+
+	BezierRes eval (float t) const {
+		//float2 ab = lerp(a, b, t);
+		//float2 bc = lerp(b, c, t);
+		//return lerp(ab, bc, t);
+		
+		//float t2 = t*t;
+		//
+		//float _2t1 = 2.0f*t;
+		//float _2t2 = 2.0f*t2;
+		//
+		//float ca = 1.0f -_2t1   +t2;
+		//float cb =       _2t1 -_2t2;
+		//float cc =               t2;
+		//
+		//return ca*a + cb*b + cc*c;
+
+		float2 c0 = a;           // a
+		float2 c1 = 2 * (b - a); // (-2a +2b)t
+		float2 c2 = a - 2*b + c; // (a -2b +c)t^2
+		
+		float t2 = t*t;
+
+		float2 value = c2*t2    + c1*t + c0; // f(t)
+		float2 deriv = c2*(t*2) + c1;        // f'(t)
+		float2 accel = c2*2;                 // f''(t)
+
+		
+		// angle of movement can be gotten via:
+		// ang = atan2(deriv.y, deriv.x)
+
+		// curvature can be defined as change in angle
+		// atan2(deriv.y, deriv.x)
+		// atan2 just offsets the result based on input signs, so derivative of atan2
+		// should be atan(y/x)
+		
+		// wolfram alpha: derive atan(y(t)/x(t)) with respect to x:
+		// gives me (x*dy - dx*y) / (x^2+y^2) (x would be deriv.x and dy would be accel.x)
+		// this formula from the https://math.stackexchange.com/questions/3276910/cubic-b%c3%a9zier-radius-of-curvature-calculation?rq=1
+		// seems to divide by the length of the sqrt(denom) as well, normalizing it by length(vel)
+		// vel = dpos / t -> (x/dt) / (dpos/dt) -> x/dpos
+		// so it seems this actually normalizes the curvature to be decoupled from your t (parameter) space
+		// and always be correct in position space
+		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
+		float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
+
+		return { value, deriv, curv };
+	}
+	
+	void dbg_draw (View3D const& view, float z, int res, lrgba col, float t0=0, float t1=1) const {
+		float2 prev = eval(t0).pos;
+		for (int i=0; i<res; ++i) {
+			float t = lerp(t0, t1, (float)(i+1) / res);
+
+			auto bez = eval(t);
+			
+			if (i < res-1) {
+				g_dbgdraw.line(float3(prev, z), float3(bez.pos, z), col);
+			}
+			else {
+				g_dbgdraw.arrow(view, float3(prev, z), float3(bez.pos - prev, 0), 1, col);
+			}
+
+			prev = bez.pos;
+		}
+	}
+};
+struct Bezier4 {
+	float2 a;
+	float2 b;
+	float2 c;
+	float2 d;
+
+	BezierRes eval (float t) const {
+		//float2 ab = lerp(a, b, t);
+		//float2 bc = lerp(b, c, t);
+		//float2 cd = lerp(c, d, t);
+		//
+		//float2 abc = lerp(ab, bc, t);
+		//float2 bcd = lerp(bc, cd, t);
+		//
+		//return lerp(abc, bcd, t);
+
+		//float t2 = t*t;
+		//float t3 = t2*t;
+		//
+		//float _3t1 = 3.0f*t;
+		//float _3t2 = 3.0f*t2;
+		//float _6t2 = 6.0f*t2;
+		//float _3t3 = 3.0f*t3;
+		//
+		//float ca = 1.0f -_3t1 +_3t2   -t3;
+		//float cb =       _3t1 -_6t2 +_3t3;
+		//float cc =             _3t2 -_3t3;
+		//float cd =                     t3;
+		//
+		//return (ca*a + cb*b) + (cc*c + cd*d);
+		
+		float2 c0 = a;                   // a
+		float2 c1 = 3 * (b - a);         // (-3a +3b)t
+		float2 c2 = 3 * (a + c) - 6*b;   // (3a -6b +3c)t^2
+		float2 c3 = 3 * (b - c) - a + d; // (-a +3b -3c +d)t^3
+
+		float t2 = t*t;
+		float t3 = t2*t;
+		
+		float2 value = c3*t3     + c2*t2    + c1*t + c0; // f(t)
+		float2 deriv = c3*(t2*3) + c2*(t*2) + c1;        // f'(t)
+		float2 accel = c3*(t*6)  + c2*2;                 // f''(t)
+		
+		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
+		float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
+		
+		return { value, deriv, curv };
+	}
 };
 
 inline bool line_line_intersect (float2 a, float2 b, float2 c, float2 d, float2* out_point) {
@@ -113,6 +140,27 @@ inline bool line_line_intersect (float2 a, float2 b, float2 c, float2 d, float2*
 	float u = numer / denom;
 	*out_point = a + u*(b-a);
 	return true; // always intersect for now
+}
+
+inline _FORCEINLINE bool line_line_seg_intersect (float2 a, float2 b, float2 c, float2 d, float* out_u, float* out_v) {
+	float2 ab = b - a;
+	float2 cd = d - c;
+	float2 ac = c - a;
+
+	float denom = ab.x*cd.y - ab.y*cd.x;
+	if (denom == 0)
+		return false; // parallel, either overlapping (numer == 0) or not
+	
+	float numer_ab = ac.x*cd.y - ac.y*cd.x;
+	float numer_cd = ac.x*ab.y - ac.y*ab.x;
+	float u = numer_ab / denom;
+	float v = numer_cd / denom;
+	if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f)
+		return false;
+
+	*out_u = u;
+	*out_v = v;
+	return true;
 }
 
 inline bool intersect_circle_ray (float3 pos, float r, Ray const& ray, float* hit_dist) {
@@ -256,16 +304,30 @@ inline _FORCEINLINE bool ray_box_intersection (float2 a, float2 da, float2 b, fl
 	return true;
 }
 
-inline void dbg_draw_boxy_line (float3 a, float3 b, float r, lrgba col) {
-	
-	float2 offs = b - a;
-	float2 forw = normalizesafe(offs) * r;
-	float2 right = float2(forw.y, -forw.x);
+inline bool intersect_ray_zplane (Ray const& ray, float plane_z, float* hit_t) {
+	if (ray.dir.z == 0.0f)
+		return false;
 
-	g_dbgdraw.line(a + float3(-forw -right, 0.0f), a + float3(-forw +right, 0.0f), col);
-	g_dbgdraw.line(a + float3(-forw +right, 0.0f), b + float3(+forw +right, 0.0f), col);
-	g_dbgdraw.line(b + float3(+forw +right, 0.0f), b + float3(+forw -right, 0.0f), col);
-	g_dbgdraw.line(b + float3(+forw -right, 0.0f), a + float3(-forw -right, 0.0f), col);
+	float t = (plane_z - ray.pos.z) / ray.dir.z;
+	if (t < 0.0f)
+		return false;
+
+	*hit_t = t;
+	return true;
+}
+inline bool intersect_ray_zcircle (Ray const& ray, float3 center, float r, float* hit_t=nullptr, float2* hit_point=nullptr) {
+	float t;
+	if (!intersect_ray_zplane(ray, center.z, &t))
+		return false;
+
+	float2 xy = (float2)ray.pos + (float2)ray.dir * t;
+	float dist_sqr = length_sqr(xy - (float2)center);
+	if (dist_sqr > r*r)
+		return false;
+
+	if (hit_t) *hit_t = t;
+	if (hit_point) *hit_point = xy;
+	return true;
 }
 
 template <typename... TYPES>
@@ -319,10 +381,41 @@ struct SelCircle {
 	void highlight () {
 		g_dbgdraw.wire_circle(pos, radius + 0.25f, lrgba(1,1,1,1), 32);
 	}
-	void highlight_selected () {
-		g_dbgdraw.wire_circle(pos, radius, lrgba(col,1), 32);
+	void highlight_selected (float tint=0, lrgba tint_col=0) {
+		lrgba tinted = lerp(lrgba(col,1), tint_col, tint);
+		g_dbgdraw.wire_circle(pos, radius, tinted, 32);
 	}
 };
+
+inline void draggable (Input& I, View3D& view, float2* pos, float r) {
+	// use ptr to identiy if and what we are dragging, to allow using this function with any number of items
+	static float2* dragging_ptr = nullptr;
+	static float2 drag_offs;
+	
+	bool hit = false;
+	float2 hit_point;
+
+	Ray ray;
+	if (view.cursor_ray(I, &ray.pos, &ray.dir)) {
+		hit = intersect_ray_zcircle(ray, float3(*pos, 0), r, nullptr, &hit_point);
+	}
+	if (hit && (dragging_ptr == nullptr || dragging_ptr == pos)) {
+		g_dbgdraw.wire_circle(float3(*pos, 0), r, lrgba(1,1,0,1));
+	}
+
+	if (!dragging_ptr && hit && I.buttons[MOUSE_BUTTON_LEFT].went_down) {
+		drag_offs = hit_point - *pos;
+		dragging_ptr = pos;
+	}
+	if (dragging_ptr == pos) {
+		if (hit && I.buttons[MOUSE_BUTTON_LEFT].is_down) {
+			*pos = hit_point - drag_offs;
+		}
+		else {
+			dragging_ptr = nullptr;
+		}
+	}
+}
 
 template <typename KEY_T, typename VAL_T, typename HASHER=std::hash<KEY_T>, typename EQUAL=std::equal_to<KEY_T>>
 struct Hashmap : public std::unordered_map<KEY_T, VAL_T, HASHER> {

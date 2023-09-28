@@ -33,7 +33,7 @@ struct SegLane {
 		return seg != r.seg || lane != r.lane;
 	}
 	
-	Line clac_lane_info () const;
+	Line clac_lane_info (float shift=0) const;
 };
 VALUE_HASHER(SegLane, t.seg, t.lane);
 
@@ -54,14 +54,18 @@ inline constexpr int COLLISION_STEPS = 4;
 struct Agent {
 	Citizen* cit;
 
-	float cur_t = 0;
 	int   idx = 0;
+
+	float front_t = 0;
+	float rear_t = 0; // only approximately correct
 	
 	std::vector<Node*>   nodes;
 	std::vector<SegLane> segments;
 
 	Building* start = nullptr;
 	Building* end   = nullptr;
+
+	float bez_speed = 0; // delta beizer t over delta position
 	
 	float brake;
 	bool  blocked;
@@ -165,13 +169,16 @@ struct Segment { // better name? Keep Path and call path Route?
 		return { forw, right };
 	}
 };
-inline Line SegLane::clac_lane_info () const {
+inline Line SegLane::clac_lane_info (float shift) const {
 	auto v = seg->clac_seg_vecs();
 
 	auto& l = seg->layout->lanes[lane];
 
-	float3 a = seg->node_a->pos + float3(v.right * l.shift + v.forw * seg->node_a->radius, 0);
-	float3 b = seg->node_b->pos + float3(v.right * l.shift - v.forw * seg->node_b->radius, 0);
+	float2 seg_right  = v.right;
+	float2 lane_right = l.direction == 0 ? v.right : -v.right;
+
+	float3 a = seg->node_a->pos + float3(seg_right * l.shift + lane_right * shift + v.forw * seg->node_a->radius, 0);
+	float3 b = seg->node_b->pos + float3(seg_right * l.shift + lane_right * shift - v.forw * seg->node_b->radius, 0);
 
 	if (l.direction == 0) return { a, b };
 	else                  return { b, a };
@@ -220,7 +227,7 @@ struct Network {
 	float cone = deg(45);
 
 	void imgui () {
-		ImGui::SliderFloat("top_speed", &top_speed, 0, 500);
+		ImGui::SliderFloat("top_speed", &top_speed, 0, 50);
 		ImGui::SliderAngle("cone", &cone, 0, 180);
 	}
 

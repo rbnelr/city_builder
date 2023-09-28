@@ -42,6 +42,8 @@ struct Building {
 
 	network::Segment* connected_segment = nullptr;
 };
+
+// Acts more like a Vehicle currently
 struct Citizen {
 	// TODO: needs to be some kind of state like in car, or in building
 	// OR car/building etc needs to track citizen and we dont know where the citizen is
@@ -59,8 +61,10 @@ struct Citizen {
 	lrgb col;
 
 	// TODO: get rid of this? This is not persistent data (and citizens in buildings don't need to be drawn)
-	float3 _pos;
-	float _rot;
+	float3 front_pos;
+	float3 back_pos;
+
+	float3 center () { return (front_pos + back_pos)*0.5; };
 
 	Citizen (Random& r, Building* initial_building) { // TODO: spawn citizens on map edge (on path)
 		building = initial_building;
@@ -69,7 +73,7 @@ struct Citizen {
 	}
 
 	SelCircle get_sel_shape () {
-		return { _pos, CAR_SIZE*0.5f, lrgb(0.04f, 1, 0.04f) };
+		return { center(), CAR_SIZE*0.5f, lrgb(0.04f, 1, 0.04f) };
 	}
 };
 
@@ -81,35 +85,44 @@ struct Entities {
 	bool buildings_changed = true;
 };
 
-
 struct Test {
-	float2 a = float2(0, 0);
-	float2 b = float2(50, 50);
-	float2 c = float2(0, 50);
-	float2 d = float2(50, 0);
+	//float2 a = float2(0, 0);
+	//float2 b = float2(50, 50);
+	//float2 c = float2(0, 50);
+	//float2 d = float2(50, 0);
+	//float2 e = float2(50, 0);
+	//float2 f = float2(50, 0);
+	//
+	//float r = 10;
 
-	float r = 10;
-
-	void update () {
-		ImGui::DragFloat2("a", &a.x, 1);
-		ImGui::DragFloat2("b", &b.x, 1);
-		ImGui::DragFloat2("c", &c.x, 1);
-		ImGui::DragFloat2("d", &d.x, 1);
-
-		g_dbgdraw.point(float3(a,0), 5, lrgba(1,0,0,1));
-		g_dbgdraw.point(float3(b,0), 5, lrgba(1,1,0,1));
-		g_dbgdraw.point(float3(c,0), 5, lrgba(0,1,0,1));
-		g_dbgdraw.point(float3(d,0), 5, lrgba(0,0,1,1));
-		
-		dbg_draw_boxy_line(float3(a,0), float3(b,0), r, lrgba(1,0,0,1));
-		dbg_draw_boxy_line(float3(c,0), float3(d,0), r, lrgba(0,1,0,1));
-
-		float u;
-		if (!ray_box_intersection(a, b-a, c, d-c, length(d-c), r, &u))
-			return;
-
-		float2 j = a + (b-a)*u;
-		g_dbgdraw.point(float3(j,0), 2.5f, lrgba(0,1,1,1));
+	void update (Input& I, View3D& view) {
+		//ImGui::DragFloat2("a", &a.x, 1);
+		//ImGui::DragFloat2("b", &b.x, 1);
+		//ImGui::DragFloat2("c", &c.x, 1);
+		//ImGui::DragFloat2("d", &d.x, 1);
+		//ImGui::DragFloat2("e", &e.x, 1);
+		//ImGui::DragFloat2("f", &f.x, 1);
+		//
+		//draggable(I, view, &a, r);
+		//draggable(I, view, &b, r);
+		//draggable(I, view, &c, r);
+		//draggable(I, view, &d, r);
+		//draggable(I, view, &e, r);
+		//draggable(I, view, &f, r);
+		//
+		//g_dbgdraw.point(float3(a,0), 5, lrgba(1,0,0,1));
+		//g_dbgdraw.point(float3(b,0), 5, lrgba(1,1,0,1));
+		//g_dbgdraw.point(float3(c,0), 5, lrgba(0,1,0,1));
+		//g_dbgdraw.point(float3(d,0), 5, lrgba(0,0,1,1));
+		//g_dbgdraw.point(float3(e,0), 5, lrgba(0,0,1,1));
+		//g_dbgdraw.point(float3(f,0), 5, lrgba(0,0,1,1));
+		//
+		//float u;
+		//if (!ray_box_intersection(a, b-a, c, d-c, length(d-c), r*2, &u))
+		//	return;
+		//
+		//float2 j = a + (b-a)*u;
+		//g_dbgdraw.point(float3(j,0), 2.5f, lrgba(0,1,1,1));
 	}
 };
 
@@ -126,6 +139,36 @@ struct App : public Engine {
 
 	virtual void json_load () { load("debug.json", this); }
 	virtual void json_save () { save("debug.json", *this); }
+
+	virtual void imgui () {
+		ZoneScoped;
+
+		renderer->imgui(*this);
+
+		ImGui::Separator();
+
+		cam.imgui("cam");
+		dbg_cam.imgui("dbg_cam");
+		ImGui::SameLine();
+		ImGui::Checkbox("View", &view_dbg_cam);
+
+		if (ImGui::TreeNode("Time of Day")) {
+
+			ImGui::SliderAngle("sun_azim", &sun_azim, 0, 360);
+			ImGui::SliderAngle("sun_elev", &sun_elev, -90, 90);
+			ImGui::SliderFloat("day_t", &day_t, 0,1);
+
+			ImGui::SliderFloat("day_speed", &day_speed, 0, 0.25f, "%.3f", ImGuiSliderFlags_Logarithmic);
+			ImGui::Checkbox("day_pause", &day_pause);
+			
+			ImGui::TreePop();
+		}
+
+		ImGui::Checkbox("sim_paused", &sim_paused);
+
+		net.imgui();
+	}
+
 	
 	Assets assets;
 	Entities entities;
@@ -155,11 +198,60 @@ struct App : public Engine {
 	Test test;
 
 	sel_ptr selection;
-	
+	sel_ptr selection2;
+
 	template <typename T>
 	void clear_sel () {
 		if (selection.get<T>())
 			selection = nullptr;
+		if (selection2.get<T>())
+			selection2 = nullptr;
+	}
+
+	void update_selection () {
+		Ray ray;
+		if (!view.cursor_ray(input, &ray.pos, &ray.dir))
+			return;
+
+		sel_ptr hover;
+		float dist = INF;
+
+		for (auto& cit : entities.citizens) {
+			auto shape = cit->get_sel_shape();
+			float hit_dist;
+			if (shape.test(ray, &hit_dist) && hit_dist < dist) {
+				hover = cit.get();
+				dist = hit_dist;
+			}
+		}
+		for (auto& node : net.nodes) {
+			auto shape = node->get_sel_shape();
+			float hit_dist;
+			if (shape.test(ray, &hit_dist) && hit_dist < dist) {
+				hover = node.get();
+				dist = hit_dist;
+			}
+		}
+		
+		if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+			auto& s = input.buttons[KEY_LEFT_CONTROL].is_down ? selection2 : selection;
+			s = hover;
+		}
+		if (hover) {
+			hover.visit([&] (auto& x) {
+				x->get_sel_shape().highlight();
+			});
+		}
+		if (selection) {
+			selection.visit([&] (auto& x) {
+				x->get_sel_shape().highlight_selected();
+			});
+		}
+		if (selection2) {
+			selection2.visit([&] (auto& x) {
+				x->get_sel_shape().highlight_selected(0.3f, lrgba(1,0,0, 1));
+			});
+		}
 	}
 
 	void spawn () {
@@ -307,80 +399,9 @@ struct App : public Engine {
 			}
 		}
 	}
-
-	virtual void imgui () {
-		ZoneScoped;
-
-		renderer->imgui(*this);
-
-		ImGui::Separator();
-
-		cam.imgui("cam");
-		dbg_cam.imgui("dbg_cam");
-		ImGui::SameLine();
-		ImGui::Checkbox("View", &view_dbg_cam);
-
-		if (ImGui::TreeNode("Time of Day")) {
-
-			ImGui::SliderAngle("sun_azim", &sun_azim, 0, 360);
-			ImGui::SliderAngle("sun_elev", &sun_elev, -90, 90);
-			ImGui::SliderFloat("day_t", &day_t, 0,1);
-
-			ImGui::SliderFloat("day_speed", &day_speed, 0, 0.25f, "%.3f", ImGuiSliderFlags_Logarithmic);
-			ImGui::Checkbox("day_pause", &day_pause);
-			
-			ImGui::TreePop();
-		}
-
-		ImGui::Checkbox("sim_paused", &sim_paused);
-
-		net.imgui();
-	}
-
-	void update_selection () {
-		Ray ray;
-		if (!view.cursor_ray(input, &ray.pos, &ray.dir))
-			return;
-
-		sel_ptr hover;
-		float dist = INF;
-
-		for (auto& cit : entities.citizens) {
-			auto shape = cit->get_sel_shape();
-			float hit_dist;
-			if (shape.test(ray, &hit_dist) && hit_dist < dist) {
-				hover = cit.get();
-				dist = hit_dist;
-			}
-		}
-		for (auto& node : net.nodes) {
-			auto shape = node->get_sel_shape();
-			float hit_dist;
-			if (shape.test(ray, &hit_dist) && hit_dist < dist) {
-				hover = node.get();
-				dist = hit_dist;
-			}
-		}
-		
-		if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
-			selection = hover;
-		}
-		if (hover) {
-			hover.visit([&] (auto& x) {
-				x->get_sel_shape().highlight();
-			});
-		}
-		if (selection) {
-			selection.visit([&] (auto& x) {
-				x->get_sel_shape().highlight_selected();
-			});
-		}
-	}
-
+	
 	void update () {
 		ZoneScoped;
-
-		test.update();
 		
 		if (input.buttons[KEY_P].went_down) {
 			view_dbg_cam = !view_dbg_cam;
@@ -409,6 +430,8 @@ struct App : public Engine {
 		view = view_dbg_cam ?
 			dbg_cam.update(input, (float2)input.window_size) :
 			cam.update(input, (float2)input.window_size);
+
+		test.update(input, view);
 
 		g_dbgdraw.axis_gizmo(view, input.window_size);
 

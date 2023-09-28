@@ -791,9 +791,14 @@ struct OglRenderer : public Renderer {
 				for (uint32_t i=0; i<(uint32_t)app.entities.citizens.size(); ++i) {
 					auto& entity = app.entities.citizens[i];
 
+					// TODO: network code shoud ensure length(dir) == CAR_SIZE
+					float3 dir = entity->front_pos - entity->back_pos;
+					float3 center = entity->front_pos - normalizesafe(dir) * CAR_SIZE/2;
+					float ang = angle2d((float2)dir);
+
 					instances[i].mesh_id = car_renderer.asset2mesh_id[entity->asset];
-					instances[i].pos = entity->_pos;
-					instances[i].rot = entity->_rot;
+					instances[i].pos = center;
+					instances[i].rot = ang;
 					instances[i].col = entity->col;
 				}
 

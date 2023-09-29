@@ -245,13 +245,8 @@ float brake_for_dist (float obstacle_dist) {
 	return clamp(map(obstacle_dist, 0.0f, 8.0f), 0.0f, 1.0f);
 }
 
-float front_dist (Agent* cur, float2 const& point) {
-	float2 cur_forw = normalizesafe(cur->cit->front_pos - cur->cit->back_pos);
-
-	return dot(point - cur->cit->front_pos, cur_forw);
-}
 void brake_for_leading_car (Agent* cur, Agent* leading) {
-	float dist = front_dist(cur, leading->cit->back_pos) - 1; // safety dist
+	float dist = distance(cur->cit->front_pos, leading->cit->rear_pos) - 2; // safety dist
 
 	cur->brake = min(cur->brake, brake_for_dist(dist));
 }
@@ -314,6 +309,12 @@ void debug_citizen (App& app, Citizen* cit) {
 		start_t = s.next_start_t;
 		if (s.state == ENTER_BUILDING) break;
 	}
+}
+
+void dbg_brake_for_point (App& app, Agent* cur, float2 point, lrgba col = lrgba(1,0.5f,0,1)) {
+	if (app.selection.get<Citizen*>() != cur->cit) return;
+
+	g_dbgdraw.point(float3(point,0), 0.2f, col);
 }
 
 bool check_conflict (Connection const& a, Connection const& b,
@@ -403,14 +404,15 @@ bool check_conflict (Connection const& a, Connection const& b,
 	return u0 < INF;
 }
 
-void update_segment (Segment* seg) {
+void update_segment (App& app, Segment* seg) {
 	for (auto& lane : seg->agents.lanes) {
 		// brake for car in front
 		for (int i=1; i<(int)lane.list.size(); ++i) {
 			Agent* prev = lane.list[i-1];
 			Agent* cur = lane.list[i];
 			
-			if (cur->front_t < prev->front_t) {
+			dbg_brake_for_point(app, cur, (float2)prev->cit->rear_pos);
+			if (cur->front_t < prev->rear_t) {
 				brake_for_leading_car(cur, prev);
 			}
 			else {
@@ -436,8 +438,7 @@ void update_node (App& app, Node* node) {
 		auto li = lane_out.clac_lane_info();
 				
 		auto pos = lerp(li.a, li.b, avail_space[lane_out] / lane_out.seg->lane_length);
-		g_dbgdraw.point(pos, 1, lrgba(1,0,1,1));
-		g_dbgdraw.point(pos, 1, lrgba(1,0,1,1));
+		g_dbgdraw.point(pos, 1, lrgba(a->cit->col,1));
 	};
 
 	//
@@ -453,80 +454,111 @@ void update_node (App& app, Node* node) {
 	}
 
 	// TODO: reserve space only if car is not waiting for other cars, probably by doing it in the loops below
-			
-	auto vehicle_conflict = [&] (Agent* a, Agent* b) {
-		assert(a != b);
-		
-		auto sa = get_agent_state(a, a->idx);
-		auto sb = get_agent_state(b, b->idx);
+	
+	auto get_conn = [] (Agent* a) -> std::optional<Connection> {
+		auto s = get_agent_state(a, a->idx);
+		if (s.seg_before_node && s.seg_after_node)
+			return Connection{ *s.seg_before_node, *s.seg_after_node };
+		return std::nullopt;
+	};
+	auto get_conn2 = [] (Agent* a) -> std::optional<Connection> {
+		assert(a->idx > 0);
+		auto s = get_agent_state(a, a->idx-1);
+		if (s.seg_before_node && s.seg_after_node)
+			return Connection{ *s.seg_before_node, *s.seg_after_node };
+		return std::nullopt;
+	};
 
-		if (!sa.seg_after_node) return;
-		if (!sb.seg_after_node) return;
-		assert(sa.seg_after_node);
-		assert(sb.seg_after_node);
-		
-		auto conn_a = Connection{ *sa.seg_before_node, *sa.seg_after_node };
-		auto conn_b = Connection{ *sb.seg_before_node, *sb.seg_after_node };
+	auto vehicle_conflict = [&] (Agent* a, Agent* b, std::optional<Connection> const& conn_a, std::optional<Connection> const& conn_b) {
+		assert(a != b);
+
+		if (!conn_a || !conn_b) return;
 		
 		auto* sel  = app.selection .get<Citizen*>() ? app.selection .get<Citizen*>()->path.get() : nullptr;
 		auto* sel2 = app.selection2.get<Citizen*>() ? app.selection2.get<Citizen*>()->path.get() : nullptr;
 		bool dbg = (a == sel || a == sel2) && (b == sel || b == sel2);
+		
+		if (dbg) {
+			printf("");
+		}
 
-		if (conn_a == conn_b) {
+		if (conn_a->a == conn_b->a || conn_a->b == conn_b->b) {
 			brake_for_leading_car(a, b);
+			dbg_brake_for_point(app, a, b->cit->rear_pos);
 			return;
 		}
 
 		float a_t0, b_t0, a_t1, b_t1;
-		if (!check_conflict(conn_a, conn_b, &a_t0, &b_t0, &a_t1, &b_t1, dbg))
+		if (!check_conflict(*conn_a, *conn_b, &a_t0, &b_t0, &a_t1, &b_t1, dbg))
 			return;
 
-		if (a->front_t >= a_t1 || b->front_t >= b_t1) {
-			return;
-		}
+		bool a_entered = a->front_t >= a_t0;
+		bool a_exited  = a->rear_t  >= a_t1;
+		bool b_entered = b->front_t >= b_t0;
+		bool b_exited  = b->rear_t  >= b_t1;
 
+		if (a_exited || b_exited)
+			return;
 		if (a->blocked || b->blocked)
 			return;
-		
-		float2 a_point = calc_curve(conn_a.a.clac_lane_info(), conn_a.b.clac_lane_info()).eval(a_t0).pos;
-		float2 b_point = calc_curve(conn_b.a.clac_lane_info(), conn_b.b.clac_lane_info()).eval(b_t0).pos;
+
+		float2 a_point = calc_curve(conn_a->a.clac_lane_info(), conn_a->b.clac_lane_info()).eval(a_t0).pos;
+		float2 b_point = calc_curve(conn_b->a.clac_lane_info(), conn_b->b.clac_lane_info()).eval(b_t0).pos;
 		float a_dist = distance(a->cit->front_pos, a_point);
 		float b_dist = distance(b->cit->front_pos, b_point);
 
-		if (dbg) {
-			g_dbgdraw.line(a->cit->front_pos, float3(a_point,0), lrgba(1,0,0,1));
-			g_dbgdraw.line(b->cit->front_pos, float3(b_point,0), lrgba(1,0,0,1));
+		if (dbg && !a_entered) g_dbgdraw.line(a->cit->front_pos, float3(a_point,0), lrgba(1,0,0,1));
+		if (dbg && !b_entered) g_dbgdraw.line(b->cit->front_pos, float3(b_point,0), lrgba(1,0,0,1));
+		
+		Agent* waiting;
+		float  waiting_dist;
+		float2 waiting_point;
+
+		if (a_entered) {
+			waiting       = b;
+			waiting_dist  = b_dist;
+			waiting_point = b_point;
 		}
+		else if (b_entered) {
+			waiting       = a;
+			waiting_dist  = a_dist;
+			waiting_point = a_point;
+		}
+		else {
 
-		//
-		auto a_lane = sa.seg_before_node->clac_lane_info();
-		auto b_lane = sb.seg_before_node->clac_lane_info();
+			//
+			auto a_lane = conn_a->a.clac_lane_info();
+			auto b_lane = conn_b->a.clac_lane_info();
 
-		float2 a_dir = normalizesafe(a_lane.b - a_lane.a);
-		float2 b_dir = normalizesafe(b_lane.b - b_lane.a);
-		float ab_cross = cross(a_dir, b_dir);
-		bool a_has_prio = ab_cross < -0.2f;
-		bool b_has_prio = ab_cross > 0.2f;
+			float2 a_dir = normalizesafe(a_lane.b - a_lane.a);
+			float2 b_dir = normalizesafe(b_lane.b - b_lane.a);
+			float ab_cross = cross(a_dir, b_dir);
+			bool a_has_prio = ab_cross < -0.2f;
+			bool b_has_prio = ab_cross > 0.2f;
 
-		float e_a_dist = a_dist;
-		float e_b_dist = b_dist;
+			float e_a_dist = a_dist;
+			float e_b_dist = b_dist;
 
-		if (     a_has_prio) e_a_dist *= 0.33f;
-		else if (b_has_prio) e_b_dist *= 0.33f;
+			if (     a_has_prio) e_a_dist *= 0.33f;
+			else if (b_has_prio) e_b_dist *= 0.33f;
 
-		Agent* waiting     = e_a_dist > e_b_dist ? a : b;
-		float waiting_dist = e_a_dist > e_b_dist ? a_dist : b_dist;
-				
+			waiting       = e_a_dist > e_b_dist ? a : b;
+			waiting_dist  = e_a_dist > e_b_dist ? a_dist : b_dist;
+			waiting_point = e_a_dist > e_b_dist ? a_point : b_point;
+		}
+		
 		float dist = waiting_dist;
 
 		auto s = get_agent_state(waiting, waiting->idx);
 		if (s.state == SEGMENT) {
 			float2 lane_end = (float2)s.seg_before_node->clac_lane_info().b;
 			
-			dist = front_dist(waiting, lane_end) + 0.2f;
+			dist = distance(waiting->cit->front_pos, lane_end) + 0.2f;
+			waiting->blocked = true;
 		}
 		waiting->brake = min(waiting->brake, brake_for_dist(dist));
-		waiting->blocked = true;
+
+		dbg_brake_for_point(app, waiting, waiting_point);
 	};
 	
 	// avail space in out lane logic
@@ -548,9 +580,11 @@ void update_node (App& app, Node* node) {
 			if (avail_space[*s.seg_after_node] < CAR_SIZE) {
 				float2 lane_end = (float2)lane.clac_lane_info().b;
 					
-				float dist = front_dist(agent, lane_end) + 0.2f;
+				float dist = distance(agent->cit->front_pos, lane_end) + 0.2f;
 				agent->brake = min(agent->brake, brake_for_dist(dist));
 				agent->blocked = true;
+
+				dbg_brake_for_point(app, agent, lane_end, lrgba(0.2f,0.8f,1,1));
 			}
 			else {
 				dbg_avail_space(*s.seg_after_node, agent);
@@ -562,24 +596,26 @@ void update_node (App& app, Node* node) {
 	//
 	for (int i=0; i<(int)node->agents.free.list.size(); ++i) {
 		auto* a = node->agents.free.list[i];
+		auto conn_a = get_conn(a);
 		
 		// process remaining node agents
 		for (int j=i+1; j<(int)node->agents.free.list.size(); ++j) {
-			vehicle_conflict(a, node->agents.free.list[j]);
+			auto* b = node->agents.free.list[j];
+			vehicle_conflict(b, a, get_conn(b), conn_a);
 		}
 				
 		// process last agents in outgoing lanes
 		for (auto& out_lane : node->out_lanes) {
 			auto& agents = out_lane.seg->agents.lanes[out_lane.lane].list;
 			if (!agents.empty()) {
-				vehicle_conflict(a, agents.back());
+				vehicle_conflict(a, agents.back(), conn_a, get_conn2(agents.back()));
 			}
 		}
 
 		// process ingoing lanes
 		for (auto& in_lane : node->in_lanes) {
 			for (auto& b : in_lane.seg->agents.lanes[in_lane.lane].list) {
-				vehicle_conflict(b, a);
+				vehicle_conflict(b, a, get_conn(b), conn_a);
 			}
 		}
 	}
@@ -588,15 +624,13 @@ void update_node (App& app, Node* node) {
 	for (int i=0; i<(int)node->in_lanes.size()-1; ++i) {
 		auto& lane = node->in_lanes[i];
 		for (auto& a : lane.seg->agents.lanes[lane.lane].list) {
-			//if (a->blocked) break;
-				
+			auto conn_a = get_conn(a);
+
 			// process remaining ingoing lanes
 			for (int j=i+1; j<(int)node->in_lanes.size(); ++j) {
 				auto& other_lane = node->in_lanes[j];
 				for (auto& b : other_lane.seg->agents.lanes[other_lane.lane].list) {
-					//if (b->blocked) break;
-
-					vehicle_conflict(a, b);
+					vehicle_conflict(a, b, conn_a, get_conn(b));
 				}
 			}
 		}
@@ -614,7 +648,7 @@ void update_vehicle (App& app, Agent* agent) {
 	// (delta pos / delta time)[speed] * time[dt] / (delta pos / bezier delta t)[bez_speed]
 	// -> delta t
 	float dp = app.net.top_speed * app.input.dt * agent->brake;
-	agent->front_t += dp / agent->bez_speed;
+	agent->front_t += dp * agent->bez_speed;
 
 	if (agent->front_t >= s.end_t) {
 		agent->idx++;
@@ -635,36 +669,24 @@ void update_vehicle (App& app, Agent* agent) {
 
 	// at front
 	auto bez_res = s.bezier.eval(agent->front_t);
-	agent->bez_speed = length(bez_res.vel); // delta pos / bezier t
+	agent->bez_speed = 1.0f / length(bez_res.vel); // bezier t / delta pos
+
+	agent->rear_t = agent->front_t - CAR_SIZE * agent->bez_speed;
+
+	float2 new_front = bez_res.pos;
 	
-	float rear_t = agent->front_t - CAR_SIZE / agent->bez_speed;
-	agent->rear_t = rear_t;
-	
-	Bezier3 bez_rear = s.bezier;
+	float2 old_front = (float2)agent->cit->front_pos;
+	float2 old_rear  = (float2)agent->cit->rear_pos;
 
-	if (rear_t < 0 && agent->idx > 0) {
-		float remain = CAR_SIZE - agent->front_t * agent->bez_speed;
+	float2 forw = normalizesafe(old_front - old_rear);
+	//float forw_amount = dot(new_front - old_front, forw);
 
-		auto prev_s = get_agent_state(agent, agent->idx-1);
-		bez_rear = prev_s.bezier;
-		float prev_bez_speed = length( bez_rear.eval(prev_s.end_t).vel );
+	float2 ref_point = old_rear + CAR_SIZE*app.net.rear_test * forw; // Kinda works to avoid goofy car rear movement?
 
-		rear_t = prev_s.end_t - remain / prev_bez_speed;
-		agent->rear_t = rear_t - 1; // encode as negative t ?
-	}
+	float2 new_rear = new_front - normalizesafe(new_front - ref_point) * CAR_SIZE;
 
-	auto bez_rear_res = bez_rear.eval(rear_t);
-
-	float2 front_pos = bez_res.pos;
-	float2 rear_pos  = bez_rear_res.pos;
-
-	// fix distance of approximated rear point
-	float2 dir = normalizesafe(front_pos - rear_pos);
-	rear_pos = front_pos - dir * CAR_SIZE;
-
-
-	agent->cit->front_pos = float3(front_pos, s.pos_z);
-	agent->cit->back_pos = float3(rear_pos, s.pos_z);
+	agent->cit->front_pos = float3(new_front, s.pos_z);
+	agent->cit->rear_pos = float3(new_rear, s.pos_z);
 };
 		
 
@@ -677,7 +699,7 @@ void Network::simulate (App& app) {
 		auto* cur_target = app.entities.buildings[ app.test_rand.uniformi(0, (int)app.entities.buildings.size()) ].get();
 	
 		cit->front_pos = cit->building->pos;
-		cit->back_pos = cit->front_pos;
+		cit->rear_pos = cit->front_pos;
 
 		assert(cit->building->connected_segment);
 		if (cit->building->connected_segment) {
@@ -712,7 +734,7 @@ void Network::simulate (App& app) {
 		{
 			ZoneScopedN("update segments");
 			for (auto& seg : segments) {
-				update_segment(seg.get());
+				update_segment(app, seg.get());
 			}
 		}
 		{

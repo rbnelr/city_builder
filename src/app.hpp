@@ -62,9 +62,9 @@ struct Citizen {
 
 	// TODO: get rid of this? This is not persistent data (and citizens in buildings don't need to be drawn)
 	float3 front_pos;
-	float3 back_pos;
+	float3 rear_pos;
 
-	float3 center () { return (front_pos + back_pos)*0.5; };
+	float3 center () { return (front_pos + rear_pos)*0.5; };
 
 	Citizen (Random& r, Building* initial_building) { // TODO: spawn citizens on map edge (on path)
 		building = initial_building;

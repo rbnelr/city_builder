@@ -792,7 +792,7 @@ struct OglRenderer : public Renderer {
 					auto& entity = app.entities.citizens[i];
 
 					// TODO: network code shoud ensure length(dir) == CAR_SIZE
-					float3 dir = entity->front_pos - entity->back_pos;
+					float3 dir = entity->front_pos - entity->rear_pos;
 					float3 center = entity->front_pos - normalizesafe(dir) * CAR_SIZE/2;
 					float ang = angle2d((float2)dir);
 

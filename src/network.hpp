@@ -226,9 +226,13 @@ struct Network {
 	float top_speed = 20;
 	float cone = deg(45);
 
+	float rear_test = 0.4f;
+
 	void imgui () {
 		ImGui::SliderFloat("top_speed", &top_speed, 0, 50);
 		ImGui::SliderAngle("cone", &cone, 0, 180);
+		
+		ImGui::SliderFloat("rear_test", &rear_test, 0, 1);
 	}
 
 	bool pathfind (Segment* start, Segment* target, Agent* path);

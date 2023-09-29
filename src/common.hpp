@@ -55,6 +55,7 @@
 #include <queue>
 
 #include <variant>
+#include <optional>
 
 
 // kisslib

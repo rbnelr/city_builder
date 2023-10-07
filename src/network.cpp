@@ -139,8 +139,8 @@ struct AgentState {
 	Bezier3 bezier;
 	float pos_z;
 
-	network::AgentList* cur_agents = nullptr;
-	network::AgentList* next_agents = nullptr;
+	network::AgentList<Agent*>* cur_agents = nullptr;
+	network::AgentList<Agent*>* next_agents = nullptr;
 
 	network::Node* cur_node = nullptr;
 	network::SegLane* seg_before_node = nullptr;
@@ -256,13 +256,22 @@ void debug_node (App& app, Node* node) {
 
 	g_dbgdraw.wire_circle(node->pos, node->radius, lrgba(1,1,0,1));
 
+	//{
+	//	int i=0;
+	//	for (auto& agent : node->agents.free.list) {
+	//		g_dbgdraw.wire_circle(agent->cit->center(), CAR_SIZE*0.5f, lrgba(1,0,0.5f,1));
+	//
+	//		g_dbgdraw.text.draw_text(prints("%d", i++),
+	//			30, 1, g_dbgdraw.text.map_text(agent->cit->center(), app.view));
+	//	}
+	//}
 	{
 		int i=0;
-		for (auto& agent : node->agents.free.list) {
-			g_dbgdraw.wire_circle(agent->cit->center(), CAR_SIZE*0.5f, lrgba(1,0,0.5f,1));
-
+		for (auto& agent : node->agents.test.list) {
+			g_dbgdraw.wire_circle(agent.agent->cit->center(), CAR_SIZE*0.5f, lrgba(1,0,0.5f,1));
+	
 			g_dbgdraw.text.draw_text(prints("%d", i++),
-				30, 1, g_dbgdraw.text.map_text(agent->cit->center(), app.view));
+				30, 1, g_dbgdraw.text.map_text(agent.agent->cit->center(), app.view));
 		}
 	}
 
@@ -320,7 +329,14 @@ void dbg_brake_for_point (App& app, Agent* cur, float2 point, lrgba col = lrgba(
 bool check_conflict (Connection const& a, Connection const& b,
 		float* out_u0, float* out_v0, float* out_u1, float* out_v1,
 		bool dbg) {
-	assert(a != b);
+	
+	if (a == b) {
+		*out_u0 = 0;
+		*out_v0 = 0;
+		*out_u1 = 1;
+		*out_v1 = 1;
+		return true;
+	}
 
 	auto gen_points = [&] (float2* points, Connection const& conn, float shift) {
 		auto bez = calc_curve(conn.a.clac_lane_info(shift), conn.b.clac_lane_info(shift));
@@ -453,25 +469,9 @@ void update_node (App& app, Node* node) {
 		}
 	}
 
-	// TODO: reserve space only if car is not waiting for other cars, probably by doing it in the loops below
-	
-	auto get_conn = [] (Agent* a) -> std::optional<Connection> {
-		auto s = get_agent_state(a, a->idx);
-		if (s.seg_before_node && s.seg_after_node)
-			return Connection{ *s.seg_before_node, *s.seg_after_node };
-		return std::nullopt;
-	};
-	auto get_conn2 = [] (Agent* a) -> std::optional<Connection> {
-		assert(a->idx > 0);
-		auto s = get_agent_state(a, a->idx-1);
-		if (s.seg_before_node && s.seg_after_node)
-			return Connection{ *s.seg_before_node, *s.seg_after_node };
-		return std::nullopt;
-	};
-
 	auto vehicle_conflict = [&] (Agent* a, Agent* b, std::optional<Connection> const& conn_a, std::optional<Connection> const& conn_b) {
 		assert(a != b);
-
+	
 		if (!conn_a || !conn_b) return;
 		
 		auto* sel  = app.selection .get<Citizen*>() ? app.selection .get<Citizen*>()->path.get() : nullptr;
@@ -481,160 +481,144 @@ void update_node (App& app, Node* node) {
 		if (dbg) {
 			printf("");
 		}
+	
+		float a_t0, b_t0, a_t1, b_t1;
+		if (!check_conflict(*conn_a, *conn_b, &a_t0, &b_t0, &a_t1, &b_t1, dbg))
+			return;
+		
+		auto as = get_agent_state(a, a->idx);
+		auto bs = get_agent_state(b, b->idx);
 
+		float a_t_offs = as.state == SEGMENT ? -1.0f : 0; // if on segment then on segment before since segment after cars will not be iterated
+		float b_t_offs = bs.state == SEGMENT ? -1.0f : 0; // if on segment then on segment before since segment after cars will not be iterated
+
+		bool a_entered = a_t_offs + a->front_t >= a_t0;
+		bool a_exited  = a_t_offs + a->rear_t  >= a_t1;
+		bool b_entered = b_t_offs + b->front_t >= b_t0;
+		bool b_exited  = b_t_offs + b->rear_t  >= b_t1;
+	
+		if (a_exited || b_exited)
+			return;
+		//if (a->blocked || b->blocked)
+		//	return;
+	
 		if (conn_a->a == conn_b->a || conn_a->b == conn_b->b) {
 			brake_for_leading_car(a, b);
 			dbg_brake_for_point(app, a, b->cit->rear_pos);
 			return;
 		}
 
-		float a_t0, b_t0, a_t1, b_t1;
-		if (!check_conflict(*conn_a, *conn_b, &a_t0, &b_t0, &a_t1, &b_t1, dbg))
-			return;
-
-		bool a_entered = a->front_t >= a_t0;
-		bool a_exited  = a->rear_t  >= a_t1;
-		bool b_entered = b->front_t >= b_t0;
-		bool b_exited  = b->rear_t  >= b_t1;
-
-		if (a_exited || b_exited)
-			return;
-		if (a->blocked || b->blocked)
-			return;
-
-		float2 a_point = calc_curve(conn_a->a.clac_lane_info(), conn_a->b.clac_lane_info()).eval(a_t0).pos;
-		float2 b_point = calc_curve(conn_b->a.clac_lane_info(), conn_b->b.clac_lane_info()).eval(b_t0).pos;
-		float a_dist = distance(a->cit->front_pos, a_point);
-		float b_dist = distance(b->cit->front_pos, b_point);
-
-		if (dbg && !a_entered) g_dbgdraw.line(a->cit->front_pos, float3(a_point,0), lrgba(1,0,0,1));
-		if (dbg && !b_entered) g_dbgdraw.line(b->cit->front_pos, float3(b_point,0), lrgba(1,0,0,1));
+		float2 point = calc_curve(conn_a->a.clac_lane_info(), conn_a->b.clac_lane_info()).eval(a_t0).pos;
+		float dist = distance(a->cit->front_pos, point);
+	
+		if (dbg && !a_entered) g_dbgdraw.line(a->cit->front_pos, float3(point,0), lrgba(1,0,0,1));
 		
-		Agent* waiting;
-		float  waiting_dist;
-		float2 waiting_point;
-
-		if (a_entered) {
-			waiting       = b;
-			waiting_dist  = b_dist;
-			waiting_point = b_point;
-		}
-		else if (b_entered) {
-			waiting       = a;
-			waiting_dist  = a_dist;
-			waiting_point = a_point;
-		}
-		else {
-
-			//
-			auto a_lane = conn_a->a.clac_lane_info();
-			auto b_lane = conn_b->a.clac_lane_info();
-
-			float2 a_dir = normalizesafe(a_lane.b - a_lane.a);
-			float2 b_dir = normalizesafe(b_lane.b - b_lane.a);
-			float ab_cross = cross(a_dir, b_dir);
-			bool a_has_prio = ab_cross < -0.2f;
-			bool b_has_prio = ab_cross > 0.2f;
-
-			float e_a_dist = a_dist;
-			float e_b_dist = b_dist;
-
-			if (     a_has_prio) e_a_dist *= 0.33f;
-			else if (b_has_prio) e_b_dist *= 0.33f;
-
-			waiting       = e_a_dist > e_b_dist ? a : b;
-			waiting_dist  = e_a_dist > e_b_dist ? a_dist : b_dist;
-			waiting_point = e_a_dist > e_b_dist ? a_point : b_point;
-		}
-		
-		float dist = waiting_dist;
-
-		auto s = get_agent_state(waiting, waiting->idx);
-		if (s.state == SEGMENT) {
-			float2 lane_end = (float2)s.seg_before_node->clac_lane_info().b;
-			
-			dist = distance(waiting->cit->front_pos, lane_end) + 0.2f;
-			waiting->blocked = true;
-		}
-		waiting->brake = min(waiting->brake, brake_for_dist(dist));
-
-		dbg_brake_for_point(app, waiting, waiting_point);
+		//auto s = get_agent_state(a, a->idx);
+		//if (s.state == SEGMENT) {
+		//	float2 lane_end = (float2)s.seg_before_node->clac_lane_info().b;
+		//	
+		//	dist = distance(a->cit->front_pos, lane_end) + 0.2f;
+		//	a->blocked = true;
+		//}
+		a->brake = min(a->brake, brake_for_dist(dist));
+	
+		dbg_brake_for_point(app, a, point);
 	};
+
+	int count = (int)node->agents.test.list.size();
+	for (int j=1; j<count; ++j) {
+		auto a = node->agents.test.list[j];
+		for (int i=0; i<j; ++i) {
+			auto b = node->agents.test.list[i];
+
+			vehicle_conflict(a.agent, b.agent, a.conn, b.conn);
+		}
+	}
+
+	for (auto a : node->agents.test.list) {
+		auto& target_lane = a.conn.b.seg->agents.lanes[a.conn.b.lane].list;
+		if (!target_lane.empty()) {
+			auto* b = target_lane.back();
+
+			brake_for_leading_car(a.agent, b);
+			dbg_brake_for_point(app, a.agent, b->cit->rear_pos);
+		}
+	}
 	
 	// avail space in out lane logic
-
-	for (int i=0; i<(int)node->agents.free.list.size(); ++i) {
-		auto* a = node->agents.free.list[i];
-				
-		// count space in target lane
-		auto s = get_agent_state(a, a->idx);
-		dbg_avail_space(*s.seg_after_node, a);
-		avail_space[*s.seg_after_node] -= CAR_SIZE + 1; // Use real car length for specific car here
-	}
-
-	for (auto& lane : node->in_lanes) {
-		for (auto* agent : lane.seg->agents.lanes[lane.lane].list) {
-			auto s = get_agent_state(agent, agent->idx);
-			if (!s.seg_after_node) continue;
-
-			if (avail_space[*s.seg_after_node] < CAR_SIZE) {
-				float2 lane_end = (float2)lane.clac_lane_info().b;
-					
-				float dist = distance(agent->cit->front_pos, lane_end) + 0.2f;
-				agent->brake = min(agent->brake, brake_for_dist(dist));
-				agent->blocked = true;
-
-				dbg_brake_for_point(app, agent, lane_end, lrgba(0.2f,0.8f,1,1));
-			}
-			else {
-				dbg_avail_space(*s.seg_after_node, agent);
-				avail_space[*s.seg_after_node] -= CAR_SIZE + 1;
-			}
-		}
-	}
-
-	//
-	for (int i=0; i<(int)node->agents.free.list.size(); ++i) {
-		auto* a = node->agents.free.list[i];
-		auto conn_a = get_conn(a);
-		
-		// process remaining node agents
-		for (int j=i+1; j<(int)node->agents.free.list.size(); ++j) {
-			auto* b = node->agents.free.list[j];
-			vehicle_conflict(b, a, get_conn(b), conn_a);
-		}
-				
-		// process last agents in outgoing lanes
-		for (auto& out_lane : node->out_lanes) {
-			auto& agents = out_lane.seg->agents.lanes[out_lane.lane].list;
-			if (!agents.empty()) {
-				vehicle_conflict(a, agents.back(), conn_a, get_conn2(agents.back()));
-			}
-		}
-
-		// process ingoing lanes
-		for (auto& in_lane : node->in_lanes) {
-			for (auto& b : in_lane.seg->agents.lanes[in_lane.lane].list) {
-				vehicle_conflict(b, a, get_conn(b), conn_a);
-			}
-		}
-	}
 	
-	// process ingoing lanes
-	for (int i=0; i<(int)node->in_lanes.size()-1; ++i) {
-		auto& lane = node->in_lanes[i];
-		for (auto& a : lane.seg->agents.lanes[lane.lane].list) {
-			auto conn_a = get_conn(a);
-
-			// process remaining ingoing lanes
-			for (int j=i+1; j<(int)node->in_lanes.size(); ++j) {
-				auto& other_lane = node->in_lanes[j];
-				for (auto& b : other_lane.seg->agents.lanes[other_lane.lane].list) {
-					vehicle_conflict(a, b, conn_a, get_conn(b));
-				}
-			}
-		}
-	}
+	//for (int i=0; i<(int)node->agents.free.list.size(); ++i) {
+	//	auto* a = node->agents.free.list[i];
+	//			
+	//	// count space in target lane
+	//	auto s = get_agent_state(a, a->idx);
+	//	dbg_avail_space(*s.seg_after_node, a);
+	//	avail_space[*s.seg_after_node] -= CAR_SIZE + 1; // Use real car length for specific car here
+	//}
+	//
+	//for (auto& lane : node->in_lanes) {
+	//	for (auto* agent : lane.seg->agents.lanes[lane.lane].list) {
+	//		auto s = get_agent_state(agent, agent->idx);
+	//		if (!s.seg_after_node) continue;
+	//
+	//		if (avail_space[*s.seg_after_node] < CAR_SIZE) {
+	//			float2 lane_end = (float2)lane.clac_lane_info().b;
+	//				
+	//			float dist = distance(agent->cit->front_pos, lane_end) + 0.2f;
+	//			agent->brake = min(agent->brake, brake_for_dist(dist));
+	//			agent->blocked = true;
+	//
+	//			dbg_brake_for_point(app, agent, lane_end, lrgba(0.2f,0.8f,1,1));
+	//		}
+	//		else {
+	//			dbg_avail_space(*s.seg_after_node, agent);
+	//			avail_space[*s.seg_after_node] -= CAR_SIZE + 1;
+	//		}
+	//	}
+	//}
+	
+	////
+	//for (int i=0; i<(int)node->agents.free.list.size(); ++i) {
+	//	auto* a = node->agents.free.list[i];
+	//	auto conn_a = get_conn(a);
+	//	
+	//	// process remaining node agents
+	//	for (int j=i+1; j<(int)node->agents.free.list.size(); ++j) {
+	//		auto* b = node->agents.free.list[j];
+	//		vehicle_conflict(b, a, get_conn(b), conn_a);
+	//	}
+	//			
+	//	// process last agents in outgoing lanes
+	//	for (auto& out_lane : node->out_lanes) {
+	//		auto& agents = out_lane.seg->agents.lanes[out_lane.lane].list;
+	//		if (!agents.empty()) {
+	//			vehicle_conflict(a, agents.back(), conn_a, get_conn2(agents.back()));
+	//		}
+	//	}
+	//
+	//	// process ingoing lanes
+	//	for (auto& in_lane : node->in_lanes) {
+	//		for (auto& b : in_lane.seg->agents.lanes[in_lane.lane].list) {
+	//			vehicle_conflict(b, a, get_conn(b), conn_a);
+	//		}
+	//	}
+	//}
+	//
+	//// process ingoing lanes
+	//for (int i=0; i<(int)node->in_lanes.size()-1; ++i) {
+	//	auto& lane = node->in_lanes[i];
+	//	for (auto& a : lane.seg->agents.lanes[lane.lane].list) {
+	//		auto conn_a = get_conn(a);
+	//
+	//		// process remaining ingoing lanes
+	//		for (int j=i+1; j<(int)node->in_lanes.size(); ++j) {
+	//			auto& other_lane = node->in_lanes[j];
+	//			for (auto& b : other_lane.seg->agents.lanes[other_lane.lane].list) {
+	//				vehicle_conflict(a, b, conn_a, get_conn(b));
+	//			}
+	//		}
+	//	}
+	//}
 };
 		
 void update_vehicle (App& app, Agent* agent) {
@@ -664,7 +648,17 @@ void update_vehicle (App& app, Agent* agent) {
 			return;
 		}
 
+		if (s.state == NODE) {
+			assert(s.cur_node);
+			s.cur_node->agents.test.remove(NodeAgents::NodeAgent{ agent, {} });
+		}
+
 		s = get_agent_state(agent, agent->idx);
+
+		if (s.state == SEGMENT && s.cur_node) {
+			assert(s.seg_before_node && s.seg_after_node);
+			s.cur_node->agents.test.add(NodeAgents::NodeAgent{ agent, { *s.seg_before_node, *s.seg_after_node } });
+		}
 	}
 
 	// at front

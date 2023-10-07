@@ -70,24 +70,35 @@ struct Agent {
 	float brake;
 	bool  blocked;
 };
+template <typename T>
 struct AgentList { // TODO: optimize agents in lane to only look at agent in front of them, and speed up insert/erase by using linked list
-	std::vector<Agent*> list;
+	std::vector<T> list;
 
-	void add (Agent* agent) {
+	void add (T agent) {
 		assert(std::find(list.begin(), list.end(), agent) == list.end());
 		list.push_back(agent);
 	}
-	void remove (Agent* agent) {
+	void remove (T agent) {
 		auto it = std::find(list.begin(), list.end(), agent);
 		assert(it != list.end());
 		list.erase(it);
 	}
 };
 struct SegAgents {
-	std::vector<AgentList> lanes;
+	std::vector<AgentList<Agent*>> lanes;
 };
 struct NodeAgents {
-	AgentList free;
+	AgentList<Agent*> free;
+
+	struct NodeAgent {
+		Agent* agent;
+		Connection conn;
+
+		bool operator== (NodeAgent const& other) const {
+			return agent == other.agent;
+		}
+	};
+	AgentList<NodeAgent> test;
 };
 
 struct Node {

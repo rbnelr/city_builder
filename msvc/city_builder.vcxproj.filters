@@ -16,9 +16,6 @@
     <ClCompile Include="..\src\engine\kisslib\stb_truetype.cpp">
       <Filter>engine\stb</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\engine\kisslib\collision.cpp">
-      <Filter>engine\kisslib</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\engine\kisslib\allocator.cpp">
       <Filter>engine\kisslib</Filter>
     </ClCompile>

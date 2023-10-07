@@ -97,6 +97,9 @@ struct NodeAgents {
 		bool operator== (NodeAgent const& other) const {
 			return agent == other.agent;
 		}
+		bool operator!= (NodeAgent const& other) const {
+			return agent != other.agent;
+		}
 	};
 	AgentList<NodeAgent> test;
 };

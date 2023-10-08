@@ -65,10 +65,14 @@ struct Agent {
 	Building* start = nullptr;
 	Building* end   = nullptr;
 
+	float speed = 0; // real speed
+
 	float bez_speed = 0; // delta beizer t over delta position
 	
 	float brake;
 	bool  blocked;
+
+
 };
 template <typename T>
 struct AgentList { // TODO: optimize agents in lane to only look at agent in front of them, and speed up insert/erase by using linked list
@@ -237,15 +241,38 @@ struct Network {
 	std::vector<std::unique_ptr<Node>> nodes;
 	std::vector<std::unique_ptr<Segment>> segments;
 	
-	float top_speed = 20;
-	float cone = deg(45);
+	SpeedUnit speed_unit = UNIT_KPH;
+
+	float top_speed = 30 / KPH_PER_MS;
+	float car_accel = 5;
 
 	float rear_test = 0.4f;
 
+	bool imgui_slider_speed (const char* label, float* speed, float min, float max) {
+		float fac = SpeedUnitPerMs[speed_unit];
+
+		top_speed *= fac;
+		min *= fac;
+		max *= fac;
+
+		bool ret = ImGui::SliderFloat(
+			prints("%s (%s)",label, SpeedUnitStr[speed_unit]).c_str(),
+			speed, min, max);
+
+		top_speed /= fac;
+		return ret;
+	}
+
 	void imgui () {
-		ImGui::SliderFloat("top_speed", &top_speed, 0, 50);
-		ImGui::SliderAngle("cone", &cone, 0, 180);
-		
+		float speed_ms = top_speed;
+		float speed_kmh = top_speed / 3.6f;
+
+		ImGui::Combo("speed_unit", (int*)&speed_unit, SpeedUnitStr, ARRLEN(SpeedUnitStr));
+
+		imgui_slider_speed("top_speed", &top_speed, 0, 200/KPH_PER_MS);
+
+		ImGui::SliderFloat("car_accel (m/s^2)", &car_accel, 0, 20);
+
 		ImGui::SliderFloat("rear_test", &rear_test, 0, 1);
 	}
 

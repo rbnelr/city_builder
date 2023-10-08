@@ -340,11 +340,12 @@ bool check_conflict (Connection const& a, Connection const& b,
 
 	auto gen_points = [&] (float2* points, Connection const& conn, float shift) {
 		auto bez = calc_curve(conn.a.clac_lane_info(shift), conn.b.clac_lane_info(shift));
+		//auto co = bez.get_coeff();
 
 		points[0] = bez.a;
 		for (int i=0; i<COLLISION_STEPS; ++i) {
 			float t = (float)(i+1) / COLLISION_STEPS;
-			points[i+1] = bez.eval(t).pos;
+			points[i+1] = bez.eval_value_fast_t(t);
 		}
 	};
 
@@ -479,7 +480,7 @@ void update_node (App& app, Node* node) {
 		if (dbg) {
 			printf("");
 		}
-	
+		
 		float a_t0, b_t0, a_t1, b_t1;
 		if (!check_conflict(a.conn, b.conn, &a_t0, &b_t0, &a_t1, &b_t1, dbg))
 			return;
@@ -500,6 +501,7 @@ void update_node (App& app, Node* node) {
 		//if (a->blocked || b->blocked)
 		//	return;
 	
+		// merge or diverging
 		if (a.conn.a == b.conn.a || a.conn.b == b.conn.b) {
 			brake_for_leading_car(a.agent, b.agent);
 			dbg_brake_for_point(app, a.agent, b.agent->cit->rear_pos);
@@ -508,8 +510,6 @@ void update_node (App& app, Node* node) {
 
 		float2 point = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info()).eval(a_t0).pos;
 		float dist = distance(a.agent->cit->front_pos, point);
-	
-		if (dbg && !a_entered) g_dbgdraw.line(a.agent->cit->front_pos, float3(point,0), lrgba(1,0,0,1));
 		
 		//auto s = get_agent_state(a, a->idx);
 		//if (s.state == SEGMENT) {
@@ -519,7 +519,6 @@ void update_node (App& app, Node* node) {
 		//	a->blocked = true;
 		//}
 		a.agent->brake = min(a.agent->brake, brake_for_dist(dist));
-	
 		dbg_brake_for_point(app, a.agent, point);
 	};
 
@@ -575,63 +574,32 @@ void update_node (App& app, Node* node) {
 	//	}
 	//}
 	
-	////
-	//for (int i=0; i<(int)node->agents.free.list.size(); ++i) {
-	//	auto* a = node->agents.free.list[i];
-	//	auto conn_a = get_conn(a);
-	//	
-	//	// process remaining node agents
-	//	for (int j=i+1; j<(int)node->agents.free.list.size(); ++j) {
-	//		auto* b = node->agents.free.list[j];
-	//		vehicle_conflict(b, a, get_conn(b), conn_a);
-	//	}
-	//			
-	//	// process last agents in outgoing lanes
-	//	for (auto& out_lane : node->out_lanes) {
-	//		auto& agents = out_lane.seg->agents.lanes[out_lane.lane].list;
-	//		if (!agents.empty()) {
-	//			vehicle_conflict(a, agents.back(), conn_a, get_conn2(agents.back()));
-	//		}
-	//	}
-	//
-	//	// process ingoing lanes
-	//	for (auto& in_lane : node->in_lanes) {
-	//		for (auto& b : in_lane.seg->agents.lanes[in_lane.lane].list) {
-	//			vehicle_conflict(b, a, get_conn(b), conn_a);
-	//		}
-	//	}
-	//}
-	//
-	//// process ingoing lanes
-	//for (int i=0; i<(int)node->in_lanes.size()-1; ++i) {
-	//	auto& lane = node->in_lanes[i];
-	//	for (auto& a : lane.seg->agents.lanes[lane.lane].list) {
-	//		auto conn_a = get_conn(a);
-	//
-	//		// process remaining ingoing lanes
-	//		for (int j=i+1; j<(int)node->in_lanes.size(); ++j) {
-	//			auto& other_lane = node->in_lanes[j];
-	//			for (auto& b : other_lane.seg->agents.lanes[other_lane.lane].list) {
-	//				vehicle_conflict(a, b, conn_a, get_conn(b));
-	//			}
-	//		}
-	//	}
-	//}
 };
 		
 void update_vehicle (App& app, Agent* agent) {
 	if (app.sim_paused)
 		return;
 
+	float dt = app.input.dt * app.sim_speed;
+
 	assert(agent->front_t < 1.0f);
 	
 	auto s = get_agent_state(agent, agent->idx);
 
-	// (delta pos / delta time)[speed] * time[dt] / (delta pos / bezier delta t)[bez_speed]
-	// -> delta t
-	float dp = app.net.top_speed * app.input.dt * agent->brake;
-	agent->front_t += dp * agent->bez_speed;
+	// car speed change
+	float target_speed = app.net.top_speed * agent->brake;
+	if (target_speed >= agent->speed) {
+		agent->speed += app.net.car_accel * dt;
+		agent->speed = min(agent->speed, target_speed);
+	}
+	else {
+		agent->speed = target_speed; // brake instantly for now
+	}
+	
+	// move car with speed on bezier based on previous frame delta t
+	agent->front_t += agent->speed * dt * agent->bez_speed;
 
+	// do bookkeeping when car reaches end of current bezier
 	if (agent->front_t >= s.end_t) {
 		agent->idx++;
 		agent->front_t = s.next_start_t;
@@ -659,12 +627,25 @@ void update_vehicle (App& app, Agent* agent) {
 		}
 	}
 
-	// at front
+	// eval bezier at car front
 	auto bez_res = s.bezier.eval(agent->front_t);
+	// remember bezier delta t for next frame
 	agent->bez_speed = 1.0f / length(bez_res.vel); // bezier t / delta pos
 
+	// estimate car rear bezier t
 	agent->rear_t = agent->front_t - CAR_SIZE * agent->bez_speed;
 
+	if (agent->rear_t < 0 && agent->idx > 0) { // handle rear of car being in previous bezier
+		float remain_len = agent->front_t / agent->bez_speed;
+		
+		auto prev_s = get_agent_state(agent, agent->idx-1);
+		float prev_bez_speed = 1.0f / length(prev_s.bezier.eval(1).vel);
+		agent->rear_t = - remain_len * prev_bez_speed; // encode previous bezier t as [-1,0] range
+
+		// agent->rear_t could still be negative if very long car or very short bezier
+	}
+
+	// actually move car rear using (bogus) trailer formula
 	float2 new_front = bez_res.pos;
 	
 	float2 old_front = (float2)agent->cit->front_pos;

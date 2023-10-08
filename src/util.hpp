@@ -1,6 +1,25 @@
 #pragma once
 #include "common.hpp"
 
+inline constexpr float KPH_PER_MS = 3.6f;
+inline constexpr float MPH_PER_MS = 2.23693632f;
+
+enum SpeedUnit : int {
+	UNIT_MS,
+	UNIT_KPH,
+	UNIT_MPH,
+};
+inline constexpr float SpeedUnitPerMs[] = {
+	1, KPH_PER_MS, MPH_PER_MS
+};
+inline constexpr const char* SpeedUnitStr[] = {
+	"m/s", "km/h", "mph"
+};
+
+inline std::string format_speed (float speed, SpeedUnit unit) {
+	return prints("%.0f %s", speed * SpeedUnitPerMs[unit], SpeedUnitStr[unit]);
+}
+
 inline float angle2d (float2 dir) {
 	return length_sqr(dir) > 0 ? atan2f(dir.y, dir.x) : 0;
 }
@@ -62,7 +81,42 @@ struct Bezier3 {
 
 		return { value, deriv, curv };
 	}
+
+	//// Optimization if compier is not smart enough to optimize loop invariant
+	//struct Coefficients {
+	//	float2 c0;
+	//	float2 c1;
+	//	float2 c2;
+	//};
+	//Coefficients get_coeff () {
+	//	Coefficients co; 
+	//	co.c0 = a;           // a
+	//	co.c1 = 2 * (b - a); // (-2a +2b)t
+	//	co.c2 = a - 2*b + c; // (a -2b +c)t^2
+	//	return co;
+	//}
+	//float2 eval_value (Coefficients const& co, float t) {
+	//	float t2 = t*t;
+	//	return co.c2*t2 + co.c1*t + co.c0;
+	//}
 	
+	// it's faster for check_conflict because compiler is dum dum
+	float2 eval_value_fast_t (float t) const {
+		float t2 = t*t;
+		
+		float _2t1 = 2.0f*t;
+		float _2t2 = 2.0f*t2;
+		
+		float ca = 1.0f -_2t1   +t2;
+		float cb =       _2t1 -_2t2;
+		float cc =               t2;
+		
+		float2 v;
+		v.x = ca*a.x + cb*b.x + cc*c.x;
+		v.y = ca*a.y + cb*b.y + cc*c.y;
+		return v;
+	}
+
 	void dbg_draw (View3D const& view, float z, int res, lrgba col, float t0=0, float t1=1) const {
 		float2 prev = eval(t0).pos;
 		for (int i=0; i<res; ++i) {
@@ -131,7 +185,7 @@ struct Bezier4 {
 	}
 };
 
-inline bool line_line_intersect (float2 a, float2 b, float2 c, float2 d, float2* out_point) {
+inline bool line_line_intersect (float2 const& a, float2 const& b, float2 const& c, float2 const& d, float2* out_point) {
 	// https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
 	float numer = (a.x-c.x)*(c.y-d.y) - (a.y-c.y)*(c.x-d.x);
 	float denom = (a.x-b.x)*(c.y-d.y) - (a.y-b.y)*(c.x-d.x);
@@ -142,7 +196,7 @@ inline bool line_line_intersect (float2 a, float2 b, float2 c, float2 d, float2*
 	return true; // always intersect for now
 }
 
-inline _FORCEINLINE bool line_line_seg_intersect (float2 a, float2 b, float2 c, float2 d, float* out_u, float* out_v) {
+inline _FORCEINLINE bool line_line_seg_intersect (float2 const& a, float2 const& b, float2 const& c, float2 const& d, float* out_u, float* out_v) {
 	float2 ab = b - a;
 	float2 cd = d - c;
 	float2 ac = c - a;
@@ -182,6 +236,7 @@ inline bool intersect_circle_ray (float3 pos, float r, Ray const& ray, float* hi
 	return true;
 }
 
+#if 0
 inline float line_line_dist_sqr (float2 a, float2 b, float2 c, float2 d, float* out_u, float* out_v) {
 	constexpr float eps = 0.0001f;
 	
@@ -303,6 +358,7 @@ inline _FORCEINLINE bool ray_box_intersection (float2 a, float2 da, float2 b, fl
 	*out_u = t0;
 	return true;
 }
+#endif
 
 inline bool intersect_ray_zplane (Ray const& ray, float plane_z, float* hit_t) {
 	if (ray.dir.z == 0.0f)

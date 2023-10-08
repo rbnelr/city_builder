@@ -165,6 +165,7 @@ struct App : public Engine {
 		}
 
 		ImGui::Checkbox("sim_paused", &sim_paused);
+		ImGui::SliderFloat("sim_speed", &sim_speed, 0, 10);
 
 		net.imgui();
 	}
@@ -192,6 +193,7 @@ struct App : public Engine {
 	std::unique_ptr<Renderer> renderer = create_ogl_backend();
 
 	bool sim_paused = false;
+	float sim_speed = 2;
 
 	Random test_rand;
 

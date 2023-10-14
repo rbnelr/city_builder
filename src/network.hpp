@@ -56,8 +56,8 @@ struct Agent {
 
 	int   idx = 0;
 
-	float front_t = 0;
-	float rear_t = 0; // only approximately correct
+	float bez_t = 0;
+	//float rear_t = 0; // only approximately correct
 	
 	std::vector<Node*>   nodes;
 	std::vector<SegLane> segments;
@@ -78,14 +78,33 @@ template <typename T>
 struct AgentList { // TODO: optimize agents in lane to only look at agent in front of them, and speed up insert/erase by using linked list
 	std::vector<T> list;
 
+	// TODO: can we avoid needing this?
+	template <typename U>
+	bool contains (U const& agent) {
+		return std::find(list.begin(), list.end(), agent) != list.end();
+	}
+
 	void add (T agent) {
-		assert(std::find(list.begin(), list.end(), agent) == list.end());
+		assert(!contains(agent));
 		list.push_back(agent);
 	}
-	void remove (T agent) {
+	template <typename U>
+	void remove (U const& agent) {
 		auto it = std::find(list.begin(), list.end(), agent);
 		assert(it != list.end());
 		list.erase(it);
+	}
+
+	template <typename FUNC>
+	void remove_if (FUNC cond) {
+		for (auto it=list.begin(); it!=list.end();) {
+			if (cond(*it)) {
+				it = list.erase(it);
+			}
+			else {
+				it++;
+			}
+		}
 	}
 };
 struct SegAgents {
@@ -97,11 +116,16 @@ struct NodeAgents {
 	struct NodeAgent {
 		Agent* agent;
 		Connection conn;
-
+		int node_idx;
+	
 		bool operator== (NodeAgent const& other) const {
 			return agent == other.agent;
 		}
-		bool operator!= (NodeAgent const& other) const {
+		bool operator== (Agent* other) const {
+			return agent == other;
+		}
+		template <typename U>
+		bool operator!= (U const& other) const {
 			return agent != other.agent;
 		}
 	};

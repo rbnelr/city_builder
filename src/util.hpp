@@ -82,23 +82,23 @@ struct Bezier3 {
 		return { value, deriv, curv };
 	}
 
-	//// Optimization if compier is not smart enough to optimize loop invariant
-	//struct Coefficients {
-	//	float2 c0;
-	//	float2 c1;
-	//	float2 c2;
-	//};
-	//Coefficients get_coeff () {
-	//	Coefficients co; 
-	//	co.c0 = a;           // a
-	//	co.c1 = 2 * (b - a); // (-2a +2b)t
-	//	co.c2 = a - 2*b + c; // (a -2b +c)t^2
-	//	return co;
-	//}
-	//float2 eval_value (Coefficients const& co, float t) {
-	//	float t2 = t*t;
-	//	return co.c2*t2 + co.c1*t + co.c0;
-	//}
+	// Optimization if compier is not smart enough to optimize loop invariant
+	struct Coefficients {
+		float2 c0;
+		float2 c1;
+		float2 c2;
+	};
+	Coefficients get_coeff () {
+		Coefficients co; 
+		co.c0 = a;           // a
+		co.c1 = 2 * (b - a); // (-2a +2b)t
+		co.c2 = a - 2*b + c; // (a -2b +c)t^2
+		return co;
+	}
+	float2 eval_value (Coefficients const& co, float t) {
+		float t2 = t*t;
+		return co.c2*t2 + co.c1*t + co.c0;
+	}
 	
 	// it's faster for check_conflict because compiler is dum dum
 	float2 eval_value_fast_t (float t) const {
@@ -115,6 +115,21 @@ struct Bezier3 {
 		v.x = ca*a.x + cb*b.x + cc*c.x;
 		v.y = ca*a.y + cb*b.y + cc*c.y;
 		return v;
+	}
+
+	float approx_len (int steps) {
+		auto co = get_coeff();
+		float2 prev = a;
+
+		float len = 0;
+		for (int i=0; i<steps; ++i) {
+			float t = (float)(i+1) * (1.0f / steps);
+			float2 pos = eval_value(co, t);
+			len += length(pos - prev);
+			prev = pos;
+		}
+
+		return len;
 	}
 
 	void dbg_draw (View3D const& view, float z, int res, lrgba col, float t0=0, float t1=1) const {

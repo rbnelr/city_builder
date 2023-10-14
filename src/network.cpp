@@ -309,7 +309,7 @@ void debug_node (App& app, Node* node) {
 void debug_citizen (App& app, Citizen* cit) {
 	if (!cit || !cit->path) return;
 
-	float start_t = cit->path->front_t;
+	float start_t = cit->path->bez_t;
 	for (int i=cit->path->idx; ; ++i) {
 		auto s = get_agent_state(cit->path.get(), i);
 
@@ -318,6 +318,14 @@ void debug_citizen (App& app, Citizen* cit) {
 		start_t = s.next_start_t;
 		if (s.state == ENTER_BUILDING) break;
 	}
+
+	ImGui::Separator();
+	ImGui::TextColored(lrgba(cit->col, 1), "debug citizen");
+
+	static circular_buffer<float> speed_buf = circular_buffer<float>(500);
+	speed_buf.push(cit->path->speed);
+
+	ImGui::PlotLines("speed", speed_buf.data(), (int)speed_buf.count(), 0, 0, 0.0f, app.net.top_speed, float2(0, 200));
 }
 
 void dbg_brake_for_point (App& app, Agent* cur, float2 point, lrgba col = lrgba(1,0.5f,0,1)) {
@@ -428,16 +436,22 @@ void update_segment (App& app, Segment* seg) {
 			Agent* prev = lane.list[i-1];
 			Agent* cur = lane.list[i];
 			
+			// approx seperation using cur car bez_speed
+			float dist = (prev->bez_t - cur->bez_t) / cur->bez_speed - (CAR_SIZE + 1);
+			cur->brake = brake_for_dist(dist);
+
 			dbg_brake_for_point(app, cur, (float2)prev->cit->rear_pos);
-			if (cur->front_t < prev->rear_t) {
-				brake_for_leading_car(cur, prev);
-			}
-			else {
-				cur->brake = brake_for_dist(0);
-			}
+
+			//dbg_brake_for_point(app, cur, (float2)prev->cit->rear_pos);
+			//if (cur->front_t < prev->rear_t) {
+			//	brake_for_leading_car(cur, prev);
+			//}
+			//else {
+			//	cur->brake = brake_for_dist(0);
+			//}
 		}
 	}
-};
+}
 
 void update_node (App& app, Node* node) {
 	//struct PossibleConflict {
@@ -469,90 +483,16 @@ void update_node (App& app, Node* node) {
 			avail_space[lane_out] -= CAR_SIZE + 1; // Use real car length for specific car here
 		}
 	}
-
-	auto yield_for_car = [&] (NodeAgents::NodeAgent& a, NodeAgents::NodeAgent& b) {
-		assert(a != b);
-		
-		auto* sel  = app.selection .get<Citizen*>() ? app.selection .get<Citizen*>()->path.get() : nullptr;
-		auto* sel2 = app.selection2.get<Citizen*>() ? app.selection2.get<Citizen*>()->path.get() : nullptr;
-		bool dbg = (a.agent == sel || a.agent == sel2) && (b.agent == sel || b.agent == sel2);
-		
-		if (dbg) {
-			printf("");
-		}
-		
-		float a_t0, b_t0, a_t1, b_t1;
-		if (!check_conflict(a.conn, b.conn, &a_t0, &b_t0, &a_t1, &b_t1, dbg))
-			return;
-		
-		auto as = get_agent_state(a.agent, a.agent->idx);
-		auto bs = get_agent_state(b.agent, b.agent->idx);
-
-		float a_t_offs = as.state == SEGMENT ? -1.0f : 0; // if on segment then on segment before since segment after cars will not be iterated
-		float b_t_offs = bs.state == SEGMENT ? -1.0f : 0; // if on segment then on segment before since segment after cars will not be iterated
-
-		bool a_entered = a_t_offs + a.agent->front_t >= a_t0;
-		bool a_exited  = a_t_offs + a.agent->rear_t  >= a_t1;
-		bool b_entered = b_t_offs + b.agent->front_t >= b_t0;
-		bool b_exited  = b_t_offs + b.agent->rear_t  >= b_t1;
 	
-		if (a_exited || b_exited)
-			return;
-		//if (a->blocked || b->blocked)
-		//	return;
-	
-		// merge or diverging
-		if (a.conn.a == b.conn.a || a.conn.b == b.conn.b) {
-			brake_for_leading_car(a.agent, b.agent);
-			dbg_brake_for_point(app, a.agent, b.agent->cit->rear_pos);
-			return;
-		}
-
-		float2 point = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info()).eval(a_t0).pos;
-		float dist = distance(a.agent->cit->front_pos, point);
-		
-		//auto s = get_agent_state(a, a->idx);
-		//if (s.state == SEGMENT) {
-		//	float2 lane_end = (float2)s.seg_before_node->clac_lane_info().b;
-		//	
-		//	dist = distance(a->cit->front_pos, lane_end) + 0.2f;
-		//	a->blocked = true;
-		//}
-		a.agent->brake = min(a.agent->brake, brake_for_dist(dist));
-		dbg_brake_for_point(app, a.agent, point);
-	};
-
-	int count = (int)node->agents.test.list.size();
-	for (int j=1; j<count; ++j) {
-		auto a = node->agents.test.list[j];
-		for (int i=0; i<j; ++i) {
-			auto b = node->agents.test.list[i];
-
-			yield_for_car(a, b);
-		}
-	}
-
-	for (auto a : node->agents.test.list) {
-		auto& target_lane = a.conn.b.seg->agents.lanes[a.conn.b.lane].list;
-		if (!target_lane.empty()) {
-			auto* b = target_lane.back();
-
-			brake_for_leading_car(a.agent, b);
-			dbg_brake_for_point(app, a.agent, b->cit->rear_pos);
-		}
+	for (int i=0; i<(int)node->agents.free.list.size(); ++i) {
+		auto* a = node->agents.free.list[i];
+				
+		// count space in target lane
+		auto s = get_agent_state(a, a->idx);
+		dbg_avail_space(*s.seg_after_node, a);
+		avail_space[*s.seg_after_node] -= CAR_SIZE + 1; // Use real car length for specific car here
 	}
 	
-	// avail space in out lane logic
-	
-	//for (int i=0; i<(int)node->agents.free.list.size(); ++i) {
-	//	auto* a = node->agents.free.list[i];
-	//			
-	//	// count space in target lane
-	//	auto s = get_agent_state(a, a->idx);
-	//	dbg_avail_space(*s.seg_after_node, a);
-	//	avail_space[*s.seg_after_node] -= CAR_SIZE + 1; // Use real car length for specific car here
-	//}
-	//
 	//for (auto& lane : node->in_lanes) {
 	//	for (auto* agent : lane.seg->agents.lanes[lane.lane].list) {
 	//		auto s = get_agent_state(agent, agent->idx);
@@ -574,6 +514,207 @@ void update_node (App& app, Node* node) {
 	//	}
 	//}
 	
+	//
+	for (auto& lane : node->in_lanes) {
+		for (auto* agent : lane.seg->agents.lanes[lane.lane].list) {
+			if (node->agents.test.contains(agent)) continue;
+
+			float dist = (1.0f - agent->bez_t) / agent->bez_speed;
+			if (dist > 10.0f) break;
+
+			auto s = get_agent_state(agent, agent->idx);
+
+			node->agents.test.add({ agent, { *s.seg_before_node, *s.seg_after_node }, agent->idx+1 });
+		}
+	}
+	node->agents.test.remove_if([&] (NodeAgents::NodeAgent& a) {
+		if (a.agent->idx > a.node_idx+1)
+			return true; // past outgoing lane
+		if (a.agent->idx == a.node_idx+1) {
+			// in outgoing lane
+			float dist = a.agent->bez_t / a.agent->bez_speed;
+			if (dist > CAR_SIZE)
+				return true;
+		}
+		return false;
+	});
+
+	//
+	struct YieldAgent {
+		Agent* agent;
+		Connection conn;
+		// k == (approx) distance along node curve
+		// where before node : k<0
+		// in node: k in [0, curve_len]
+		// after node: k > curve_len
+		float front_k;
+		float rear_k;
+	};
+	auto test_agent = [&] (NodeAgents::NodeAgent& a) {
+		YieldAgent y;
+		y.agent = a.agent;
+		y.conn = a.conn;
+
+		auto s = get_agent_state(a.agent, a.agent->idx);
+		float len = s.bezier.approx_len(COLLISION_STEPS);
+
+		if (s.state == NODE) {
+			y.front_k = a.agent->bez_t * len; // this is very wrong
+		}
+		else {
+			assert(s.cur_node == node);
+			y.front_k = (a.agent->bez_t - 1.0f) / a.agent->bez_speed;
+		}
+		
+		y.rear_k = y.front_k - CAR_SIZE;
+		return y;
+	};
+	auto outgoing_agent = [] (NodeAgents::NodeAgent& a) {
+		YieldAgent y;
+		y.agent = a.agent;
+		y.conn = a.conn;
+		
+		auto bez = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info());
+		float len = bez.approx_len(COLLISION_STEPS);
+
+		y.front_k = len + a.agent->bez_t / a.agent->bez_speed;
+
+		y.rear_k = y.front_k - CAR_SIZE;
+		return y;
+	};
+	
+	auto* sel  = app.selection .get<Citizen*>() ? app.selection .get<Citizen*>()->path.get() : nullptr;
+	auto* sel2 = app.selection2.get<Citizen*>() ? app.selection2.get<Citizen*>()->path.get() : nullptr;
+
+	auto yield_for_car = [&] (YieldAgent& a, YieldAgent& b) {
+		assert(a.agent != b.agent);
+		
+		bool dbg = (a.agent == sel || a.agent == sel2) && (b.agent == sel || b.agent == sel2);
+		
+		auto bez_a = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info());
+		auto len_a = bez_a.approx_len(COLLISION_STEPS);
+
+		auto bez_b = calc_curve(b.conn.a.clac_lane_info(), b.conn.b.clac_lane_info());
+		auto len_b = bez_b.approx_len(COLLISION_STEPS);
+
+
+		float a_t0, b_t0, a_t1, b_t1;
+		if (!check_conflict(a.conn, b.conn, &a_t0, &b_t0, &a_t1, &b_t1, dbg))
+			return;
+
+		float a_k0 = a_t0 * len_a;
+		float a_k1 = a_t1 * len_a;
+		float b_k0 = b_t0 * len_b;
+		float b_k1 = b_t1 * len_b;
+		
+		if (dbg) {
+			printf("");
+
+
+			//g_dbgdraw.point(float3(bez_a.eval(a.front_k / len_a).pos, 0), 0.3f, lrgba(1,0,0,1));
+			//g_dbgdraw.point(float3(bez_a.eval(a.rear_k  / len_a).pos, 0), 0.3f, lrgba(1,1,0,1));
+			//
+			//g_dbgdraw.point(float3(bez_b.eval(b.front_k / len_b).pos, 0), 0.3f, lrgba(0,1,0,1));
+			//g_dbgdraw.point(float3(bez_b.eval(b.rear_k  / len_b).pos, 0), 0.3f, lrgba(0,1,1,1));
+			//
+			//ImGui::TextColored(lrgba(1,0,0,1), "a.front_k: %7.2f", a.front_k);
+			//ImGui::TextColored(lrgba(1,1,0,1), "a.rear_k : %7.2f", a.rear_k );
+			//
+			//ImGui::TextColored(lrgba(0,1,0,1), "b.front_k: %7.2f", b.front_k);
+			//ImGui::TextColored(lrgba(0,1,1,1), "b.rear_k : %7.2f", b.rear_k );
+			//
+			//
+			//g_dbgdraw.point(float3(bez_a.eval(a_k0 / len_a).pos, 0), 0.3f, lrgba(1,0,.5f,1));
+			//g_dbgdraw.point(float3(bez_a.eval(a_k1 / len_a).pos, 0), 0.3f, lrgba(1,1,.5f,1));
+			//
+			//g_dbgdraw.point(float3(bez_b.eval(b_k0 / len_b).pos, 0), 0.3f, lrgba(.5f,1,0,1));
+			//g_dbgdraw.point(float3(bez_b.eval(b_k1 / len_b).pos, 0), 0.3f, lrgba(.5f,1,1,1));
+			//
+			//ImGui::TextColored(lrgba(1,0,.5f,1), "a_t0: %7.2f", a_k0);
+			//ImGui::TextColored(lrgba(1,1,.5f,1), "a_t1: %7.2f", a_k1);
+			//
+			//ImGui::TextColored(lrgba(.5f,1,0,1), "b_t0: %7.2f", b_k0);
+			//ImGui::TextColored(lrgba(.5f,1,1,1), "b_t1: %7.2f", b_k1);
+			//
+			//if (a.front_k < a_k0) {
+			//	g_dbgdraw.wire_circle(a.agent->cit->front_pos, a_k0 - a.front_k, lrgba(1,0,0,1));
+			//}
+			//if (a.rear_k > a_k1) {
+			//	g_dbgdraw.wire_circle(a.agent->cit->rear_pos, a.rear_k - a_k1, lrgba(1,1,0,1));
+			//}
+			//
+			//if (b.front_k < b_k0) {
+			//	g_dbgdraw.wire_circle(b.agent->cit->front_pos, b_k0 - b.front_k, lrgba(0,1,0,1));
+			//}
+			//if (b.rear_k > b_k1) {
+			//	g_dbgdraw.wire_circle(b.agent->cit->rear_pos, b.rear_k - b_k1, lrgba(0,1,1,1));
+			//}
+		}
+
+		bool a_entered = a.front_k >= a_k0;
+		bool a_exited  = a.rear_k  >= a_k1;
+		bool b_entered = b.front_k >= b_k0;
+		bool b_exited  = b.rear_k  >= b_k1;
+
+		bool b_rear_entered = b.rear_k >= b_k0;
+		
+		bool diverge = a.conn.a == b.conn.a; // same start point
+		bool merge   = a.conn.b == b.conn.b; // same end point
+		//bool crossing = !merge && !diverge; // normal crossing
+		bool same = merge && diverge; // identical path
+		
+		if (a_exited)
+			return; // past conflict
+
+		if (b_exited && !merge) // crossing or diverge
+			return; // other past conflict and we don't need to follow
+
+		float stop_k = a_k0 - 1.0f;
+		
+		if (same || (merge && b_rear_entered) || diverge) {
+			// TODO: might want to do this differently if b_exited and we still follow
+			
+			// need to follow car, for non-same paths: approx map b_k into a_k
+			stop_k = lerp(a_k0, a_k1, map(b.rear_k, b_k0, b_k1)) - 1.0f;
+		}
+		
+		float dist = stop_k - a.front_k; // wait before conflict by default
+
+		a.agent->brake = min(a.agent->brake, brake_for_dist(dist));
+		//dbg_brake_for_point(app, a.agent, point);
+
+		if (dbg) g_dbgdraw.wire_circle(a.agent->cit->front_pos, dist, lrgba(1,0,0,1));
+	};
+
+	int count = (int)node->agents.test.list.size();
+	for (int j=0; j<count; ++j) {
+		auto a = test_agent( node->agents.test.list[j] );
+		for (int i=0; i<j; ++i) {
+			auto b = test_agent( node->agents.test.list[i] );
+
+			yield_for_car(a, b);
+		}
+
+		// TODO: change this so that outgoing cars are still included in the agent list until the rear exits
+		for (auto& lane : node->out_lanes) {
+			auto& agents = lane.seg->agents.lanes[lane.lane].list;
+			if (!agents.empty()) {
+				auto* b = agents.back();
+
+				assert(b->idx > 0);
+				auto bs = get_agent_state(b, b->idx-1);
+				if (bs.seg_before_node && bs.seg_after_node) {
+					assert(bs.cur_node == node);
+					assert(lane == *bs.seg_after_node);
+
+					NodeAgents::NodeAgent b_agent = { b, Connection{*bs.seg_before_node, *bs.seg_after_node} };
+					auto yb = outgoing_agent(b_agent);
+
+					yield_for_car(a, yb);
+				}
+			}
+		}
+	}
 };
 		
 void update_vehicle (App& app, Agent* agent) {
@@ -582,7 +723,7 @@ void update_vehicle (App& app, Agent* agent) {
 
 	float dt = app.input.dt * app.sim_speed;
 
-	assert(agent->front_t < 1.0f);
+	assert(agent->bez_t < 1.0f);
 	
 	auto s = get_agent_state(agent, agent->idx);
 
@@ -597,12 +738,12 @@ void update_vehicle (App& app, Agent* agent) {
 	}
 	
 	// move car with speed on bezier based on previous frame delta t
-	agent->front_t += agent->speed * dt * agent->bez_speed;
+	agent->bez_t += agent->speed * dt * agent->bez_speed;
 
 	// do bookkeeping when car reaches end of current bezier
-	if (agent->front_t >= s.end_t) {
+	if (agent->bez_t >= s.end_t) {
 		agent->idx++;
-		agent->front_t = s.next_start_t;
+		agent->bez_t = s.next_start_t;
 
 		if (s.cur_agents)  s.cur_agents ->remove(agent);
 		if (s.next_agents) s.next_agents->add(agent);
@@ -614,36 +755,26 @@ void update_vehicle (App& app, Agent* agent) {
 			return;
 		}
 
-		if (s.state == NODE) {
-			assert(s.cur_node);
-			s.cur_node->agents.test.remove(NodeAgents::NodeAgent{ agent, {} });
-		}
-
 		s = get_agent_state(agent, agent->idx);
-
-		if (s.state == SEGMENT && s.cur_node) {
-			assert(s.seg_before_node && s.seg_after_node);
-			s.cur_node->agents.test.add(NodeAgents::NodeAgent{ agent, { *s.seg_before_node, *s.seg_after_node } });
-		}
 	}
 
 	// eval bezier at car front
-	auto bez_res = s.bezier.eval(agent->front_t);
+	auto bez_res = s.bezier.eval(agent->bez_t);
 	// remember bezier delta t for next frame
 	agent->bez_speed = 1.0f / length(bez_res.vel); // bezier t / delta pos
 
-	// estimate car rear bezier t
-	agent->rear_t = agent->front_t - CAR_SIZE * agent->bez_speed;
-
-	if (agent->rear_t < 0 && agent->idx > 0) { // handle rear of car being in previous bezier
-		float remain_len = agent->front_t / agent->bez_speed;
-		
-		auto prev_s = get_agent_state(agent, agent->idx-1);
-		float prev_bez_speed = 1.0f / length(prev_s.bezier.eval(1).vel);
-		agent->rear_t = - remain_len * prev_bez_speed; // encode previous bezier t as [-1,0] range
-
-		// agent->rear_t could still be negative if very long car or very short bezier
-	}
+	//// estimate car rear bezier t
+	//agent->rear_t = agent->front_t - CAR_SIZE * agent->bez_speed;
+	//
+	//if (agent->rear_t < 0 && agent->idx > 0) { // handle rear of car being in previous bezier
+	//	float remain_len = agent->front_t / agent->bez_speed;
+	//	
+	//	auto prev_s = get_agent_state(agent, agent->idx-1);
+	//	float prev_bez_speed = 1.0f / length(prev_s.bezier.eval(1).vel);
+	//	agent->rear_t = - remain_len * prev_bez_speed; // encode previous bezier t as [-1,0] range
+	//
+	//	// agent->rear_t could still be negative if very long car or very short bezier
+	//}
 
 	// actually move car rear using (bogus) trailer formula
 	float2 new_front = bez_res.pos;

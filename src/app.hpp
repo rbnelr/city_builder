@@ -131,14 +131,15 @@ struct App : public Engine {
 	App (): Engine{"Kiss-Framework Project"} {}
 	virtual ~App () {}
 	
-	friend SERIALIZE_TO_JSON(App)   { SERIALIZE_TO_JSON_EXPAND(cam, assets); }
-    friend SERIALIZE_FROM_JSON(App) {
+	friend SERIALIZE_TO_JSON(App) {
+		SERIALIZE_TO_JSON_EXPAND(cam, assets);
+	}
+	friend SERIALIZE_FROM_JSON(App) {
 		SERIALIZE_FROM_JSON_EXPAND(cam, assets);
-
 	}
 
-	virtual void json_load () { load("debug.json", this); }
-	virtual void json_save () { save("debug.json", *this); }
+	virtual void json_load () { deserialize("debug.json", this); }
+	virtual void json_save () { serialize("debug.json", *this); }
 
 	virtual void imgui () {
 		ZoneScoped;

@@ -556,29 +556,24 @@ void update_node (App& app, Node* node) {
 		y.conn = a.conn;
 
 		auto s = get_agent_state(a.agent, a.agent->idx);
-		float len = s.bezier.approx_len(COLLISION_STEPS);
+
+		auto bez = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info());
+		float len = bez.approx_len(COLLISION_STEPS);
 
 		if (s.state == NODE) {
 			y.front_k = a.agent->bez_t * len; // this is very wrong
 		}
 		else {
-			assert(s.cur_node == node);
-			y.front_k = (a.agent->bez_t - 1.0f) / a.agent->bez_speed;
+			if (s.cur_node == node) {
+				// ingoing lane
+				y.front_k = (a.agent->bez_t - 1.0f) / a.agent->bez_speed;
+			}
+			else {
+				// outgoing lane
+				y.front_k = a.agent->bez_t / a.agent->bez_speed + len;
+			}
 		}
 		
-		y.rear_k = y.front_k - CAR_SIZE;
-		return y;
-	};
-	auto outgoing_agent = [] (NodeAgents::NodeAgent& a) {
-		YieldAgent y;
-		y.agent = a.agent;
-		y.conn = a.conn;
-		
-		auto bez = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info());
-		float len = bez.approx_len(COLLISION_STEPS);
-
-		y.front_k = len + a.agent->bez_t / a.agent->bez_speed;
-
 		y.rear_k = y.front_k - CAR_SIZE;
 		return y;
 	};
@@ -685,6 +680,19 @@ void update_node (App& app, Node* node) {
 
 		if (dbg) g_dbgdraw.wire_circle(a.agent->cit->front_pos, dist, lrgba(1,0,0,1));
 	};
+	//auto brake_for_car = [&] (YieldAgent& a, Agent* b) {
+	//	assert(a.agent != b);
+	//	
+	//	b->bez_t
+	//
+	//	float stop_k = a_k0 - 1.0f;
+	//	float dist = stop_k - a.front_k; // wait before conflict by default
+	//
+	//	a.agent->brake = min(a.agent->brake, brake_for_dist(dist));
+	//	//dbg_brake_for_point(app, a.agent, point);
+	//
+	//	if (dbg) g_dbgdraw.wire_circle(a.agent->cit->front_pos, dist, lrgba(1,0,0,1));
+	//};
 
 	int count = (int)node->agents.test.list.size();
 	for (int j=0; j<count; ++j) {
@@ -695,25 +703,13 @@ void update_node (App& app, Node* node) {
 			yield_for_car(a, b);
 		}
 
-		// TODO: change this so that outgoing cars are still included in the agent list until the rear exits
-		for (auto& lane : node->out_lanes) {
-			auto& agents = lane.seg->agents.lanes[lane.lane].list;
-			if (!agents.empty()) {
-				auto* b = agents.back();
-
-				assert(b->idx > 0);
-				auto bs = get_agent_state(b, b->idx-1);
-				if (bs.seg_before_node && bs.seg_after_node) {
-					assert(bs.cur_node == node);
-					assert(lane == *bs.seg_after_node);
-
-					NodeAgents::NodeAgent b_agent = { b, Connection{*bs.seg_before_node, *bs.seg_after_node} };
-					auto yb = outgoing_agent(b_agent);
-
-					yield_for_car(a, yb);
-				}
-			}
-		}
+		// brake for target lane car
+		//auto& target_lane = a.conn.b.seg->agents.lanes[a.conn.b.lane].list;
+		//if (!target_lane.empty()) {
+		//	auto* b = target_lane.back();
+		//
+		//	yield_for_car(a, b);
+		//}
 	}
 };
 		

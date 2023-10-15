@@ -507,22 +507,7 @@ void update_node (App& app, Node* node) {
 	
 	//for (auto& lane : node->in_lanes) {
 	//	for (auto* agent : lane.seg->agents.lanes[lane.lane].list) {
-	//		auto s = get_agent_state(agent, agent->idx);
-	//		if (!s.seg_after_node) continue;
-	//
-	//		if (avail_space[*s.seg_after_node] < CAR_SIZE) {
-	//			float2 lane_end = (float2)lane.clac_lane_info().b;
-	//				
-	//			float dist = distance(agent->cit->front_pos, lane_end) + 0.2f;
-	//			agent->brake = min(agent->brake, brake_for_dist(dist));
-	//			agent->blocked = true;
-	//
-	//			dbg_brake_for_point(app, agent, lane_end, lrgba(0.2f,0.8f,1,1));
-	//		}
-	//		else {
-	//			dbg_avail_space(*s.seg_after_node, agent);
-	//			avail_space[*s.seg_after_node] -= CAR_SIZE + 1;
-	//		}
+	//		
 	//	}
 	//}
 	
@@ -550,6 +535,25 @@ void update_node (App& app, Node* node) {
 		}
 		return false;
 	});
+	
+	for (int i=0; i<(int)node->agents.test.list.size(); ++i) {
+		auto s = get_agent_state(agent, agent->idx);
+		if (!s.seg_after_node) continue;
+	
+		if (avail_space[*s.seg_after_node] < CAR_SIZE) {
+			float2 lane_end = (float2)lane.clac_lane_info().b;
+					
+			float dist = distance(agent->cit->front_pos, lane_end) + 0.2f;
+			agent->brake = min(agent->brake, brake_for_dist(dist));
+			agent->blocked = true;
+	
+			dbg_brake_for_point(app, agent, lane_end, lrgba(0.2f,0.8f,1,1));
+		}
+		else {
+			dbg_avail_space(*s.seg_after_node, agent);
+			avail_space[*s.seg_after_node] -= CAR_SIZE + 1;
+		}
+	}
 
 	//
 	struct YieldAgent {

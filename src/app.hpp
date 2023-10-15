@@ -27,6 +27,8 @@ inline int length2int (float len) {
 inline constexpr float LANE_COLLISION_R = 1.3f;
 inline constexpr float CAR_SIZE = 3.5f;
 
+inline constexpr float SAFETY_DIST = 1.0f;
+
 
 struct Citizen;
 struct Building;
@@ -378,6 +380,7 @@ struct App : public Engine {
 			// remove references
 			for (auto& node : net.nodes) {
 				node->agents.free.list.clear();
+				node->agents.test.list.clear();
 			}
 			for (auto& seg : net.segments) {
 				for (auto& lane : seg->agents.lanes) {

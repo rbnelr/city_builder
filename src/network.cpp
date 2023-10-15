@@ -245,11 +245,11 @@ float brake_for_dist (float obstacle_dist) {
 	return clamp(map(obstacle_dist, 0.0f, 8.0f), 0.0f, 1.0f);
 }
 
-void brake_for_leading_car (Agent* cur, Agent* leading) {
-	float dist = distance(cur->cit->front_pos, leading->cit->rear_pos) - 2; // safety dist
-
-	cur->brake = min(cur->brake, brake_for_dist(dist));
-}
+//void brake_for_leading_car (Agent* cur, Agent* leading) {
+//	float dist = distance(cur->cit->front_pos, leading->cit->rear_pos) - 2; // safety dist
+//
+//	cur->brake = min(cur->brake, brake_for_dist(dist));
+//}
 
 void debug_node (App& app, Node* node) {
 	if (!node) return;
@@ -305,7 +305,6 @@ void debug_node (App& app, Node* node) {
 	//	});
 	//});
 }
-
 void debug_citizen (App& app, Citizen* cit) {
 	if (!cit || !cit->path) return;
 
@@ -328,10 +327,21 @@ void debug_citizen (App& app, Citizen* cit) {
 	ImGui::PlotLines("speed", speed_buf.data(), (int)speed_buf.count(), 0, 0, 0.0f, app.net.top_speed, float2(0, 200));
 }
 
-void dbg_brake_for_point (App& app, Agent* cur, float2 point, lrgba col = lrgba(1,0.5f,0,1)) {
+void dbg_brake_for (App& app, Agent* cur, float dist, float2 dir, lrgba col) {
 	if (app.selection.get<Citizen*>() != cur->cit) return;
 
-	g_dbgdraw.point(float3(point,0), 0.2f, col);
+	float3 pos = cur->cit->front_pos;
+	float3 end = pos + float3(dir,0)*dist;
+	float3 normal = float3(rotate90(dir), 0);
+
+	g_dbgdraw.line(pos, end, col);
+	g_dbgdraw.line(end - normal, end + normal, col);
+}
+void dbg_brake_for_agent (App& app, Agent* cur, float dist, Agent* obstacle) {
+	if (app.selection.get<Citizen*>() == cur->cit) {
+		float2 dir = normalizesafe((float2)obstacle->cit->front_pos - (float2)cur->cit->front_pos);
+		dbg_brake_for(app, cur, dist, dir, lrgba(1,0.1f,0,1));
+	}
 }
 
 bool check_conflict (Connection const& a, Connection const& b,
@@ -440,7 +450,7 @@ void update_segment (App& app, Segment* seg) {
 			float dist = (prev->bez_t - cur->bez_t) / cur->bez_speed - (CAR_SIZE + 1);
 			cur->brake = brake_for_dist(dist);
 
-			dbg_brake_for_point(app, cur, (float2)prev->cit->rear_pos);
+			dbg_brake_for_agent(app, cur, dist, prev);
 
 			//dbg_brake_for_point(app, cur, (float2)prev->cit->rear_pos);
 			//if (cur->front_t < prev->rear_t) {
@@ -454,6 +464,8 @@ void update_segment (App& app, Segment* seg) {
 }
 
 void update_node (App& app, Node* node) {
+
+	// TODO: Conflict cache
 	//struct PossibleConflict {
 	//	bool has_conflict;
 	//	float a_t, b_t;
@@ -480,7 +492,7 @@ void update_node (App& app, Node* node) {
 		for (auto* a : lane_out.seg->agents.lanes[lane_out.lane].list) {
 			dbg_avail_space(lane_out, a);
 
-			avail_space[lane_out] -= CAR_SIZE + 1; // Use real car length for specific car here
+			avail_space[lane_out] -= CAR_SIZE + SAFETY_DIST;
 		}
 	}
 	
@@ -490,7 +502,7 @@ void update_node (App& app, Node* node) {
 		// count space in target lane
 		auto s = get_agent_state(a, a->idx);
 		dbg_avail_space(*s.seg_after_node, a);
-		avail_space[*s.seg_after_node] -= CAR_SIZE + 1; // Use real car length for specific car here
+		avail_space[*s.seg_after_node] -= CAR_SIZE + SAFETY_DIST;
 	}
 	
 	//for (auto& lane : node->in_lanes) {
@@ -544,11 +556,12 @@ void update_node (App& app, Node* node) {
 		Agent* agent;
 		Connection conn;
 		// k == (approx) distance along node curve
-		// where before node : k<0
-		// in node: k in [0, curve_len]
-		// after node: k > curve_len
+		// where before node : k negative where abs(k) is dist to node
+		// in node: k in [0, conn_len]
+		// after node: k > conn_len where k-conn_len is dist from node
 		float front_k;
 		float rear_k;
+		float conn_len;
 	};
 	auto test_agent = [&] (NodeAgents::NodeAgent& a) {
 		YieldAgent y;
@@ -558,19 +571,19 @@ void update_node (App& app, Node* node) {
 		auto s = get_agent_state(a.agent, a.agent->idx);
 
 		auto bez = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info());
-		float len = bez.approx_len(COLLISION_STEPS);
+		y.conn_len = bez.approx_len(COLLISION_STEPS);
 
 		if (s.state == NODE) {
-			y.front_k = a.agent->bez_t * len; // this is very wrong
+			y.front_k = a.agent->bez_t * y.conn_len; // this is very wrong
 		}
 		else {
 			if (s.cur_node == node) {
-				// ingoing lane
+				// ingoing lane, extrapolate and map from negative to 0
 				y.front_k = (a.agent->bez_t - 1.0f) / a.agent->bez_speed;
 			}
 			else {
-				// outgoing lane
-				y.front_k = a.agent->bez_t / a.agent->bez_speed + len;
+				// outgoing lane, extrapolate and map from negative to 0
+				y.front_k = a.agent->bez_t / a.agent->bez_speed + y.conn_len;
 			}
 		}
 		
@@ -602,49 +615,9 @@ void update_node (App& app, Node* node) {
 		float b_k0 = b_t0 * len_b;
 		float b_k1 = b_t1 * len_b;
 		
-		if (dbg) {
-			printf("");
-
-
-			//g_dbgdraw.point(float3(bez_a.eval(a.front_k / len_a).pos, 0), 0.3f, lrgba(1,0,0,1));
-			//g_dbgdraw.point(float3(bez_a.eval(a.rear_k  / len_a).pos, 0), 0.3f, lrgba(1,1,0,1));
-			//
-			//g_dbgdraw.point(float3(bez_b.eval(b.front_k / len_b).pos, 0), 0.3f, lrgba(0,1,0,1));
-			//g_dbgdraw.point(float3(bez_b.eval(b.rear_k  / len_b).pos, 0), 0.3f, lrgba(0,1,1,1));
-			//
-			//ImGui::TextColored(lrgba(1,0,0,1), "a.front_k: %7.2f", a.front_k);
-			//ImGui::TextColored(lrgba(1,1,0,1), "a.rear_k : %7.2f", a.rear_k );
-			//
-			//ImGui::TextColored(lrgba(0,1,0,1), "b.front_k: %7.2f", b.front_k);
-			//ImGui::TextColored(lrgba(0,1,1,1), "b.rear_k : %7.2f", b.rear_k );
-			//
-			//
-			//g_dbgdraw.point(float3(bez_a.eval(a_k0 / len_a).pos, 0), 0.3f, lrgba(1,0,.5f,1));
-			//g_dbgdraw.point(float3(bez_a.eval(a_k1 / len_a).pos, 0), 0.3f, lrgba(1,1,.5f,1));
-			//
-			//g_dbgdraw.point(float3(bez_b.eval(b_k0 / len_b).pos, 0), 0.3f, lrgba(.5f,1,0,1));
-			//g_dbgdraw.point(float3(bez_b.eval(b_k1 / len_b).pos, 0), 0.3f, lrgba(.5f,1,1,1));
-			//
-			//ImGui::TextColored(lrgba(1,0,.5f,1), "a_t0: %7.2f", a_k0);
-			//ImGui::TextColored(lrgba(1,1,.5f,1), "a_t1: %7.2f", a_k1);
-			//
-			//ImGui::TextColored(lrgba(.5f,1,0,1), "b_t0: %7.2f", b_k0);
-			//ImGui::TextColored(lrgba(.5f,1,1,1), "b_t1: %7.2f", b_k1);
-			//
-			//if (a.front_k < a_k0) {
-			//	g_dbgdraw.wire_circle(a.agent->cit->front_pos, a_k0 - a.front_k, lrgba(1,0,0,1));
-			//}
-			//if (a.rear_k > a_k1) {
-			//	g_dbgdraw.wire_circle(a.agent->cit->rear_pos, a.rear_k - a_k1, lrgba(1,1,0,1));
-			//}
-			//
-			//if (b.front_k < b_k0) {
-			//	g_dbgdraw.wire_circle(b.agent->cit->front_pos, b_k0 - b.front_k, lrgba(0,1,0,1));
-			//}
-			//if (b.rear_k > b_k1) {
-			//	g_dbgdraw.wire_circle(b.agent->cit->rear_pos, b.rear_k - b_k1, lrgba(0,1,1,1));
-			//}
-		}
+		//if (dbg) {
+		//	printf("");
+		//}
 
 		bool a_entered = a.front_k >= a_k0;
 		bool a_exited  = a.rear_k  >= a_k1;
@@ -658,41 +631,31 @@ void update_node (App& app, Node* node) {
 		//bool crossing = !merge && !diverge; // normal crossing
 		bool same = merge && diverge; // identical path
 		
-		if (a_exited)
-			return; // past conflict
+		// check if conflict relevant
+		// NOTE: special case of merge, where car exited should still be followed,
+		// but this is handled by seperate check against outgoing lane, since  b.rear_k >= b_k1 puts it in the outgoing lane
+		if (a_exited && b_exited)
+			return;
 
-		if (b_exited && !merge) // crossing or diverge
-			return; // other past conflict and we don't need to follow
-
-		float stop_k = a_k0 - 1.0f;
+		float stop_k = a_k0;
 		
-		if (same || (merge && b_rear_entered) || diverge) {
+		// if same conn: follow car
+		// if diverge:   follow car
+		// if merge:     stop before conflict until b rear in conflict, then follow
+		// if crossing:  stop before conflict
+		if (same || diverge || (merge && b_rear_entered)) {
 			// TODO: might want to do this differently if b_exited and we still follow
 			
-			// need to follow car, for non-same paths: approx map b_k into a_k
-			stop_k = lerp(a_k0, a_k1, map(b.rear_k, b_k0, b_k1)) - 1.0f;
+			// need to follow car, approx correct stop_k by mapping b rear from b's collision zone to a's zone
+			stop_k = lerp(a_k0, a_k1, map(b.rear_k, b_k0, b_k1));
 		}
 		
+		stop_k -= SAFETY_DIST;
 		float dist = stop_k - a.front_k; // wait before conflict by default
 
 		a.agent->brake = min(a.agent->brake, brake_for_dist(dist));
-		//dbg_brake_for_point(app, a.agent, point);
-
-		if (dbg) g_dbgdraw.wire_circle(a.agent->cit->front_pos, dist, lrgba(1,0,0,1));
+		dbg_brake_for_agent(app, a.agent, dist, b.agent);
 	};
-	//auto brake_for_car = [&] (YieldAgent& a, Agent* b) {
-	//	assert(a.agent != b);
-	//	
-	//	b->bez_t
-	//
-	//	float stop_k = a_k0 - 1.0f;
-	//	float dist = stop_k - a.front_k; // wait before conflict by default
-	//
-	//	a.agent->brake = min(a.agent->brake, brake_for_dist(dist));
-	//	//dbg_brake_for_point(app, a.agent, point);
-	//
-	//	if (dbg) g_dbgdraw.wire_circle(a.agent->cit->front_pos, dist, lrgba(1,0,0,1));
-	//};
 
 	int count = (int)node->agents.test.list.size();
 	for (int j=0; j<count; ++j) {
@@ -704,12 +667,19 @@ void update_node (App& app, Node* node) {
 		}
 
 		// brake for target lane car
-		//auto& target_lane = a.conn.b.seg->agents.lanes[a.conn.b.lane].list;
-		//if (!target_lane.empty()) {
-		//	auto* b = target_lane.back();
-		//
-		//	yield_for_car(a, b);
-		//}
+		auto& target_lane = a.conn.b.seg->agents.lanes[a.conn.b.lane].list;
+		if (!target_lane.empty() && target_lane.back() != a.agent) {
+			float a_front_k = a.front_k - a.conn_len; // relative to after node
+
+			auto* b = target_lane.back();
+			float b_rear_k = b->bez_t / b->bez_speed - CAR_SIZE;
+
+			float dist = b_rear_k - a_front_k;
+			dist -= SAFETY_DIST;
+		
+			a.agent->brake = min(a.agent->brake, brake_for_dist(dist));
+			dbg_brake_for_agent(app, a.agent, dist, b);
+		}
 	}
 };
 		
@@ -758,19 +728,6 @@ void update_vehicle (App& app, Agent* agent) {
 	auto bez_res = s.bezier.eval(agent->bez_t);
 	// remember bezier delta t for next frame
 	agent->bez_speed = 1.0f / length(bez_res.vel); // bezier t / delta pos
-
-	//// estimate car rear bezier t
-	//agent->rear_t = agent->front_t - CAR_SIZE * agent->bez_speed;
-	//
-	//if (agent->rear_t < 0 && agent->idx > 0) { // handle rear of car being in previous bezier
-	//	float remain_len = agent->front_t / agent->bez_speed;
-	//	
-	//	auto prev_s = get_agent_state(agent, agent->idx-1);
-	//	float prev_bez_speed = 1.0f / length(prev_s.bezier.eval(1).vel);
-	//	agent->rear_t = - remain_len * prev_bez_speed; // encode previous bezier t as [-1,0] range
-	//
-	//	// agent->rear_t could still be negative if very long car or very short bezier
-	//}
 
 	// actually move car rear using (bogus) trailer formula
 	float2 new_front = bez_res.pos;

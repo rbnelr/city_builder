@@ -125,11 +125,6 @@ struct NodeAgent {
 	float2 pointsL[COLLISION_STEPS+1];
 	float2 pointsR[COLLISION_STEPS+1];
 	
-	float pointsLx[COLLISION_STEPS+1];
-	float pointsLy[COLLISION_STEPS+1];
-	float pointsRx[COLLISION_STEPS+1];
-	float pointsRy[COLLISION_STEPS+1];
-	
 	bool operator== (NodeAgent const& other) const {
 		return agent == other.agent;
 	}

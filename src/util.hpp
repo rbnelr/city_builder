@@ -230,47 +230,6 @@ inline _FORCEINLINE bool line_line_seg_intersect (float2 const& a, float2 const&
 	return true;
 }
 
-inline __m128 select (__m128 c, __m128 a, __m128 b) {
-	return _mm_or_ps(_mm_and_ps(c, a), _mm_andnot_ps(c, b));
-}
-inline float min_component (__m128 x) {
-	return min(min(x.m128_f32[0], x.m128_f32[1]), min(x.m128_f32[2], x.m128_f32[3]));
-}
-inline float max_component (__m128 x) {
-	return max(max(x.m128_f32[0], x.m128_f32[1]), max(x.m128_f32[2], x.m128_f32[3]));
-}
-
-// return true mask if _not_ intersecting
-inline _FORCEINLINE __m128 line_line_seg_intersect (
-		__m128 ax, __m128 ay, __m128 abx, __m128 aby,
-		__m128 cx, __m128 cy, __m128 cdx, __m128 cdy,
-		__m128* out_u, __m128* out_v) {
-
-	__m128 acx = _mm_sub_ps(cx, ax);
-	__m128 acy = _mm_sub_ps(cy, ay);
-
-	__m128 denom = _mm_sub_ps(_mm_mul_ps(abx,cdy), _mm_mul_ps(aby,cdx));
-	__m128 c0 = _mm_cmp_ps(denom, _mm_set1_ps(0), _CMP_EQ_OQ); // denom == 0
-	
-	__m128 numer_ab = _mm_sub_ps(_mm_mul_ps(acx,cdy), _mm_mul_ps(acy,cdx));
-	__m128 numer_cd = _mm_sub_ps(_mm_mul_ps(acx,aby), _mm_mul_ps(acy,abx));
-
-	__m128 u = _mm_div_ps(numer_ab, denom);
-	__m128 v = _mm_div_ps(numer_cd, denom);
-
-	__m128 c1 = _mm_cmp_ps(u, _mm_set1_ps(0), _CMP_LT_OQ); // u < 0
-	__m128 c2 = _mm_cmp_ps(u, _mm_set1_ps(1), _CMP_GT_OQ); // u > 1
-	__m128 c3 = _mm_cmp_ps(v, _mm_set1_ps(0), _CMP_LT_OQ); // v < 0
-	__m128 c4 = _mm_cmp_ps(v, _mm_set1_ps(1), _CMP_GT_OQ); // v > 1
-	__m128 c5 = _mm_or_ps(_mm_or_ps(c1, c2), _mm_or_ps(c3, c4));
-
-	__m128 c = _mm_or_ps(c0, c5);
-
-	*out_u = u;
-	*out_v = v;
-	return c;
-}
-
 inline bool intersect_circle_ray (float3 pos, float r, Ray const& ray, float* hit_dist) {
 	float t = 0;
 	if (ray.dir.z == 0) {

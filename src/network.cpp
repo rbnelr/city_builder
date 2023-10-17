@@ -358,7 +358,7 @@ void _FORCEINLINE dbg_brake_for_blocked_lane (App& app, NodeAgent& a, float dist
 	}
 }
 
-auto _gen_points (float2* points, float* pointsX, float* pointsY, Connection const& conn, float shift) {
+auto _gen_points (float2* points, Connection const& conn, float shift) {
 	auto bez = calc_curve(conn.a.clac_lane_info(shift), conn.b.clac_lane_info(shift));
 	//auto co = bez.get_coeff();
 
@@ -366,13 +366,6 @@ auto _gen_points (float2* points, float* pointsX, float* pointsY, Connection con
 	for (int i=0; i<COLLISION_STEPS; ++i) {
 		float t = (float)(i+1) / COLLISION_STEPS;
 		points[i+1] = bez.eval_value_fast_t(t);
-	}
-	
-	pointsX[0] = bez.a.x;
-	pointsY[0] = bez.a.y;
-	for (int i=0; i<COLLISION_STEPS; ++i) {
-		pointsX[i+1] = points[i+1].x;
-		pointsY[i+1] = points[i+1].y;
 	}
 }
 bool check_conflict (NodeAgent const& a, NodeAgent const& b,
@@ -387,7 +380,6 @@ bool check_conflict (NodeAgent const& a, NodeAgent const& b,
 		return true;
 	}
 	
-#if 1
 	float u0 = INF;
 	float v0 = INF;
 	float u1 = -INF;
@@ -404,8 +396,8 @@ bool check_conflict (NodeAgent const& a, NodeAgent const& b,
 			float line_u, line_v;
 
 			if (line_line_seg_intersect(a.pointsL[i], aL_dir, b.pointsL[j], bL_dir, &line_u, &line_v)) {
-				float u = (line_u + (float)i) / COLLISION_STEPS;
-				float v = (line_v + (float)j) / COLLISION_STEPS;
+				float u = line_u + (float)i;
+				float v = line_v + (float)j;
 
 				u0 = min(u0, u);
 				v0 = min(v0, v);
@@ -414,8 +406,8 @@ bool check_conflict (NodeAgent const& a, NodeAgent const& b,
 			}
 
 			if (line_line_seg_intersect(a.pointsR[i], aR_dir, b.pointsL[j], bL_dir, &line_u, &line_v)) {
-				float u = (line_u + (float)i) / COLLISION_STEPS;
-				float v = (line_v + (float)j) / COLLISION_STEPS;
+				float u = line_u + (float)i;
+				float v = line_v + (float)j;
 
 				u0 = min(u0, u);
 				v0 = min(v0, v);
@@ -424,8 +416,8 @@ bool check_conflict (NodeAgent const& a, NodeAgent const& b,
 			}
 
 			if (line_line_seg_intersect(a.pointsL[i], aL_dir, b.pointsR[j], bR_dir, &line_u, &line_v)) {
-				float u = (line_u + (float)i) / COLLISION_STEPS;
-				float v = (line_v + (float)j) / COLLISION_STEPS;
+				float u = line_u + (float)i;
+				float v = line_v + (float)j;
 
 				u0 = min(u0, u);
 				v0 = min(v0, v);
@@ -434,8 +426,8 @@ bool check_conflict (NodeAgent const& a, NodeAgent const& b,
 			}
 
 			if (line_line_seg_intersect(a.pointsR[i], aR_dir, b.pointsR[j], bR_dir, &line_u, &line_v)) {
-				float u = (line_u + (float)i) / COLLISION_STEPS;
-				float v = (line_v + (float)j) / COLLISION_STEPS;
+				float u = line_u + (float)i;
+				float v = line_v + (float)j;
 
 				u0 = min(u0, u);
 				v0 = min(v0, v);
@@ -444,166 +436,11 @@ bool check_conflict (NodeAgent const& a, NodeAgent const& b,
 			}
 		}
 	}
-#else // inner loop as 4xSIMD, only about 20% boost -> out of order cpu optimization already sped it up?
-	__m128 u0v = _mm_set_ps1(INF);
-	__m128 v0v = _mm_set_ps1(INF);
-	__m128 u1v = _mm_set_ps1(-INF);
-	__m128 v1v = _mm_set_ps1(-INF);
 
-	//__m128 inv_steps = _mm_set_ps1(1.0f / COLLISION_STEPS);
-	__m128 offsetV = _mm_set_ps(3, 2, 1, 0);
-
-	static_assert(COLLISION_STEPS == 4);
-	static_assert(ARRLEN(b.pointsLx) == 5);
-
-	auto bL_posX  = _mm_loadu_ps(&b.pointsLx[0]);
-	auto bL_dirX = _mm_sub_ps(_mm_loadu_ps(&b.pointsLx[1]), bL_posX);
-		
-	auto bL_posY  = _mm_loadu_ps(&b.pointsLy[0]);
-	auto bL_dirY = _mm_sub_ps(_mm_loadu_ps(&b.pointsLy[1]), bL_posY);
-	
-	auto bR_posX  = _mm_loadu_ps(&b.pointsRx[0]);
-	auto bR_dirX = _mm_sub_ps(_mm_loadu_ps(&b.pointsRx[1]), bR_posX);
-	
-	auto bR_posY  = _mm_loadu_ps(&b.pointsRy[0]);
-	auto bR_dirY = _mm_sub_ps(_mm_loadu_ps(&b.pointsRy[1]), bR_posY);
-
-	for (int i=0; i<COLLISION_STEPS; ++i) {
-		__m128 offsetU = _mm_set_ps1((float)i);
-		
-		auto aL_posX = _mm_set_ps1(a.pointsL[i].x);
-		auto aL_posY = _mm_set_ps1(a.pointsL[i].y);
-		auto aR_posX = _mm_set_ps1(a.pointsR[i].x);
-		auto aR_posY = _mm_set_ps1(a.pointsR[i].y);
-
-		float2 aL_dir = a.pointsL[i+1] - a.pointsL[i];
-		float2 aR_dir = a.pointsR[i+1] - a.pointsR[i];
-
-		auto aL_dirX = _mm_set_ps1(aL_dir.x);
-		auto aL_dirY = _mm_set_ps1(aL_dir.y);
-		auto aR_dirX = _mm_set_ps1(aR_dir.x);
-		auto aR_dirY = _mm_set_ps1(aR_dir.y);
-		
-
-		__m128 lu0 = _mm_set_ps1(INF);
-		__m128 lv0 = _mm_set_ps1(INF);
-		__m128 lu1 = _mm_set_ps1(-INF);
-		__m128 lv1 = _mm_set_ps1(-INF);
-
-		{
-			__m128 line_u, line_v;
-			auto miss = line_line_seg_intersect(aL_posX,aL_posY, aL_dirX,aL_dirY, bL_posX,bL_posY, bL_dirX,bL_dirY, &line_u, &line_v);
-			
-			lu0 = select(miss, lu0, _mm_min_ps(lu0, line_u));
-			lu1 = select(miss, lu1, _mm_max_ps(lu1, line_u));
-			lv0 = select(miss, lv0, _mm_min_ps(lv0, line_v));
-			lv1 = select(miss, lv1, _mm_max_ps(lv1, line_v));
-		}
-		{
-			__m128 line_u, line_v;
-			auto miss = line_line_seg_intersect(aR_posX,aR_posY, aR_dirX,aR_dirY, bL_posX,bL_posY, bL_dirX,bL_dirY, &line_u, &line_v);
-			
-			lu0 = select(miss, lu0, _mm_min_ps(lu0, line_u));
-			lu1 = select(miss, lu1, _mm_max_ps(lu1, line_u));
-			lv0 = select(miss, lv0, _mm_min_ps(lv0, line_v));
-			lv1 = select(miss, lv1, _mm_max_ps(lv1, line_v));
-		}
-		{
-			__m128 line_u, line_v;
-			auto miss = line_line_seg_intersect(aL_posX,aL_posY, aL_dirX,aL_dirY, bR_posX,bR_posY, bR_dirX,bR_dirY, &line_u, &line_v);
-			
-			lu0 = select(miss, lu0, _mm_min_ps(lu0, line_u));
-			lu1 = select(miss, lu1, _mm_max_ps(lu1, line_u));
-			lv0 = select(miss, lv0, _mm_min_ps(lv0, line_v));
-			lv1 = select(miss, lv1, _mm_max_ps(lv1, line_v));
-		}
-		{
-			__m128 line_u, line_v;
-			auto miss = line_line_seg_intersect(aR_posX,aR_posY, aR_dirX,aR_dirY, bR_posX,bR_posY, bR_dirX,bR_dirY, &line_u, &line_v);
-
-			lu0 = select(miss, lu0, _mm_min_ps(lu0, line_u));
-			lu1 = select(miss, lu1, _mm_max_ps(lu1, line_u));
-			lv0 = select(miss, lv0, _mm_min_ps(lv0, line_v));
-			lv1 = select(miss, lv1, _mm_max_ps(lv1, line_v));
-		}
-
-		u0v = _mm_min_ps(u0v, _mm_add_ps(lu0, offsetU));
-		u1v = _mm_max_ps(u1v, _mm_add_ps(lu1, offsetU));
-
-		v0v = _mm_min_ps(v0v, _mm_add_ps(lv0, offsetV));
-		v1v = _mm_max_ps(v1v, _mm_add_ps(lv1, offsetV));
-	}
-
-	float u0 = min_component(u0v) / COLLISION_STEPS;
-	float u1 = max_component(u1v) / COLLISION_STEPS;
-	float v0 = min_component(v0v) / COLLISION_STEPS;
-	float v1 = max_component(v1v) / COLLISION_STEPS;
-	
-#if 0 // test against unopt
-	float _u0 = INF;
-	float _v0 = INF;
-	float _u1 = -INF;
-	float _v1 = -INF;
-
-	for (int i=0; i<COLLISION_STEPS; ++i) {
-		float2 aL_dir = a.pointsL[i+1] - a.pointsL[i];
-		float2 aR_dir = a.pointsR[i+1] - a.pointsR[i];
-
-		for (int j=0; j<COLLISION_STEPS; ++j) {
-			float2 bL_dir = b.pointsL[j+1] - b.pointsL[j];
-			float2 bR_dir = b.pointsR[j+1] - b.pointsR[j];
-			
-			float line_u, line_v;
-
-			if (line_line_seg_intersect(a.pointsL[i], aL_dir, b.pointsL[j], bL_dir, &line_u, &line_v)) {
-				float u = (line_u + (float)i) / COLLISION_STEPS;
-				float v = (line_v + (float)j) / COLLISION_STEPS;
-
-				_u0 = min(_u0, u);
-				_v0 = min(_v0, v);
-				_u1 = max(_u1, u);
-				_v1 = max(_v1, v);
-			}
-
-			if (line_line_seg_intersect(a.pointsR[i], aR_dir, b.pointsL[j], bL_dir, &line_u, &line_v)) {
-				float u = (line_u + (float)i) / COLLISION_STEPS;
-				float v = (line_v + (float)j) / COLLISION_STEPS;
-				
-				_u0 = min(_u0, u);
-				_v0 = min(_v0, v);
-				_u1 = max(_u1, u);
-				_v1 = max(_v1, v);
-			}
-
-			if (line_line_seg_intersect(a.pointsL[i], aL_dir, b.pointsR[j], bR_dir, &line_u, &line_v)) {
-				float u = (line_u + (float)i) / COLLISION_STEPS;
-				float v = (line_v + (float)j) / COLLISION_STEPS;
-				
-				_u0 = min(_u0, u);
-				_v0 = min(_v0, v);
-				_u1 = max(_u1, u);
-				_v1 = max(_v1, v);
-			}
-
-			if (line_line_seg_intersect(a.pointsR[i], aR_dir, b.pointsR[j], bR_dir, &line_u, &line_v)) {
-				float u = (line_u + (float)i) / COLLISION_STEPS;
-				float v = (line_v + (float)j) / COLLISION_STEPS;
-				
-				_u0 = min(_u0, u);
-				_v0 = min(_v0, v);
-				_u1 = max(_u1, u);
-				_v1 = max(_v1, v);
-			}
-		}
-	}
-
-	assert(u0 == _u0);
-	assert(u1 == _u1);
-	assert(v0 == _v0);
-	assert(v1 == _v1);
-#endif
-
-#endif
+	u0 *= 1.0f / COLLISION_STEPS;
+	u1 *= 1.0f / COLLISION_STEPS;
+	v0 *= 1.0f / COLLISION_STEPS;
+	v1 *= 1.0f / COLLISION_STEPS;
 
 	*out_u0 = u0;
 	*out_v0 = v0;
@@ -762,10 +599,8 @@ void update_node (App& app, Node* node) {
 			auto bez = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info());
 			a.conn_len = bez.approx_len(COLLISION_STEPS);
 			
-			//_gen_points(a.pointsL, a.conn, -LANE_COLLISION_R);
-			//_gen_points(a.pointsR, a.conn, +LANE_COLLISION_R);
-			_gen_points(a.pointsL, a.pointsLx, a.pointsLy, a.conn, -LANE_COLLISION_R);
-			_gen_points(a.pointsR, a.pointsRx, a.pointsRy, a.conn, +LANE_COLLISION_R);
+			_gen_points(a.pointsL, a.conn, -LANE_COLLISION_R);
+			_gen_points(a.pointsR, a.conn, +LANE_COLLISION_R);
 
 			node->agents.test.add(a);
 		}

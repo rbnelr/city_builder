@@ -35,6 +35,19 @@ struct Bezier3 {
 	float2 c;
 
 	BezierRes eval (float t) const {
+		float2 c0 = a;           // a
+		float2 c1 = 2 * (b - a); // (-2a +2b)t
+		float2 c2 = a - 2*b + c; // (a -2b +c)t^2
+		
+		float t2 = t*t;
+
+		float2 value = c2*t2    + c1*t + c0; // f(t)
+		float2 deriv = c2*(t*2) + c1;        // f'(t)
+
+		return { value, deriv };
+	}
+
+	BezierRes eval_with_curv (float t) const {
 		//float2 ab = lerp(a, b, t);
 		//float2 bc = lerp(b, c, t);
 		//return lerp(ab, bc, t);

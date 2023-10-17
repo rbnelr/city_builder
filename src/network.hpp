@@ -94,29 +94,6 @@ struct CachedConnection {
 	float2 pointsR[COLLISION_STEPS+1];
 };
 
-struct Agent {
-	Citizen* cit;
-
-	int   idx = 0;
-
-	float bez_t = 0;
-	//float rear_t = 0; // only approximately correct
-	
-	std::vector<Node*>   nodes;
-	std::vector<SegLane> segments;
-
-	Building* start = nullptr;
-	Building* end   = nullptr;
-
-	float speed = 0; // real speed
-
-	float bez_speed = 0; // delta beizer t over delta position
-	
-	float brake;
-	bool  blocked;
-
-
-};
 template <typename T>
 struct AgentList { // TODO: optimize agents in lane to only look at agent in front of them, and speed up insert/erase by using linked list
 	std::vector<T> list;
@@ -149,6 +126,47 @@ struct AgentList { // TODO: optimize agents in lane to only look at agent in fro
 			}
 		}
 	}
+};
+
+struct AgentState {
+	enum State { EXIT_BUILDING, ENTER_BUILDING, SEGMENT, NODE };
+
+	State state;
+	float end_t = 1.0f;
+	float next_start_t = 0.0f;
+	Bezier3 bezier;
+	float pos_z;
+
+	network::AgentList<Agent*>* cur_agents = nullptr;
+	network::AgentList<Agent*>* next_agents = nullptr;
+
+	network::Node* cur_node = nullptr;
+	network::SegLane* seg_before_node = nullptr;
+	network::SegLane* seg_after_node = nullptr;
+};
+
+struct Agent {
+	Citizen* cit;
+
+	int   idx = 0;
+
+	float bez_t = 0;
+	//float rear_t = 0; // only approximately correct
+	
+	std::vector<Node*>   nodes;
+	std::vector<SegLane> segments;
+
+	Building* start = nullptr;
+	Building* end   = nullptr;
+
+	float speed = 0; // real speed
+
+	float bez_speed = 0; // speed (delta position) / delta beizer t
+	
+	float brake;
+	bool  blocked;
+
+	AgentState state;
 };
 
 struct NodeAgent {

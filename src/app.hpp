@@ -53,7 +53,7 @@ struct Citizen {
 
 	// TODO: i think some sort of CitizenLoc interface would work well here
 	Building* building = nullptr;
-	std::unique_ptr<network::Agent> path = nullptr;
+	std::unique_ptr<network::Agent> agent = nullptr;
 
 	//Building* home = nullptr;
 	//Building* work = nullptr;

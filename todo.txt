@@ -1,0 +1,53 @@
+city builder intersection logic:
+
+-add cars to next node car list when they enter incoming lane (when they get a next_node after state switch)
+-remove cars from node car list once their rear exits intersection (or simply skip the cars and remove them once they leave the outgoing lane instead?)
+
+-cars are now ordered in a first-arrival order
+
+-every car simply waits before the earliest conflict zone of any car higher prio than it (arrived ealier)
+now deadlocks are impossible
+
+-obviously skip conflicts where other car is already past conflict
+
+-> if I assign out lane space in the same order, can it deadlock?
+
+-> test if having cars that are blocked not be yielded for by lower prio cars works
+  (or if deadlocks or constant switching of car order now happens)
+
+-> essentially have cars swap their prio order based on if you are blocked anyway?
+ -> sounds similar to factoring in speed to prio
+
+TODO:
+  
+ Make cars only count once they have assigned out lane space
+  or somehow have them be sorted to the end every time?
+ Also have to block cars behind blocked cars
+ 
+ -> ??? This is somewhat complicated without more data structures...
+ 
+ Turn SegLane pointers into lane pointers, where lane contains info about agents, reserved space, maybe cached bezier?
+  -> how do I access the segment then?
+  -> maybe just keep SegLane but make accessing lane directly more convinient
+   -> and maybe turn SegLane into the (unique) lane* for hashing and comparisons, since it's slightly faster
+  -> also lanes can be allocated directly after Segment itself to avoid vector
+  
+> Actually fix deadlocks
+ -> 
+ 
+> Add actual tick system with interpolation
+ 
+> add 4 lane (main) streets
+ -> could be complicated with how lanes have to be handled during pathfinding
+ 
+> traffic lights for large intersections?
+
+> make cars slow in curves
+ -> bezier can compute curvature, instead of exact, maybe only slow down in center of curve
+  -> center can vary, but could approximate point of most curvature and simply aim to reach a speed based on curvature there, could also limit on whole curve or lerp between different samples
+
+> Add vehicle with trailer for shits and giggles
+
+> A* instead of Dijkstra?
+ -> does it make the code less flexible? probably not
+ -> profile

@@ -384,7 +384,7 @@ struct App : public Engine {
 			}
 			for (auto& seg : net.segments) {
 				for (auto& lane : seg->agents.lanes) {
-					lane.list.clear();
+					lane.list.list.clear();
 				}
 			}
 

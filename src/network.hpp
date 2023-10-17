@@ -16,6 +16,7 @@ namespace network {
 struct Node;
 struct Segment;
 struct Agent;
+struct LaneAgents;
 	
 
 struct Line {
@@ -24,7 +25,7 @@ struct Line {
 
 struct SegLane {
 	Segment* seg;
-	int      lane;
+	uint16_t lane;
 
 	inline bool operator== (SegLane const& r) const {
 		return seg == r.seg && lane == r.lane;
@@ -34,12 +35,21 @@ struct SegLane {
 	}
 	
 	Line clac_lane_info (float shift=0) const;
+
+	LaneAgents& agents () const;
 };
 VALUE_HASHER(SegLane, t.seg, t.lane);
 
 struct Connection {
 	SegLane a, b;
 	
+	// arbitrary order so we can treat b->a as a->b for Conflict cache
+	bool operator< (Connection const& other) const {
+		if      (a.seg  != other.a.seg ) return a.seg  < other.a.seg ;
+		else if (b.seg  != other.b.seg ) return b.seg  < other.b.seg ;
+		else if (a.lane != other.a.lane) return a.lane < other.a.lane; // Could combine lane < by merging ints
+		else                             return b.lane < other.b.lane;
+	}
 	bool operator== (Connection const& other) const {
 		return a == other.a && b == other.b;
 	}
@@ -47,9 +57,42 @@ struct Connection {
 		return !(*this == other);
 	}
 };
-//VALUE_HASHER(Connection, t.a.seg, t.b.seg, t.a.lane, t.b.lane);
+VALUE_HASHER(Connection,
+	t.a.seg, t.b.seg,
+	hash_get_bits(t.a.lane, t.b.lane));
+
+struct ConflictKey {
+	Connection a, b;
+	
+	bool operator== (ConflictKey const& other) const {
+		return a == other.a && b == other.b;
+	}
+	bool operator!= (ConflictKey const& other) const {
+		return !(*this == other);
+	}
+};
+VALUE_HASHER(ConflictKey,
+	t.a.a.seg , t.a.b.seg , t.b.a.seg , t.b.b.seg ,
+	hash_get_bits(t.a.a.lane, t.a.b.lane, t.b.a.lane, t.b.b.lane));
+
+struct Conflict {
+	float a_t0 = INF;
+	float a_t1 = -INF;
+	float b_t0 = INF;
+	float b_t1 = -INF;
+
+	operator bool () const { return a_t0 < INF; }
+};
 
 inline constexpr int COLLISION_STEPS = 4;
+
+struct CachedConnection {
+	Connection conn;
+	float bez_len;
+	
+	float2 pointsL[COLLISION_STEPS+1];
+	float2 pointsR[COLLISION_STEPS+1];
+};
 
 struct Agent {
 	Citizen* cit;
@@ -110,8 +153,7 @@ struct AgentList { // TODO: optimize agents in lane to only look at agent in fro
 
 struct NodeAgent {
 	Agent* agent;
-	Connection conn;
-	float conn_len;
+
 	int node_idx;
 		
 	// k == (approx) distance along node curve
@@ -121,9 +163,7 @@ struct NodeAgent {
 	float front_k;
 	float rear_k;
 
-	
-	float2 pointsL[COLLISION_STEPS+1];
-	float2 pointsR[COLLISION_STEPS+1];
+	CachedConnection conn;
 	
 	bool operator== (NodeAgent const& other) const {
 		return agent == other.agent;
@@ -137,13 +177,20 @@ struct NodeAgent {
 	}
 };
 
-struct SegAgents {
-	std::vector<AgentList<Agent*>> lanes;
+struct LaneAgents {
+	AgentList<Agent*> list;
+	float avail_space;
 };
+struct SegAgents {
+	std::vector<LaneAgents> lanes;
+};
+
 struct NodeAgents {
 	AgentList<Agent*> free;
 
 	AgentList<NodeAgent> test;
+
+	Hashmap<ConflictKey, Conflict, ConflictKeyHasher> conflict_cache;
 };
 
 struct Node {
@@ -240,9 +287,9 @@ inline Line SegLane::clac_lane_info (float shift) const {
 	else                  return { b, a };
 }
 
-//inline float lane_angle (Node* node, SegLane& lane) {
-//	return atan2f();
-//}
+inline LaneAgents& SegLane::agents () const {
+	return seg->agents.lanes[lane];
+}
 
 inline void Node::update_cached () {
 	for (auto* seg : segments) {
@@ -252,13 +299,9 @@ inline void Node::update_cached () {
 			auto& lane = seg->layout->lanes[i];
 
 			auto& vec = lane.direction == dir ? out_lanes : in_lanes;
-			vec.push_back(SegLane{ seg, i });
+			vec.push_back(SegLane{ seg, (uint16_t)i });
 		}
 	}
-
-	//std::sort(in_lanes.begin(), in_lanes.end(), [] (SegLane& l, SegLane& r) {
-	//	return std::less<float>()( l.clac_lane_info(). );
-	//});
 }
 
 // max lanes/segment and max segments per node == 256

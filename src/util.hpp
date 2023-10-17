@@ -509,6 +509,19 @@ struct Hashmap : public std::unordered_map<KEY_T, VAL_T, HASHER> {
 		return it != this->end() ? &it->second : nullptr;
 	}
 
+	template <typename T, typename FUNC>
+	VAL_T& get_or_create (T const& key, FUNC create) {
+		auto it = this->find(key);
+		if (it != this->end())
+			return it->second;
+
+		// have to hash twice since afaik there is no API for this
+		// if unnecessary create is ok  this->emplace(key, create())  works
+		// if create() is default ctor  return *this[key];  works
+		auto res = this->emplace(key, create());
+		return res.first->second;
+	}
+
 	template <typename T>
 	VAL_T& operator[] (T const& key) {
 		auto* ptr = try_get(key);

@@ -60,7 +60,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* path) {
 					float new_cost = cur_node->_cost + seg->lane_length + seg->node_a->radius + seg->node_b->radius; // TODO: ??
 					if (new_cost < other_node->_cost) {
 						other_node->_pred      = cur_node;
-						other_node->_pred_seg  = { seg, i };
+						other_node->_pred_seg  = { seg, (uint16_t)i };
 						other_node->_cost      = new_cost;
 
 						unvisited.push(other_node); // push updated neighbour (duplicate)
@@ -102,7 +102,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* path) {
 	// start segment
 	// if start node is segment.a then we go from b->a and thus need to start on a reverse lane
 	int start_lane = start_node == start->node_b ? 0 : (int)start->layout->lanes.size()-1;
-	path->segments.push_back({ start, start_lane });
+	path->segments.push_back({ start, (uint16_t)start_lane });
 
 	// nodes
 	for (int i=(int)tmp_nodes.size()-2; i>=0; --i) {
@@ -116,7 +116,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* path) {
 	// end segment
 	// if end node is segment.a then we go from a->b and thus need to start on a forward lane
 	int end_lane = end_node == target->node_a ? 0 : (int)target->layout->lanes.size()-1;
-	path->segments.push_back({ target, end_lane });
+	path->segments.push_back({ target, (uint16_t)end_lane });
 
 	return true;
 }
@@ -166,7 +166,7 @@ AgentState _FORCEINLINE get_agent_state (Agent* agent, int idx) {
 		s.state = EXIT_BUILDING;
 		s.next_start_t = 0.5f;
 
-		s.next_agents = &s_seg.seg->agents.lanes[s_seg.lane];
+		s.next_agents = &s_seg.seg->agents.lanes[s_seg.lane].list;
 
 		s.bezier = { s0, (s0+s1)*0.5f, s1 };
 		s.pos_z = s0.z;
@@ -211,7 +211,7 @@ AgentState _FORCEINLINE get_agent_state (Agent* agent, int idx) {
 
 			s.state = SEGMENT;
 
-			s.cur_agents = &seg->seg->agents.lanes[seg->lane];
+			s.cur_agents = &seg->seg->agents.lanes[seg->lane].list;
 			s.next_agents = node ? &node->agents.free : nullptr;
 
 
@@ -231,7 +231,7 @@ AgentState _FORCEINLINE get_agent_state (Agent* agent, int idx) {
 			s.state = NODE;
 
 			s.cur_agents = &node->agents.free;
-			s.next_agents = &seg2->seg->agents.lanes[seg2->lane];
+			s.next_agents = &seg2->seg->agents.lanes[seg2->lane].list;
 
 			s.bezier = calc_curve(l, l2);
 			s.pos_z = l.a.z;
@@ -279,7 +279,7 @@ void debug_node (App& app, Node* node) {
 		}
 	}
 
-	int col_i = 0;
+	//int col_i = 0;
 	//node->for_ingoing_lanes([&] (SegLane lane_in) {
 	//	auto l0 = lane_in.seg->clac_lane_info(lane_in.lane);
 	//			
@@ -308,6 +308,34 @@ void debug_node (App& app, Node* node) {
 	//		bezier.dbg_draw(10, col);
 	//	});
 	//});
+
+	ImGui::Text("%d conflicts cached", (int)node->agents.conflict_cache.size());
+
+	//{
+	//	Hashmap<SegLane, lrgba, SegLaneHasher> cols;
+	//	int col_i = 0;
+	//	auto new_col = [&] () -> lrgba {
+	//		return g_dbgdraw.COLS[col_i++ % ARRLEN(g_dbgdraw.COLS)];
+	//	};
+	//
+	//	for (auto& kv : node->agents.conflict_cache) {
+	//		auto col0 = cols.get_or_create(kv.first.a.a, new_col);
+	//		auto col1 = cols.get_or_create(kv.first.a.b, new_col);
+	//		auto col2 = cols.get_or_create(kv.first.b.a, new_col);
+	//		auto col3 = cols.get_or_create(kv.first.b.b, new_col);
+	//	
+	//		ImGui::TextColored(col0, "%p:%d",	kv.first.a.a.seg, kv.first.a.a.lane); ImGui::SameLine();
+	//		ImGui::TextColored(col1, "-%p:%d",	kv.first.a.b.seg, kv.first.a.b.lane); ImGui::SameLine();
+	//		ImGui::Text(" | "); ImGui::SameLine();
+	//		ImGui::TextColored(col2, "%p:%d",	kv.first.b.a.seg, kv.first.b.a.lane); ImGui::SameLine();
+	//		ImGui::TextColored(col3, "-%p:%d",	kv.first.b.b.seg, kv.first.b.b.lane);
+	//	}
+	//	
+	//	for (auto& kv : cols) {
+	//		auto p = kv.first.clac_lane_info();
+	//		g_dbgdraw.line(p.a, p.b, kv.second);
+	//	}
+	//}
 }
 void debug_citizen (App& app, Citizen* cit) {
 	if (!cit || !cit->path) return;
@@ -354,7 +382,7 @@ void _FORCEINLINE dbg_brake_for_agent (App& app, Agent* cur, float dist, Agent* 
 }
 void _FORCEINLINE dbg_brake_for_blocked_lane (App& app, NodeAgent& a, float dist) {
 	if (app.selection.get<Citizen*>() == a.agent->cit) {
-		dbg_brake_for(app, a.agent, dist, a.conn.b.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
+		dbg_brake_for(app, a.agent, dist, a.conn.conn.b.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
 	}
 }
 
@@ -368,17 +396,8 @@ auto _gen_points (float2* points, Connection const& conn, float shift) {
 		points[i+1] = bez.eval_value_fast_t(t);
 	}
 }
-bool check_conflict (NodeAgent const& a, NodeAgent const& b,
-		float* out_u0, float* out_v0, float* out_u1, float* out_v1,
-		bool dbg) {
-	
-	if (a.conn == b.conn) {
-		*out_u0 = 0;
-		*out_v0 = 0;
-		*out_u1 = 1;
-		*out_v1 = 1;
-		return true;
-	}
+Conflict check_conflict (CachedConnection const& a, CachedConnection const& b) {
+	assert(a.conn != b.conn);
 	
 	float u0 = INF;
 	float v0 = INF;
@@ -442,44 +461,60 @@ bool check_conflict (NodeAgent const& a, NodeAgent const& b,
 	v0 *= 1.0f / COLLISION_STEPS;
 	v1 *= 1.0f / COLLISION_STEPS;
 
-	*out_u0 = u0;
-	*out_v0 = v0;
-	*out_u1 = u1;
-	*out_v1 = v1;
+	return { u0, u1, v0, v1 };
+}
 
-	if (dbg) {
-		for (int i=0; i<COLLISION_STEPS; ++i) {
-			g_dbgdraw.line(float3(a.pointsL[i],0), float3(a.pointsL[i+1],0), lrgba(1,1,0,1));
-			g_dbgdraw.line(float3(a.pointsR[i],0), float3(a.pointsR[i+1],0), lrgba(1,1,0,1));
-			g_dbgdraw.line(float3(b.pointsL[i],0), float3(b.pointsL[i+1],0), lrgba(0,1,1,1));
-			g_dbgdraw.line(float3(b.pointsR[i],0), float3(b.pointsR[i+1],0), lrgba(0,1,1,1));
-		}
-
-		auto draw_line = [&] (float2 const* L, float2 const* R, float t) {
-			int i = (int)(t * COLLISION_STEPS);
-			t = t * COLLISION_STEPS - i;
-
-			g_dbgdraw.line(
-				float3(lerp(L[i], L[i+1], t), 0),
-				float3(lerp(R[i], R[i+1], t), 0), lrgba(1,0,0,1));
-		};
-		if (u0 < INF) {
-			draw_line(a.pointsL, a.pointsR, u0);
-			draw_line(a.pointsL, a.pointsR, u1);
-			draw_line(b.pointsL, b.pointsR, v0);
-			draw_line(b.pointsL, b.pointsR, v1);
-		}
+void debug_conflict (CachedConnection const& a, CachedConnection const& b, Conflict& conf) {
+	for (int i=0; i<COLLISION_STEPS; ++i) {
+		g_dbgdraw.line(float3(a.pointsL[i],0), float3(a.pointsL[i+1],0), lrgba(1,1,0,1));
+		g_dbgdraw.line(float3(a.pointsR[i],0), float3(a.pointsR[i+1],0), lrgba(1,1,0,1));
+		g_dbgdraw.line(float3(b.pointsL[i],0), float3(b.pointsL[i+1],0), lrgba(0,1,1,1));
+		g_dbgdraw.line(float3(b.pointsR[i],0), float3(b.pointsR[i+1],0), lrgba(0,1,1,1));
 	}
 
-	return u0 < INF;
+	auto draw_line = [&] (float2 const* L, float2 const* R, float t) {
+		int i = (int)(t * COLLISION_STEPS);
+		t = t * COLLISION_STEPS - i;
+
+		g_dbgdraw.line(
+			float3(lerp(L[i], L[i+1], t), 0),
+			float3(lerp(R[i], R[i+1], t), 0), lrgba(1,0,0,1));
+	};
+	if (conf) {
+		draw_line(a.pointsL, a.pointsR, conf.a_t0);
+		draw_line(a.pointsL, a.pointsR, conf.a_t1);
+		draw_line(b.pointsL, b.pointsR, conf.b_t0);
+		draw_line(b.pointsL, b.pointsR, conf.b_t1);
+	}
+}
+
+Conflict query_conflict (Node* node, CachedConnection const& a, CachedConnection const& b) {
+	if (a.conn == b.conn)
+		return { 0,1, 0,1 }; // never cache overlapping paths
+	
+	// order a/b in some order in hashmap key to save 50% of (symmetrical) conflicts
+	bool order = a.conn < b.conn;
+
+	auto* pa = &a;
+	auto* pb = &b;
+	if (!order) std::swap(pa, pb);
+	
+	ConflictKey key = ConflictKey{ pa->conn, pb->conn };
+
+	auto conf = node->agents.conflict_cache.get_or_create(key, [&] () -> Conflict {
+		return check_conflict(*pa, *pb); // cache ordered conflict
+	});
+
+	// reverse ordering for result, effectively reusing b->a conflict as a->b
+	return order ? conf : Conflict{ conf.b_t0, conf.b_t1, conf.a_t0, conf.a_t1 };
 }
 
 void update_segment (App& app, Segment* seg) {
 	for (auto& lane : seg->agents.lanes) {
 		// brake for car in front
-		for (int i=1; i<(int)lane.list.size(); ++i) {
-			Agent* prev = lane.list[i-1];
-			Agent* cur = lane.list[i];
+		for (int i=1; i<(int)lane.list.list.size(); ++i) {
+			Agent* prev = lane.list.list[i-1];
+			Agent* cur = lane.list.list[i];
 			
 			// approx seperation using cur car bez_speed
 			float dist = (prev->bez_t - cur->bez_t) / cur->bez_speed - (CAR_SIZE + 1);
@@ -490,7 +525,7 @@ void update_segment (App& app, Segment* seg) {
 	}
 }
 
-void _yield_for_car (App& app, NodeAgent& a, NodeAgent& b) {
+void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b) {
 	assert(a.agent != b.agent);
 		
 	auto* sel  = app.selection .get<Citizen*>() ? app.selection .get<Citizen*>()->path.get() : nullptr;
@@ -502,14 +537,18 @@ void _yield_for_car (App& app, NodeAgent& a, NodeAgent& b) {
 	//	printf("");
 	//}
 
-	float a_t0, b_t0, a_t1, b_t1;
-	if (!check_conflict(a, b, &a_t0, &b_t0, &a_t1, &b_t1, dbg))
+
+	auto conf = query_conflict(node, a.conn, b.conn);
+
+	if (dbg) debug_conflict(a.conn, b.conn, conf);
+
+	if (!conf)
 		return;
 
-	float a_k0 = a_t0 * a.conn_len;
-	float a_k1 = a_t1 * a.conn_len;
-	float b_k0 = b_t0 * b.conn_len;
-	float b_k1 = b_t1 * b.conn_len;
+	float a_k0 = conf.a_t0 * a.conn.bez_len;
+	float a_k1 = conf.a_t1 * a.conn.bez_len;
+	float b_k0 = conf.b_t0 * b.conn.bez_len;
+	float b_k1 = conf.b_t1 * b.conn.bez_len;
 		
 	bool a_entered = a.front_k >= a_k0;
 	bool a_exited  = a.rear_k  >= a_k1;
@@ -518,8 +557,8 @@ void _yield_for_car (App& app, NodeAgent& a, NodeAgent& b) {
 
 	bool b_rear_entered = b.rear_k >= b_k0;
 		
-	bool diverge = a.conn.a == b.conn.a; // same start point
-	bool merge   = a.conn.b == b.conn.b; // same end point
+	bool diverge = a.conn.conn.a == b.conn.conn.a; // same start point
+	bool merge   = a.conn.conn.b == b.conn.conn.b; // same end point
 	//bool crossing = !merge && !diverge; // normal crossing
 	bool same = merge && diverge; // identical path
 		
@@ -548,43 +587,32 @@ void _yield_for_car (App& app, NodeAgent& a, NodeAgent& b) {
 	brake_for_dist(a.agent, dist);
 	dbg_brake_for_agent(app, a.agent, dist, b.agent);
 }
+
 void update_node (App& app, Node* node) {
-
-	// TODO: Conflict cache
-	//struct PossibleConflict {
-	//	bool has_conflict;
-	//	float a_t, b_t;
-	//};
-	//Hashmap<Connection, float, PossibleConflict> conflicts;
-
-	Hashmap<SegLane, float, SegLaneHasher> avail_space;
-
-
+	bool node_dbg = app.selection.get<Node*>() == node;
 	auto dbg_avail_space = [&] (SegLane const& lane_out, Agent* a) {
-		if (app.selection.get<Node*>() != node) return;
-
 		auto li = lane_out.clac_lane_info();
 				
-		auto pos = lerp(li.a, li.b, avail_space[lane_out] / lane_out.seg->lane_length);
+		auto pos = lerp(li.a, li.b, lane_out.agents().avail_space / lane_out.seg->lane_length);
 		g_dbgdraw.point(pos, 1, lrgba(a->cit->col,1));
 	};
 
 	//
-	int col_i = 0;
 	for (auto& lane_out : node->out_lanes) {
-		avail_space.add(lane_out, lane_out.seg->lane_length);
+		auto& avail_space = lane_out.agents().avail_space;
+		avail_space = lane_out.seg->lane_length;
 		
-		for (auto* a : lane_out.seg->agents.lanes[lane_out.lane].list) {
-			dbg_avail_space(lane_out, a);
+		for (auto* a : lane_out.seg->agents.lanes[lane_out.lane].list.list) {
+			if (node_dbg) dbg_avail_space(lane_out, a);
 
-			avail_space[lane_out] -= CAR_SIZE + SAFETY_DIST;
+			avail_space -= CAR_SIZE + SAFETY_DIST;
 		}
 	}
 	
 	// Track cars that are relevant to intersection
 	for (auto& lane : node->in_lanes) {
-		for (auto* agent : lane.seg->agents.lanes[lane.lane].list) {
-			if (node->agents.test.contains(agent)) continue;
+		for (auto* agent : lane.agents().list.list) {
+			if (node->agents.test.contains(agent)) continue; // TODO: Expensive contains with vector
 
 			float dist = (1.0f - agent->bez_t) / agent->bez_speed;
 			if (dist > 10.0f) break;
@@ -596,11 +624,11 @@ void update_node (App& app, Node* node) {
 			a.node_idx = agent->idx+1;
 
 			a.conn = { *s.seg_before_node, *s.seg_after_node };
-			auto bez = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info());
-			a.conn_len = bez.approx_len(COLLISION_STEPS);
+			auto bez = calc_curve(a.conn.conn.a.clac_lane_info(), a.conn.conn.b.clac_lane_info());
+			a.conn.bez_len = bez.approx_len(COLLISION_STEPS);
 			
-			_gen_points(a.pointsL, a.conn, -LANE_COLLISION_R);
-			_gen_points(a.pointsR, a.conn, +LANE_COLLISION_R);
+			_gen_points(a.conn.pointsL, a.conn.conn, -LANE_COLLISION_R);
+			_gen_points(a.conn.pointsR, a.conn.conn, +LANE_COLLISION_R);
 
 			node->agents.test.add(a);
 		}
@@ -618,20 +646,22 @@ void update_node (App& app, Node* node) {
 	});
 	
 	auto update_ks = [&] (NodeAgent& a) {
-		auto s = get_agent_state(a.agent, a.agent->idx);
 
-		if (s.state == NODE) {
-			a.front_k = a.agent->bez_t * a.conn_len; // this is very wrong
+		// ingoing lane
+		if (a.agent->idx == a.node_idx-1) {
+			// extrapolate and map from negative to 0
+			a.front_k = (a.agent->bez_t - 1.0f) / a.agent->bez_speed;
 		}
+		// on node
+		else if (a.agent->idx == a.node_idx) {
+			// approximate by just mapping t (which is wrong)
+			a.front_k = a.agent->bez_t * a.conn.bez_len;
+		}
+		// outgoing lane
 		else {
-			if (s.cur_node == node) {
-				// ingoing lane, extrapolate and map from negative to 0
-				a.front_k = (a.agent->bez_t - 1.0f) / a.agent->bez_speed;
-			}
-			else {
-				// outgoing lane, extrapolate and map from negative to 0
-				a.front_k = a.agent->bez_t / a.agent->bez_speed + a.conn_len;
-			}
+			assert(a.agent->idx == a.node_idx+1);
+			// extrapolate and map from negative to 0
+			a.front_k = a.agent->bez_t / a.agent->bez_speed + a.conn.bez_len;
 		}
 		
 		a.rear_k = a.front_k - CAR_SIZE;
@@ -647,7 +677,8 @@ void update_node (App& app, Node* node) {
 			continue;
 		}
 
-		if (avail_space[a.conn.b] < CAR_SIZE) {
+		auto& avail_space = a.conn.conn.b.agents().avail_space;
+		if (avail_space < CAR_SIZE) {
 			float dist = -a.front_k; // end of ingoing lane
 			
 			brake_for_dist(a.agent, dist);
@@ -656,10 +687,10 @@ void update_node (App& app, Node* node) {
 			a.agent->blocked = true; // WARNING: This is not threadsafe if we want to thread nodes/segments individually
 		}
 		else {
-			dbg_avail_space(a.conn.b, a.agent);
-			avail_space[a.conn.b] -= CAR_SIZE + SAFETY_DIST;
+			if (node_dbg) dbg_avail_space(a.conn.conn.b, a.agent);
+			avail_space -= CAR_SIZE + SAFETY_DIST;
 
-			a.agent->blocked = false; // explicitly unblock since 
+			a.agent->blocked = false; // explicitly unblock
 		}
 	}
 
@@ -694,13 +725,13 @@ void update_node (App& app, Node* node) {
 		for (int i=0; i<j; ++i) {
 			auto& b = node->agents.test.list[i];
 
-			_yield_for_car(app, a, b);
+			_yield_for_car(app, node, a, b);
 		}
 
 		// brake for target lane car
-		auto& target_lane = a.conn.b.seg->agents.lanes[a.conn.b.lane].list;
+		auto& target_lane = a.conn.conn.b.agents().list.list;
 		if (!target_lane.empty() && target_lane.back() != a.agent) {
-			float a_front_k = a.front_k - a.conn_len; // relative to after node
+			float a_front_k = a.front_k - a.conn.bez_len; // relative to after node
 
 			auto* b = target_lane.back();
 			float b_rear_k = b->bez_t / b->bez_speed - CAR_SIZE;
@@ -712,8 +743,8 @@ void update_node (App& app, Node* node) {
 			dbg_brake_for_agent(app, a.agent, dist, b);
 		}
 	}
-};
-		
+}
+
 void update_vehicle (App& app, Agent* agent) {
 	if (app.sim_paused)
 		return;
@@ -776,7 +807,7 @@ void update_vehicle (App& app, Agent* agent) {
 	agent->cit->front_pos = float3(new_front, s.pos_z);
 	agent->cit->rear_pos = float3(new_rear, s.pos_z);
 };
-		
+
 
 void Network::simulate (App& app) {
 	ZoneScoped;

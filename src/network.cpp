@@ -338,12 +338,14 @@ void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col
 	// obsticle visualizes what object we are stopping for
 	// dist is approx distance along bezier to stop at, which we don't bother visualizing exactly
 
+	dist = max(dist, 0.0f);
+
 	float3 pos = cur->cit->front_pos;
 	float3 dir = normalizesafe(obstacle - pos);
 	float3 end = pos + float3(dir,0)*dist;
 	float3 normal = float3(rotate90(dir), 0);
 
-	g_dbgdraw.line(pos, obstacle, col);
+	g_dbgdraw.arrow(app.view, pos, obstacle - pos, 0.3f, col);
 	g_dbgdraw.line(end - normal, end + normal, col);
 }
 void dbg_brake_for_agent (App& app, Agent* cur, float dist, Agent* obstacle) {
@@ -577,6 +579,10 @@ void update_node (App& app, Node* node) {
 	// allocate space in priority order and remember blocked cars
 	for (auto agent : node->agents.test.list) {
 		auto y = test_agent(agent);
+		if (y.agent->idx > agent.node_idx) {
+			// already in outgoing lane (don't need to wait and avoid counting avail space twice)
+			continue;
+		}
 
 		if (avail_space[agent.conn.b] < CAR_SIZE) {
 			float dist = -y.front_k; // end of ingoing lane
@@ -584,15 +590,40 @@ void update_node (App& app, Node* node) {
 			brake_for_dist(agent.agent, dist);
 			dbg_brake_for(app, agent.agent, dist, agent.conn.b.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
 
-			agent.agent->blocked = true;
+			agent.agent->blocked = true; // WARNING: This is not threadsafe if we want to thread nodes/segments individually
 		}
 		else {
 			dbg_avail_space(agent.conn.b, agent.agent);
 			avail_space[agent.conn.b] -= CAR_SIZE + SAFETY_DIST;
 
-			agent.agent->blocked = false;
+			agent.agent->blocked = false; // explicitly unblock since 
 		}
 	}
+
+	//// swap cars
+	//for (int i=0; i<(int)node->agents.test.list.size()-1; ++i) {
+	//	auto& a = node->agents.test.list[i];
+	//	auto& b = node->agents.test.list[i+1];
+	//
+	//	bool diverge = a.conn.a == b.conn.a; // same start point
+	//	if (diverge) continue;
+	//
+	//	auto ya = test_agent(a);
+	//	auto yb = test_agent(b);
+	//
+	//	// estimated time to leave intersection based on cur speed
+	//	float eta_a = (ya.conn_len - ya.front_k) / (ya.agent->speed + 0.01f);
+	//	float eta_b = (yb.conn_len - yb.front_k) / (yb.agent->speed + 0.01f);
+	//	
+	//	bool swap = eta_b < eta_a * 0.5f;
+	//
+	//	if (swap) {
+	//		// make a yield to b
+	//		// TODO: should check if a is not already blocking b's path
+	//
+	//		std::swap(a, b);
+	//	}
+	//}
 
 	auto yield_for_car = [&] (YieldAgent& a, YieldAgent& b) {
 		assert(a.agent != b.agent);
@@ -615,9 +646,9 @@ void update_node (App& app, Node* node) {
 		float b_k0 = b_t0 * len_b;
 		float b_k1 = b_t1 * len_b;
 		
-		//if (dbg) {
-		//	printf("");
-		//}
+		if (dbg) {
+			printf("");
+		}
 
 		bool a_entered = a.front_k >= a_k0;
 		bool a_exited  = a.rear_k  >= a_k1;
@@ -634,7 +665,7 @@ void update_node (App& app, Node* node) {
 		// check if conflict relevant
 		// NOTE: special case of merge, where car exited should still be followed,
 		// but this is handled by seperate check against outgoing lane, since  b.rear_k >= b_k1 puts it in the outgoing lane
-		if (a_exited && b_exited)
+		if (a_exited || b_exited)
 			return;
 
 		float stop_k = a_k0;

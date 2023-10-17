@@ -332,8 +332,6 @@ void debug_citizen (App& app, Citizen* cit) {
 }
 
 void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col) {
-	if (app.selection.get<Citizen*>() != cur->cit) return;
-	
 	// dir does not actually point where we are going to stop
 	// obsticle visualizes what object we are stopping for
 	// dist is approx distance along bezier to stop at, which we don't bother visualizing exactly
@@ -348,76 +346,265 @@ void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col
 	g_dbgdraw.arrow(app.view, pos, obstacle - pos, 0.3f, col);
 	g_dbgdraw.line(end - normal, end + normal, col);
 }
-void dbg_brake_for_agent (App& app, Agent* cur, float dist, Agent* obstacle) {
+void _FORCEINLINE dbg_brake_for_agent (App& app, Agent* cur, float dist, Agent* obstacle) {
 	if (app.selection.get<Citizen*>() == cur->cit) {
 		float3 center = (obstacle->cit->rear_pos + obstacle->cit->front_pos) * 0.5f;
 		dbg_brake_for(app, cur, dist, center, lrgba(1,0.1f,0,1));
 	}
 }
+void _FORCEINLINE dbg_brake_for_blocked_lane (App& app, NodeAgent& a, float dist) {
+	if (app.selection.get<Citizen*>() == a.agent->cit) {
+		dbg_brake_for(app, a.agent, dist, a.conn.b.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
+	}
+}
 
-bool check_conflict (Connection const& a, Connection const& b,
+auto _gen_points (float2* points, float* pointsX, float* pointsY, Connection const& conn, float shift) {
+	auto bez = calc_curve(conn.a.clac_lane_info(shift), conn.b.clac_lane_info(shift));
+	//auto co = bez.get_coeff();
+
+	points[0] = bez.a;
+	for (int i=0; i<COLLISION_STEPS; ++i) {
+		float t = (float)(i+1) / COLLISION_STEPS;
+		points[i+1] = bez.eval_value_fast_t(t);
+	}
+	
+	pointsX[0] = bez.a.x;
+	pointsY[0] = bez.a.y;
+	for (int i=0; i<COLLISION_STEPS; ++i) {
+		pointsX[i+1] = points[i+1].x;
+		pointsY[i+1] = points[i+1].y;
+	}
+}
+bool check_conflict (NodeAgent const& a, NodeAgent const& b,
 		float* out_u0, float* out_v0, float* out_u1, float* out_v1,
 		bool dbg) {
 	
-	if (a == b) {
+	if (a.conn == b.conn) {
 		*out_u0 = 0;
 		*out_v0 = 0;
 		*out_u1 = 1;
 		*out_v1 = 1;
 		return true;
 	}
-
-	auto gen_points = [&] (float2* points, Connection const& conn, float shift) {
-		auto bez = calc_curve(conn.a.clac_lane_info(shift), conn.b.clac_lane_info(shift));
-		//auto co = bez.get_coeff();
-
-		points[0] = bez.a;
-		for (int i=0; i<COLLISION_STEPS; ++i) {
-			float t = (float)(i+1) / COLLISION_STEPS;
-			points[i+1] = bez.eval_value_fast_t(t);
-		}
-	};
-
-	float2 a_pointsL[COLLISION_STEPS+1];
-	float2 a_pointsR[COLLISION_STEPS+1];
-	float2 b_pointsL[COLLISION_STEPS+1];
-	float2 b_pointsR[COLLISION_STEPS+1];
-	gen_points(a_pointsL, a, -LANE_COLLISION_R);
-	gen_points(a_pointsR, a, +LANE_COLLISION_R);
-	gen_points(b_pointsL, b, -LANE_COLLISION_R);
-	gen_points(b_pointsR, b, +LANE_COLLISION_R);
-
+	
+#if 1
 	float u0 = INF;
 	float v0 = INF;
 	float u1 = -INF;
 	float v1 = -INF;
 
 	for (int i=0; i<COLLISION_STEPS; ++i) {
+		float2 aL_dir = a.pointsL[i+1] - a.pointsL[i];
+		float2 aR_dir = a.pointsR[i+1] - a.pointsR[i];
+
 		for (int j=0; j<COLLISION_STEPS; ++j) {
+			float2 bL_dir = b.pointsL[j+1] - b.pointsL[j];
+			float2 bR_dir = b.pointsR[j+1] - b.pointsR[j];
 			
-			auto intersect = [&] (float2* a, float2* b) {
-				float line_u, line_v;
-				if (line_line_seg_intersect(a[i], a[i+1], b[j], b[j+1], &line_u, &line_v)) {
-					float u = (line_u + (float)i) / COLLISION_STEPS;
-					float v = (line_v + (float)j) / COLLISION_STEPS;
+			float line_u, line_v;
 
-					u0 = min(u0, u);
-					v0 = min(v0, v);
-					u1 = max(u1, u);
-					v1 = max(v1, v);
+			if (line_line_seg_intersect(a.pointsL[i], aL_dir, b.pointsL[j], bL_dir, &line_u, &line_v)) {
+				float u = (line_u + (float)i) / COLLISION_STEPS;
+				float v = (line_v + (float)j) / COLLISION_STEPS;
 
-					return true;
-				}
-				return false;
-			};
+				u0 = min(u0, u);
+				v0 = min(v0, v);
+				u1 = max(u1, u);
+				v1 = max(v1, v);
+			}
 
-			intersect(a_pointsL, b_pointsL);
-			intersect(a_pointsR, b_pointsL);
-			intersect(a_pointsL, b_pointsR);
-			intersect(a_pointsR, b_pointsR);
+			if (line_line_seg_intersect(a.pointsR[i], aR_dir, b.pointsL[j], bL_dir, &line_u, &line_v)) {
+				float u = (line_u + (float)i) / COLLISION_STEPS;
+				float v = (line_v + (float)j) / COLLISION_STEPS;
+
+				u0 = min(u0, u);
+				v0 = min(v0, v);
+				u1 = max(u1, u);
+				v1 = max(v1, v);
+			}
+
+			if (line_line_seg_intersect(a.pointsL[i], aL_dir, b.pointsR[j], bR_dir, &line_u, &line_v)) {
+				float u = (line_u + (float)i) / COLLISION_STEPS;
+				float v = (line_v + (float)j) / COLLISION_STEPS;
+
+				u0 = min(u0, u);
+				v0 = min(v0, v);
+				u1 = max(u1, u);
+				v1 = max(v1, v);
+			}
+
+			if (line_line_seg_intersect(a.pointsR[i], aR_dir, b.pointsR[j], bR_dir, &line_u, &line_v)) {
+				float u = (line_u + (float)i) / COLLISION_STEPS;
+				float v = (line_v + (float)j) / COLLISION_STEPS;
+
+				u0 = min(u0, u);
+				v0 = min(v0, v);
+				u1 = max(u1, u);
+				v1 = max(v1, v);
+			}
 		}
 	}
+#else // inner loop as 4xSIMD, only about 20% boost -> out of order cpu optimization already sped it up?
+	__m128 u0v = _mm_set_ps1(INF);
+	__m128 v0v = _mm_set_ps1(INF);
+	__m128 u1v = _mm_set_ps1(-INF);
+	__m128 v1v = _mm_set_ps1(-INF);
+
+	//__m128 inv_steps = _mm_set_ps1(1.0f / COLLISION_STEPS);
+	__m128 offsetV = _mm_set_ps(3, 2, 1, 0);
+
+	static_assert(COLLISION_STEPS == 4);
+	static_assert(ARRLEN(b.pointsLx) == 5);
+
+	auto bL_posX  = _mm_loadu_ps(&b.pointsLx[0]);
+	auto bL_dirX = _mm_sub_ps(_mm_loadu_ps(&b.pointsLx[1]), bL_posX);
+		
+	auto bL_posY  = _mm_loadu_ps(&b.pointsLy[0]);
+	auto bL_dirY = _mm_sub_ps(_mm_loadu_ps(&b.pointsLy[1]), bL_posY);
 	
+	auto bR_posX  = _mm_loadu_ps(&b.pointsRx[0]);
+	auto bR_dirX = _mm_sub_ps(_mm_loadu_ps(&b.pointsRx[1]), bR_posX);
+	
+	auto bR_posY  = _mm_loadu_ps(&b.pointsRy[0]);
+	auto bR_dirY = _mm_sub_ps(_mm_loadu_ps(&b.pointsRy[1]), bR_posY);
+
+	for (int i=0; i<COLLISION_STEPS; ++i) {
+		__m128 offsetU = _mm_set_ps1((float)i);
+		
+		auto aL_posX = _mm_set_ps1(a.pointsL[i].x);
+		auto aL_posY = _mm_set_ps1(a.pointsL[i].y);
+		auto aR_posX = _mm_set_ps1(a.pointsR[i].x);
+		auto aR_posY = _mm_set_ps1(a.pointsR[i].y);
+
+		float2 aL_dir = a.pointsL[i+1] - a.pointsL[i];
+		float2 aR_dir = a.pointsR[i+1] - a.pointsR[i];
+
+		auto aL_dirX = _mm_set_ps1(aL_dir.x);
+		auto aL_dirY = _mm_set_ps1(aL_dir.y);
+		auto aR_dirX = _mm_set_ps1(aR_dir.x);
+		auto aR_dirY = _mm_set_ps1(aR_dir.y);
+		
+
+		__m128 lu0 = _mm_set_ps1(INF);
+		__m128 lv0 = _mm_set_ps1(INF);
+		__m128 lu1 = _mm_set_ps1(-INF);
+		__m128 lv1 = _mm_set_ps1(-INF);
+
+		{
+			__m128 line_u, line_v;
+			auto miss = line_line_seg_intersect(aL_posX,aL_posY, aL_dirX,aL_dirY, bL_posX,bL_posY, bL_dirX,bL_dirY, &line_u, &line_v);
+			
+			lu0 = select(miss, lu0, _mm_min_ps(lu0, line_u));
+			lu1 = select(miss, lu1, _mm_max_ps(lu1, line_u));
+			lv0 = select(miss, lv0, _mm_min_ps(lv0, line_v));
+			lv1 = select(miss, lv1, _mm_max_ps(lv1, line_v));
+		}
+		{
+			__m128 line_u, line_v;
+			auto miss = line_line_seg_intersect(aR_posX,aR_posY, aR_dirX,aR_dirY, bL_posX,bL_posY, bL_dirX,bL_dirY, &line_u, &line_v);
+			
+			lu0 = select(miss, lu0, _mm_min_ps(lu0, line_u));
+			lu1 = select(miss, lu1, _mm_max_ps(lu1, line_u));
+			lv0 = select(miss, lv0, _mm_min_ps(lv0, line_v));
+			lv1 = select(miss, lv1, _mm_max_ps(lv1, line_v));
+		}
+		{
+			__m128 line_u, line_v;
+			auto miss = line_line_seg_intersect(aL_posX,aL_posY, aL_dirX,aL_dirY, bR_posX,bR_posY, bR_dirX,bR_dirY, &line_u, &line_v);
+			
+			lu0 = select(miss, lu0, _mm_min_ps(lu0, line_u));
+			lu1 = select(miss, lu1, _mm_max_ps(lu1, line_u));
+			lv0 = select(miss, lv0, _mm_min_ps(lv0, line_v));
+			lv1 = select(miss, lv1, _mm_max_ps(lv1, line_v));
+		}
+		{
+			__m128 line_u, line_v;
+			auto miss = line_line_seg_intersect(aR_posX,aR_posY, aR_dirX,aR_dirY, bR_posX,bR_posY, bR_dirX,bR_dirY, &line_u, &line_v);
+
+			lu0 = select(miss, lu0, _mm_min_ps(lu0, line_u));
+			lu1 = select(miss, lu1, _mm_max_ps(lu1, line_u));
+			lv0 = select(miss, lv0, _mm_min_ps(lv0, line_v));
+			lv1 = select(miss, lv1, _mm_max_ps(lv1, line_v));
+		}
+
+		u0v = _mm_min_ps(u0v, _mm_add_ps(lu0, offsetU));
+		u1v = _mm_max_ps(u1v, _mm_add_ps(lu1, offsetU));
+
+		v0v = _mm_min_ps(v0v, _mm_add_ps(lv0, offsetV));
+		v1v = _mm_max_ps(v1v, _mm_add_ps(lv1, offsetV));
+	}
+
+	float u0 = min_component(u0v) / COLLISION_STEPS;
+	float u1 = max_component(u1v) / COLLISION_STEPS;
+	float v0 = min_component(v0v) / COLLISION_STEPS;
+	float v1 = max_component(v1v) / COLLISION_STEPS;
+	
+#if 0 // test against unopt
+	float _u0 = INF;
+	float _v0 = INF;
+	float _u1 = -INF;
+	float _v1 = -INF;
+
+	for (int i=0; i<COLLISION_STEPS; ++i) {
+		float2 aL_dir = a.pointsL[i+1] - a.pointsL[i];
+		float2 aR_dir = a.pointsR[i+1] - a.pointsR[i];
+
+		for (int j=0; j<COLLISION_STEPS; ++j) {
+			float2 bL_dir = b.pointsL[j+1] - b.pointsL[j];
+			float2 bR_dir = b.pointsR[j+1] - b.pointsR[j];
+			
+			float line_u, line_v;
+
+			if (line_line_seg_intersect(a.pointsL[i], aL_dir, b.pointsL[j], bL_dir, &line_u, &line_v)) {
+				float u = (line_u + (float)i) / COLLISION_STEPS;
+				float v = (line_v + (float)j) / COLLISION_STEPS;
+
+				_u0 = min(_u0, u);
+				_v0 = min(_v0, v);
+				_u1 = max(_u1, u);
+				_v1 = max(_v1, v);
+			}
+
+			if (line_line_seg_intersect(a.pointsR[i], aR_dir, b.pointsL[j], bL_dir, &line_u, &line_v)) {
+				float u = (line_u + (float)i) / COLLISION_STEPS;
+				float v = (line_v + (float)j) / COLLISION_STEPS;
+				
+				_u0 = min(_u0, u);
+				_v0 = min(_v0, v);
+				_u1 = max(_u1, u);
+				_v1 = max(_v1, v);
+			}
+
+			if (line_line_seg_intersect(a.pointsL[i], aL_dir, b.pointsR[j], bR_dir, &line_u, &line_v)) {
+				float u = (line_u + (float)i) / COLLISION_STEPS;
+				float v = (line_v + (float)j) / COLLISION_STEPS;
+				
+				_u0 = min(_u0, u);
+				_v0 = min(_v0, v);
+				_u1 = max(_u1, u);
+				_v1 = max(_v1, v);
+			}
+
+			if (line_line_seg_intersect(a.pointsR[i], aR_dir, b.pointsR[j], bR_dir, &line_u, &line_v)) {
+				float u = (line_u + (float)i) / COLLISION_STEPS;
+				float v = (line_v + (float)j) / COLLISION_STEPS;
+				
+				_u0 = min(_u0, u);
+				_v0 = min(_v0, v);
+				_u1 = max(_u1, u);
+				_v1 = max(_v1, v);
+			}
+		}
+	}
+
+	assert(u0 == _u0);
+	assert(u1 == _u1);
+	assert(v0 == _v0);
+	assert(v1 == _v1);
+#endif
+
+#endif
+
 	*out_u0 = u0;
 	*out_v0 = v0;
 	*out_u1 = u1;
@@ -425,13 +612,13 @@ bool check_conflict (Connection const& a, Connection const& b,
 
 	if (dbg) {
 		for (int i=0; i<COLLISION_STEPS; ++i) {
-			g_dbgdraw.line(float3(a_pointsL[i],0), float3(a_pointsL[i+1],0), lrgba(1,1,0,1));
-			g_dbgdraw.line(float3(a_pointsR[i],0), float3(a_pointsR[i+1],0), lrgba(1,1,0,1));
-			g_dbgdraw.line(float3(b_pointsL[i],0), float3(b_pointsL[i+1],0), lrgba(0,1,1,1));
-			g_dbgdraw.line(float3(b_pointsR[i],0), float3(b_pointsR[i+1],0), lrgba(0,1,1,1));
+			g_dbgdraw.line(float3(a.pointsL[i],0), float3(a.pointsL[i+1],0), lrgba(1,1,0,1));
+			g_dbgdraw.line(float3(a.pointsR[i],0), float3(a.pointsR[i+1],0), lrgba(1,1,0,1));
+			g_dbgdraw.line(float3(b.pointsL[i],0), float3(b.pointsL[i+1],0), lrgba(0,1,1,1));
+			g_dbgdraw.line(float3(b.pointsR[i],0), float3(b.pointsR[i+1],0), lrgba(0,1,1,1));
 		}
 
-		auto draw_line = [&] (float2* L, float2* R, float t) {
+		auto draw_line = [&] (float2 const* L, float2 const* R, float t) {
 			int i = (int)(t * COLLISION_STEPS);
 			t = t * COLLISION_STEPS - i;
 
@@ -440,10 +627,10 @@ bool check_conflict (Connection const& a, Connection const& b,
 				float3(lerp(R[i], R[i+1], t), 0), lrgba(1,0,0,1));
 		};
 		if (u0 < INF) {
-			draw_line(a_pointsL, a_pointsR, u0);
-			draw_line(a_pointsL, a_pointsR, u1);
-			draw_line(b_pointsL, b_pointsR, v0);
-			draw_line(b_pointsL, b_pointsR, v1);
+			draw_line(a.pointsL, a.pointsR, u0);
+			draw_line(a.pointsL, a.pointsR, u1);
+			draw_line(b.pointsL, b.pointsR, v0);
+			draw_line(b.pointsL, b.pointsR, v1);
 		}
 	}
 
@@ -466,50 +653,65 @@ void update_segment (App& app, Segment* seg) {
 	}
 }
 
-void update_node (App& app, Node* node) {
-
-	//
-	struct YieldAgent {
-		Agent* agent;
-		Connection conn;
-		// k == (approx) distance along node curve
-		// where before node : k negative where abs(k) is dist to node
-		// in node: k in [0, conn_len]
-		// after node: k > conn_len where k-conn_len is dist from node
-		float front_k;
-		float rear_k;
-		float conn_len;
-	};
-	auto test_agent = [&] (NodeAgents::NodeAgent& a) {
-		YieldAgent y;
-		y.agent = a.agent;
-		y.conn = a.conn;
-
-		auto s = get_agent_state(a.agent, a.agent->idx);
-
-		auto bez = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info());
-		y.conn_len = bez.approx_len(COLLISION_STEPS);
-
-		if (s.state == NODE) {
-			y.front_k = a.agent->bez_t * y.conn_len; // this is very wrong
-		}
-		else {
-			if (s.cur_node == node) {
-				// ingoing lane, extrapolate and map from negative to 0
-				y.front_k = (a.agent->bez_t - 1.0f) / a.agent->bez_speed;
-			}
-			else {
-				// outgoing lane, extrapolate and map from negative to 0
-				y.front_k = a.agent->bez_t / a.agent->bez_speed + y.conn_len;
-			}
-		}
+void _yield_for_car (App& app, NodeAgent& a, NodeAgent& b) {
+	assert(a.agent != b.agent);
 		
-		y.rear_k = y.front_k - CAR_SIZE;
-		return y;
-	};
-	
 	auto* sel  = app.selection .get<Citizen*>() ? app.selection .get<Citizen*>()->path.get() : nullptr;
 	auto* sel2 = app.selection2.get<Citizen*>() ? app.selection2.get<Citizen*>()->path.get() : nullptr;
+		
+	bool dbg = (a.agent == sel || a.agent == sel2) && (b.agent == sel || b.agent == sel2);
+		
+	//if (dbg) {
+	//	printf("");
+	//}
+
+	float a_t0, b_t0, a_t1, b_t1;
+	if (!check_conflict(a, b, &a_t0, &b_t0, &a_t1, &b_t1, dbg))
+		return;
+
+	float a_k0 = a_t0 * a.conn_len;
+	float a_k1 = a_t1 * a.conn_len;
+	float b_k0 = b_t0 * b.conn_len;
+	float b_k1 = b_t1 * b.conn_len;
+		
+	bool a_entered = a.front_k >= a_k0;
+	bool a_exited  = a.rear_k  >= a_k1;
+	bool b_entered = b.front_k >= b_k0;
+	bool b_exited  = b.rear_k  >= b_k1;
+
+	bool b_rear_entered = b.rear_k >= b_k0;
+		
+	bool diverge = a.conn.a == b.conn.a; // same start point
+	bool merge   = a.conn.b == b.conn.b; // same end point
+	//bool crossing = !merge && !diverge; // normal crossing
+	bool same = merge && diverge; // identical path
+		
+	// check if conflict relevant
+	// NOTE: special case of merge, where car exited should still be followed,
+	// but this is handled by seperate check against outgoing lane, since  b.rear_k >= b_k1 puts it in the outgoing lane
+	if (a_exited || b_exited)
+		return;
+
+	float stop_k = a_k0;
+		
+	// if same conn: follow car
+	// if diverge:   follow car
+	// if merge:     stop before conflict until b rear in conflict, then follow
+	// if crossing:  stop before conflict
+	if (same || diverge || (merge && b_rear_entered)) {
+		// TODO: might want to do this differently if b_exited and we still follow
+			
+		// need to follow car, approx correct stop_k by mapping b rear from b's collision zone to a's zone
+		stop_k = lerp(a_k0, a_k1, map(b.rear_k, b_k0, b_k1));
+	}
+		
+	stop_k -= SAFETY_DIST;
+	float dist = stop_k - a.front_k; // wait before conflict by default
+
+	brake_for_dist(a.agent, dist);
+	dbg_brake_for_agent(app, a.agent, dist, b.agent);
+}
+void update_node (App& app, Node* node) {
 
 	// TODO: Conflict cache
 	//struct PossibleConflict {
@@ -542,15 +744,6 @@ void update_node (App& app, Node* node) {
 		}
 	}
 	
-	//for (int i=0; i<(int)node->agents.free.list.size(); ++i) {
-	//	auto* a = node->agents.free.list[i];
-	//			
-	//	// count space in target lane
-	//	auto s = get_agent_state(a, a->idx);
-	//	dbg_avail_space(*s.seg_after_node, a);
-	//	avail_space[*s.seg_after_node] -= CAR_SIZE + SAFETY_DIST;
-	//}
-	
 	// Track cars that are relevant to intersection
 	for (auto& lane : node->in_lanes) {
 		for (auto* agent : lane.seg->agents.lanes[lane.lane].list) {
@@ -560,11 +753,24 @@ void update_node (App& app, Node* node) {
 			if (dist > 10.0f) break;
 
 			auto s = get_agent_state(agent, agent->idx);
+			
+			NodeAgent a;
+			a.agent = agent;
+			a.node_idx = agent->idx+1;
 
-			node->agents.test.add({ agent, { *s.seg_before_node, *s.seg_after_node }, agent->idx+1 });
+			a.conn = { *s.seg_before_node, *s.seg_after_node };
+			auto bez = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info());
+			a.conn_len = bez.approx_len(COLLISION_STEPS);
+			
+			//_gen_points(a.pointsL, a.conn, -LANE_COLLISION_R);
+			//_gen_points(a.pointsR, a.conn, +LANE_COLLISION_R);
+			_gen_points(a.pointsL, a.pointsLx, a.pointsLy, a.conn, -LANE_COLLISION_R);
+			_gen_points(a.pointsR, a.pointsRx, a.pointsRy, a.conn, +LANE_COLLISION_R);
+
+			node->agents.test.add(a);
 		}
 	}
-	node->agents.test.remove_if([&] (NodeAgents::NodeAgent& a) {
+	node->agents.test.remove_if([&] (NodeAgent& a) {
 		if (a.agent->idx > a.node_idx+1)
 			return true; // past outgoing lane
 		if (a.agent->idx == a.node_idx+1) {
@@ -576,27 +782,49 @@ void update_node (App& app, Node* node) {
 		return false;
 	});
 	
+	auto update_ks = [&] (NodeAgent& a) {
+		auto s = get_agent_state(a.agent, a.agent->idx);
+
+		if (s.state == NODE) {
+			a.front_k = a.agent->bez_t * a.conn_len; // this is very wrong
+		}
+		else {
+			if (s.cur_node == node) {
+				// ingoing lane, extrapolate and map from negative to 0
+				a.front_k = (a.agent->bez_t - 1.0f) / a.agent->bez_speed;
+			}
+			else {
+				// outgoing lane, extrapolate and map from negative to 0
+				a.front_k = a.agent->bez_t / a.agent->bez_speed + a.conn_len;
+			}
+		}
+		
+		a.rear_k = a.front_k - CAR_SIZE;
+	};
+	
+	
 	// allocate space in priority order and remember blocked cars
-	for (auto agent : node->agents.test.list) {
-		auto y = test_agent(agent);
-		if (y.agent->idx > agent.node_idx) {
+	for (auto& a : node->agents.test.list) {
+		update_ks(a);
+
+		if (a.agent->idx > a.node_idx) {
 			// already in outgoing lane (don't need to wait and avoid counting avail space twice)
 			continue;
 		}
 
-		if (avail_space[agent.conn.b] < CAR_SIZE) {
-			float dist = -y.front_k; // end of ingoing lane
+		if (avail_space[a.conn.b] < CAR_SIZE) {
+			float dist = -a.front_k; // end of ingoing lane
 			
-			brake_for_dist(agent.agent, dist);
-			dbg_brake_for(app, agent.agent, dist, agent.conn.b.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
+			brake_for_dist(a.agent, dist);
+			dbg_brake_for_blocked_lane(app, a, dist);
 
-			agent.agent->blocked = true; // WARNING: This is not threadsafe if we want to thread nodes/segments individually
+			a.agent->blocked = true; // WARNING: This is not threadsafe if we want to thread nodes/segments individually
 		}
 		else {
-			dbg_avail_space(agent.conn.b, agent.agent);
-			avail_space[agent.conn.b] -= CAR_SIZE + SAFETY_DIST;
+			dbg_avail_space(a.conn.b, a.agent);
+			avail_space[a.conn.b] -= CAR_SIZE + SAFETY_DIST;
 
-			agent.agent->blocked = false; // explicitly unblock since 
+			a.agent->blocked = false; // explicitly unblock since 
 		}
 	}
 
@@ -625,76 +853,13 @@ void update_node (App& app, Node* node) {
 	//	}
 	//}
 
-	auto yield_for_car = [&] (YieldAgent& a, YieldAgent& b) {
-		assert(a.agent != b.agent);
-		
-		bool dbg = (a.agent == sel || a.agent == sel2) && (b.agent == sel || b.agent == sel2);
-		
-		auto bez_a = calc_curve(a.conn.a.clac_lane_info(), a.conn.b.clac_lane_info());
-		auto len_a = bez_a.approx_len(COLLISION_STEPS);
-
-		auto bez_b = calc_curve(b.conn.a.clac_lane_info(), b.conn.b.clac_lane_info());
-		auto len_b = bez_b.approx_len(COLLISION_STEPS);
-
-
-		float a_t0, b_t0, a_t1, b_t1;
-		if (!check_conflict(a.conn, b.conn, &a_t0, &b_t0, &a_t1, &b_t1, dbg))
-			return;
-
-		float a_k0 = a_t0 * len_a;
-		float a_k1 = a_t1 * len_a;
-		float b_k0 = b_t0 * len_b;
-		float b_k1 = b_t1 * len_b;
-		
-		if (dbg) {
-			printf("");
-		}
-
-		bool a_entered = a.front_k >= a_k0;
-		bool a_exited  = a.rear_k  >= a_k1;
-		bool b_entered = b.front_k >= b_k0;
-		bool b_exited  = b.rear_k  >= b_k1;
-
-		bool b_rear_entered = b.rear_k >= b_k0;
-		
-		bool diverge = a.conn.a == b.conn.a; // same start point
-		bool merge   = a.conn.b == b.conn.b; // same end point
-		//bool crossing = !merge && !diverge; // normal crossing
-		bool same = merge && diverge; // identical path
-		
-		// check if conflict relevant
-		// NOTE: special case of merge, where car exited should still be followed,
-		// but this is handled by seperate check against outgoing lane, since  b.rear_k >= b_k1 puts it in the outgoing lane
-		if (a_exited || b_exited)
-			return;
-
-		float stop_k = a_k0;
-		
-		// if same conn: follow car
-		// if diverge:   follow car
-		// if merge:     stop before conflict until b rear in conflict, then follow
-		// if crossing:  stop before conflict
-		if (same || diverge || (merge && b_rear_entered)) {
-			// TODO: might want to do this differently if b_exited and we still follow
-			
-			// need to follow car, approx correct stop_k by mapping b rear from b's collision zone to a's zone
-			stop_k = lerp(a_k0, a_k1, map(b.rear_k, b_k0, b_k1));
-		}
-		
-		stop_k -= SAFETY_DIST;
-		float dist = stop_k - a.front_k; // wait before conflict by default
-
-		brake_for_dist(a.agent, dist);
-		dbg_brake_for_agent(app, a.agent, dist, b.agent);
-	};
-
 	int count = (int)node->agents.test.list.size();
 	for (int j=0; j<count; ++j) {
-		auto a = test_agent( node->agents.test.list[j] );
+		auto& a = node->agents.test.list[j];
 		for (int i=0; i<j; ++i) {
-			auto b = test_agent( node->agents.test.list[i] );
+			auto& b = node->agents.test.list[i];
 
-			yield_for_car(a, b);
+			_yield_for_car(app, a, b);
 		}
 
 		// brake for target lane car

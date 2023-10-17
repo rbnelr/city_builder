@@ -107,28 +107,47 @@ struct AgentList { // TODO: optimize agents in lane to only look at agent in fro
 		}
 	}
 };
+
+struct NodeAgent {
+	Agent* agent;
+	Connection conn;
+	float conn_len;
+	int node_idx;
+		
+	// k == (approx) distance along node curve
+	// where before node : k negative where abs(k) is dist to node
+	// in node: k in [0, conn_len]
+	// after node: k > conn_len where k-conn_len is dist from node
+	float front_k;
+	float rear_k;
+
+	
+	float2 pointsL[COLLISION_STEPS+1];
+	float2 pointsR[COLLISION_STEPS+1];
+	
+	float pointsLx[COLLISION_STEPS+1];
+	float pointsLy[COLLISION_STEPS+1];
+	float pointsRx[COLLISION_STEPS+1];
+	float pointsRy[COLLISION_STEPS+1];
+	
+	bool operator== (NodeAgent const& other) const {
+		return agent == other.agent;
+	}
+	bool operator== (Agent* other) const {
+		return agent == other;
+	}
+	template <typename U>
+	bool operator!= (U const& other) const {
+		return agent != other.agent;
+	}
+};
+
 struct SegAgents {
 	std::vector<AgentList<Agent*>> lanes;
 };
 struct NodeAgents {
 	AgentList<Agent*> free;
 
-	struct NodeAgent {
-		Agent* agent;
-		Connection conn;
-		int node_idx;
-	
-		bool operator== (NodeAgent const& other) const {
-			return agent == other.agent;
-		}
-		bool operator== (Agent* other) const {
-			return agent == other;
-		}
-		template <typename U>
-		bool operator!= (U const& other) const {
-			return agent != other.agent;
-		}
-	};
 	AgentList<NodeAgent> test;
 };
 

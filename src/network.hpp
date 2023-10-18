@@ -161,8 +161,9 @@ struct Agent {
 
 	float speed = 0; // real speed
 
-	float bez_speed = 0; // speed (delta position) / delta beizer t
-	
+	// speed (delta position) / delta beizer t
+	float bez_speed; 
+
 	float brake;
 	bool  blocked;
 
@@ -363,9 +364,6 @@ struct Network {
 	}
 
 	void imgui () {
-		float speed_ms = top_speed;
-		float speed_kmh = top_speed / 3.6f;
-
 		ImGui::Combo("speed_unit", (int*)&speed_unit, SpeedUnitStr, ARRLEN(SpeedUnitStr));
 
 		imgui_slider_speed("top_speed", &top_speed, 0, 200/KPH_PER_MS);

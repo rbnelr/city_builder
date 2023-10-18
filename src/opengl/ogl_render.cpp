@@ -551,7 +551,7 @@ struct OglRenderer : public Renderer {
 		static constexpr uint32_t COMPUTE_GROUPSZ = 512;
 
 		Shader* shad = g_shaders.compile("buildings");
-		Shader* shad_lod_cull = g_shaders.compile("lod_cull", { {"GROUPSZ", prints("%d", COMPUTE_GROUPSZ)} }, { { shader::COMPUTE_SHADER } });
+		Shader* shad_lod_cull = g_shaders.compile("lod_cull", { {"GROUPSZ", prints("%d", COMPUTE_GROUPSZ)} }, { shader::COMPUTE_SHADER });
 
 		struct MeshInstance {
 			int    mesh_id;
@@ -739,7 +739,7 @@ struct OglRenderer : public Renderer {
 		Texture2D car_diffuse = load_texture<srgb8>("car_diffuse", "cars/car.png");
 
 		template <typename T>
-		static auto load_texture (std::string_view gl_label, const char* filepath) {
+		static Texture2D load_texture (std::string_view gl_label, const char* filepath) {
 			Texture2D tex = {gl_label};
 			if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str()))
 				assert(false);
@@ -878,5 +878,6 @@ struct OglRenderer : public Renderer {
 } // namespace ogl
 
 std::unique_ptr<Renderer> create_ogl_backend () {
+	ZoneScoped;
 	return std::make_unique<ogl::OglRenderer>();
 }

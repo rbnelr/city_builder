@@ -102,7 +102,7 @@ struct GameCamera {
 		{
 			float& azimuth   = rot_aer.x;
 			float& elevation = rot_aer.y;
-			float& roll      = rot_aer.z;
+			//float& roll      = rot_aer.z;
 
 			// Mouselook
 			auto raw_mouselook = I.mouse_delta;

@@ -858,6 +858,7 @@ void Network::simulate (App& app) {
 				cit->agent = std::move(agent);
 				// get initial state
 				cit->agent->state = get_agent_state(cit->agent.get(), cit->agent->idx);
+				cit->agent->bez_speed = INF; // force not movement on initial tick
 				// keep _pos & _rot
 			}
 		}

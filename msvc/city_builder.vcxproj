@@ -312,7 +312,7 @@
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>MultiByte</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>ClangCL</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -382,6 +382,7 @@
       <AdditionalIncludeDirectories>$(SolutionDir)..\src\;$(SolutionDir)..\src\engine\;$(SolutionDir)..\src\engine\dear_imgui;$(SolutionDir)..\src\engine\dear_imgui_custom;$(SolutionDir)..\src\engine\kisslib\nlohmann_json\include;$(SolutionDir)..\src\engine\tracy\Public;$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\include;$(SolutionDir)..\..\libs\Assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>-Wno-unused-variable -Wno-misleading-indentation %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

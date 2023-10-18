@@ -399,7 +399,7 @@ struct App : public Engine {
 			if (entities.buildings.size() > 0) {
 				for (int i=0; i<citizens_n; ++i) {
 					auto* building = entities.buildings[rand.uniformi(0, (int)entities.buildings.size())].get();
-					entities.citizens[i] = std::move( std::make_unique<Citizen>(Citizen{rand, building}) );
+					entities.citizens[i] = std::make_unique<Citizen>(Citizen{rand, building});
 					entities.citizens[i]->asset = car_asset;
 				}
 			}

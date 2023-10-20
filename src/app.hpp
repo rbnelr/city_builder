@@ -178,7 +178,7 @@ struct App : public Engine {
 	Entities entities;
 	network::Network net;
 
-	float sun_azim = deg(30); // degrees from east, counter clockwise
+	float sun_azim = deg(50); // degrees from east, counter clockwise
 	float sun_elev = deg(14);
 	float day_t = 0.6f; // [0,1] -> [0,24] hours
 	float day_speed = 1.0f / 60.0f;
@@ -262,12 +262,14 @@ struct App : public Engine {
 	void spawn () {
 		using namespace network;
 
-		static int buildings_n = 10;
+		static int grid_n = 10;
 		static int citizens_n = 600;
 
-		static float intersection_scale = 1;
+		static float intersection_scale = 1.25f;
 
-		bool buildings = ImGui::SliderInt("buildings_n", &buildings_n, 1, 1000)
+		static float connection_chance = 0.7f;
+
+		bool buildings = ImGui::SliderInt("grid_n", &grid_n, 1, 1000)
 			|| assets.assets_reloaded;
 		buildings = ImGui::Button("Respawn buildings") || buildings;
 
@@ -276,6 +278,8 @@ struct App : public Engine {
 		citizens = ImGui::Button("Respawn Citizens") || citizens;
 
 		ImGui::SliderFloat("intersection_scale", &intersection_scale, 0.1f, 4);
+
+		ImGui::SliderFloat("connection_chance", &connection_chance, 0, 1);
 
 		if (buildings) {
 			ZoneScopedN("spawn buildings");
@@ -292,10 +296,10 @@ struct App : public Engine {
 			auto* house0 = assets.buildings[0].get();
 			auto* house1 = assets.buildings[1].get();
 
-			net.nodes.resize((buildings_n+1)*(buildings_n+1));
+			net.nodes.resize((grid_n+1)*(grid_n+1));
 			
 			auto get_node = [&] (int x, int y) -> Node* {
-				return net.nodes[y * (buildings_n+1) + x].get();
+				return net.nodes[y * (grid_n+1) + x].get();
 			};
 			
 			auto* road_layout = assets.road_layouts[0].get();
@@ -304,10 +308,10 @@ struct App : public Engine {
 			float2 spacing = float2(50, 50) + node_r;
 
 			// create path nodes grid
-			for (int y=0; y<buildings_n+1; ++y)
-			for (int x=0; x<buildings_n+1; ++x) {
+			for (int y=0; y<grid_n+1; ++y)
+			for (int x=0; x<grid_n+1; ++x) {
 				float3 pos = base_pos + float3((float)x,(float)y,0) * float3(spacing, 0);
-				net.nodes[y * (buildings_n+1) + x] = std::make_unique<Node>(Node{pos, node_r});
+				net.nodes[y * (grid_n+1) + x] = std::make_unique<Node>(Node{pos, node_r});
 			}
 			
 			auto create_segment = [&] (Node* a, Node* b) {
@@ -326,16 +330,16 @@ struct App : public Engine {
 			};
 
 			// create x paths
-			for (int y=0; y<buildings_n+1; ++y)
-			for (int x=0; x<buildings_n; ++x) {
+			for (int y=0; y<grid_n+1; ++y)
+			for (int x=0; x<grid_n; ++x) {
 				auto* a = get_node(x, y);
 				auto* b = get_node(x+1, y);
 				create_segment(a, b);
 			}
 			// create y paths
-			for (int y=0; y<buildings_n; ++y)
-			for (int x=0; x<buildings_n+1; ++x) {
-				if (rand.chance(0.5f)) {
+			for (int y=0; y<grid_n; ++y)
+			for (int x=0; x<grid_n+1; ++x) {
+				if (rand.chance(connection_chance)) {
 					auto* a = get_node(x, y);
 					auto* b = get_node(x, y+1);
 					create_segment(a, b);
@@ -346,27 +350,38 @@ struct App : public Engine {
 				node->update_cached(); // update seg connections
 			}
 
-			for (int y=0; y<buildings_n; ++y)
-			for (int x=0; x<buildings_n; ++x) {
+			for (int y=0; y<grid_n+1; ++y)
+			for (int x=0; x<grid_n; ++x) {
 				Random rand(hash(int2(x,y))); // position-based rand
 				auto* asset = rand.uniformi(0, 2) ? house0 : house1;
 
-				float3 pos = base_pos + (float3((float)x,(float)y,0) + float3(0.5f)) * float3(spacing, 0);
-				float rot = deg(90);
-				auto& build = entities.buildings.emplace_back(std::make_unique<Building>(Building{ asset, pos, rot }));
+				float3 road_center = (float3((float)x,(float)y,0) + float3(0.5f,0,0)) * float3(spacing,0);
 
+				float3 pos1 = base_pos + road_center + float3(0, asset->size.y, 0);
+				float rot1 = deg(90);
+				auto build1 = std::make_unique<Building>(Building{ asset, pos1, rot1 });
+				
+				float3 pos2 = base_pos + road_center - float3(0, asset->size.y, 0);
+				float rot2 = deg(-90);
+				auto build2 = std::make_unique<Building>(Building{ asset, pos2, rot2 });
+
+				//
 				auto* a = get_node(x, y);
 				auto* b = get_node(x+1, y);
 				for (auto& seg : a->segments) {
 					auto* other_node = seg->node_a != a ? seg->node_a : seg->node_b;
 					if (other_node == b) {
 						// found path in front of building
-						build->connected_segment = seg;
+						build1->connected_segment = seg;
+						build2->connected_segment = seg;
 						break;
 					}
 				}
 
-				assert(build->connected_segment);
+				assert(build1->connected_segment);
+				assert(build2->connected_segment);
+				entities.buildings.emplace_back(std::move(build1));
+				entities.buildings.emplace_back(std::move(build2));
 			}
 
 			entities.buildings_changed = true;

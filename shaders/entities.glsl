@@ -28,11 +28,13 @@ void main () {
 		 0,  0,  1
 	);
 	
-	gl_Position = view.world2clip * vec4(rot_mat * mesh_pos + instance_pos, 1.0);
-	v.world_pos    = mesh_pos;
-	v.world_normal = mesh_normal;
+	v.world_pos    = rot_mat * mesh_pos + instance_pos;
+	v.world_normal = rot_mat * mesh_normal;
+	
 	v.uv           = mesh_uv;
 	v.col          = instance_col;
+	
+	gl_Position = view.world2clip * vec4(v.world_pos, 1.0);
 }
 
 #endif

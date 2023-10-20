@@ -162,10 +162,9 @@ struct Agent {
 	float speed = 0; // real speed
 
 	// speed (delta position) / delta beizer t
-	float bez_speed; 
+	float bez_speed;
 
 	float brake;
-	bool  blocked;
 
 	AgentState state;
 };
@@ -181,6 +180,8 @@ struct NodeAgent {
 	// after node: k > conn_len where k-conn_len is dist from node
 	float front_k;
 	float rear_k;
+
+	bool  blocked;
 
 	CachedConnection conn;
 	
@@ -202,6 +203,7 @@ struct LaneAgents {
 };
 struct SegAgents {
 	std::vector<LaneAgents> lanes;
+	//AgentList<Agent*> free; // not part of lane, building->lane
 };
 
 struct NodeAgents {
@@ -337,21 +339,44 @@ inline uint64_t conn_pair_id (uint32_t conn_a_id, uint32_t conn_b_id) {
 	return (uint64_t)conn_a_id | ((uint64_t)conn_b_id << 32);
 }
 
+struct Metrics {
+
+	float avg_flow = 1; // avg of each (cur speed / cur speed limit)
+	
+	struct Var {
+		float total_flow = 0;
+	};
+	
+	void update (Var& var, App& app);
+
+	ValuePlotter flow_plot = ValuePlotter();
+
+	void imgui () {
+		if (!ImGui::TreeNodeEx("Metrics", ImGuiTreeNodeFlags_DefaultOpen)) return;
+
+		flow_plot.update_and_imgui("speed", avg_flow, 0.0f, 1.0f);
+
+		ImGui::TreePop();
+	}
+};
+
 struct Network {
 	std::vector<std::unique_ptr<Node>> nodes;
 	std::vector<std::unique_ptr<Segment>> segments;
 	
 	SpeedUnit speed_unit = UNIT_KPH;
 
-	float top_speed = 30 / KPH_PER_MS;
+	float speed_limit = 30 / KPH_PER_MS;
 	float car_accel = 5;
 
 	float rear_test = 0.4f;
 
+	Metrics metrics;
+
 	bool imgui_slider_speed (const char* label, float* speed, float min, float max) {
 		float fac = SpeedUnitPerMs[speed_unit];
 
-		top_speed *= fac;
+		speed_limit *= fac;
 		min *= fac;
 		max *= fac;
 
@@ -359,18 +384,20 @@ struct Network {
 			prints("%s (%s)",label, SpeedUnitStr[speed_unit]).c_str(),
 			speed, min, max);
 
-		top_speed /= fac;
+		speed_limit /= fac;
 		return ret;
 	}
 
 	void imgui () {
 		ImGui::Combo("speed_unit", (int*)&speed_unit, SpeedUnitStr, ARRLEN(SpeedUnitStr));
 
-		imgui_slider_speed("top_speed", &top_speed, 0, 200/KPH_PER_MS);
+		imgui_slider_speed("speed_limit", &speed_limit, 0, 200/KPH_PER_MS);
 
 		ImGui::SliderFloat("car_accel (m/s^2)", &car_accel, 0, 20);
 
 		ImGui::SliderFloat("rear_test", &rear_test, 0, 1);
+
+		metrics.imgui();
 	}
 
 	bool pathfind (Segment* start, Segment* target, Agent* path);

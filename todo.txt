@@ -1,30 +1,19 @@
-city builder intersection logic:
-
--add cars to next node car list when they enter incoming lane (when they get a next_node after state switch)
--remove cars from node car list once their rear exits intersection (or simply skip the cars and remove them once they leave the outgoing lane instead?)
-
--cars are now ordered in a first-arrival order
-
--every car simply waits before the earliest conflict zone of any car higher prio than it (arrived ealier)
-now deadlocks are impossible
-
--obviously skip conflicts where other car is already past conflict
-
--> if I assign out lane space in the same order, can it deadlock?
-
--> test if having cars that are blocked not be yielded for by lower prio cars works
-  (or if deadlocks or constant switching of car order now happens)
-
--> essentially have cars swap their prio order based on if you are blocked anyway?
- -> sounds similar to factoring in speed to prio
+-Wno-unused-variable -Wno-misleading-indentation -Wno-unused-but-set-variable 
+ 
+ Fixed deadlocks from blocked cars through blocked bool
 
 TODO:
   
- Make cars only count once they have assigned out lane space
-  or somehow have them be sorted to the end every time?
- Also have to block cars behind blocked cars
+> Have a metric of traffic flow
+  -> avg car speed vs speed limit?
+  
+> add heuristic for right before left
+ -> how to avoid randomness when all for lanes have arriving cars?
+ -> only apply before entering intersection (ziplock by first come first serve inside)
  
- -> ??? This is somewhat complicated without more data structures...
+> add heuristic for prioritizing long waiting cars
+   wait time > thres && wait time > other wait time * 2  or similar
+ 
  
  Turn SegLane pointers into lane pointers, where lane contains info about agents, reserved space, maybe cached bezier?
   -> how do I access the segment then?

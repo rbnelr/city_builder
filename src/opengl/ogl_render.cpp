@@ -550,7 +550,7 @@ struct OglRenderer : public Renderer {
 
 		static constexpr uint32_t COMPUTE_GROUPSZ = 512;
 
-		Shader* shad = g_shaders.compile("buildings");
+		Shader* shad = g_shaders.compile("entities");
 		Shader* shad_lod_cull = g_shaders.compile("lod_cull", { {"GROUPSZ", prints("%d", COMPUTE_GROUPSZ)} }, { shader::COMPUTE_SHADER });
 
 		struct MeshInstance {

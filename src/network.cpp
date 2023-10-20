@@ -296,7 +296,7 @@ void debug_node (App& app, Node* node) {
 		for (auto& agent : node->agents.test.list) {
 			g_dbgdraw.wire_circle(agent.agent->cit->center(), CAR_SIZE*0.5f, lrgba(1,0,0.5f,1));
 	
-			g_dbgdraw.text.draw_text(prints("%d", i++),
+			g_dbgdraw.text.draw_text(prints("%d%s", i++, agent.blocked ? " B":""),
 				30, 1, g_dbgdraw.text.map_text(agent.agent->cit->center(), app.view));
 		}
 	}
@@ -375,10 +375,8 @@ void debug_citizen (App& app, Citizen* cit) {
 	ImGui::Separator();
 	ImGui::TextColored(lrgba(cit->col, 1), "debug citizen");
 
-	static circular_buffer<float> speed_buf = circular_buffer<float>(500);
-	speed_buf.push(cit->agent->speed);
-
-	ImGui::PlotLines("speed", speed_buf.data(), (int)speed_buf.count(), 0, 0, 0.0f, app.net.top_speed, float2(0, 200));
+	static ValuePlotter speed_plot = ValuePlotter();
+	speed_plot.update_and_imgui("speed", cit->agent->speed, 0.0f, app.net.speed_limit*1.25f);
 }
 
 void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col) {
@@ -536,7 +534,7 @@ void update_segment (App& app, Segment* seg) {
 		// brake for car in front
 		for (int i=1; i<(int)lane.list.list.size(); ++i) {
 			Agent* prev = lane.list.list[i-1];
-			Agent* cur = lane.list.list[i];
+			Agent* cur  = lane.list.list[i];
 			
 			// approx seperation using cur car bez_speed
 			float dist = (prev->bez_t - cur->bez_t) * cur->bez_speed - (CAR_SIZE + 1);
@@ -547,19 +545,9 @@ void update_segment (App& app, Segment* seg) {
 	}
 }
 
-void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b) {
+void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg) {
 	assert(a.agent != b.agent);
-		
-	auto* sel  = app.selection .get<Citizen*>() ? app.selection .get<Citizen*>()->agent.get() : nullptr;
-	auto* sel2 = app.selection2.get<Citizen*>() ? app.selection2.get<Citizen*>()->agent.get() : nullptr;
-		
-	bool dbg = (a.agent == sel || a.agent == sel2) && (b.agent == sel || b.agent == sel2);
-		
-	//if (dbg) {
-	//	printf("");
-	//}
-
-
+	
 	auto conf = query_conflict(node, a.conn, b.conn);
 
 	if (dbg) debug_conflict(a.conn, b.conn, conf);
@@ -583,7 +571,7 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b) {
 	bool merge   = a.conn.conn.b == b.conn.conn.b; // same end point
 	//bool crossing = !merge && !diverge; // normal crossing
 	bool same = merge && diverge; // identical path
-		
+	
 	// check if conflict relevant
 	// NOTE: special case of merge, where car exited should still be followed,
 	// but this is handled by seperate check against outgoing lane, since  b.rear_k >= b_k1 puts it in the outgoing lane
@@ -608,10 +596,51 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b) {
 
 	brake_for_dist(a.agent, dist);
 	dbg_brake_for_agent(app, a.agent, dist, b.agent);
+
+	if (b.blocked)
+		a.blocked = true; // so swapping can let other go first if we are effectively blocked
+}
+bool swap_cars (Node* node, NodeAgent& a, NodeAgent& b) {
+	assert(a.agent != b.agent);
+
+	auto conf = query_conflict(node, a.conn, b.conn);
+	if (conf) {
+
+		float a_k0 = conf.a_t0 * a.conn.bez_len;
+		float a_k1 = conf.a_t1 * a.conn.bez_len;
+		float b_k0 = conf.b_t0 * b.conn.bez_len;
+		float b_k1 = conf.b_t1 * b.conn.bez_len;
+		
+		bool a_entered = a.front_k >= a_k0;
+		bool a_exited  = a.rear_k  >= a_k1;
+		bool b_entered = b.front_k >= b_k0;
+		bool b_exited  = b.rear_k  >= b_k1;
+		
+		bool diverge = a.conn.conn.a == b.conn.conn.a; // same start point
+
+		// currently: a yielding for b  after swap: b yielding for a
+		// if either exited, can swap
+		// if b_entered: b cant yield for a (because a would clip through b)
+		// if diverge: cant swap unless either exited
+
+		if ((!a_exited && !b_exited) && b_entered || diverge)
+			return false;
+	}
+
+	//float eta_a = (a.conn.bez_len - a.front_k) / (a.agent->speed + 0.01f);
+	//float eta_b = (b.conn.bez_len - b.front_k) / (b.agent->speed + 0.01f);
+
+	bool swap_blocked = b.blocked && !a.blocked;
+
+	return swap_blocked;
 }
 
 void update_node (App& app, Node* node) {
 	bool node_dbg = app.selection.get<Node*>() == node;
+	
+	auto* sel  = app.selection .get<Citizen*>() ? app.selection .get<Citizen*>()->agent.get() : nullptr;
+	auto* sel2 = app.selection2.get<Citizen*>() ? app.selection2.get<Citizen*>()->agent.get() : nullptr;
+	
 	auto dbg_avail_space = [&] (SegLane const& lane_out, Agent* a) {
 		auto li = lane_out.clac_lane_info();
 		
@@ -695,11 +724,15 @@ void update_node (App& app, Node* node) {
 	// allocate space in priority order and remember blocked cars
 	for (auto& a : node->agents.test.list) {
 		update_ks(a);
+		
+		a.blocked = false;
 
 		if (a.agent->idx > a.node_idx) {
 			// already in outgoing lane (don't need to wait and avoid counting avail space twice)
 			continue;
 		}
+
+		// TODO: still reserve space even if none is avail if already on node?
 
 		auto& avail_space = a.conn.conn.b.agents().avail_space;
 		if (avail_space < CAR_SIZE) {
@@ -708,48 +741,39 @@ void update_node (App& app, Node* node) {
 			brake_for_dist(a.agent, dist);
 			dbg_brake_for_blocked_lane(app, a, dist);
 
-			a.agent->blocked = true; // WARNING: This is not threadsafe if we want to thread nodes/segments individually
+			a.blocked = true;
 		}
 		else {
 			if (node_dbg) dbg_avail_space(a.conn.conn.b, a.agent);
 			avail_space -= CAR_SIZE + SAFETY_DIST;
-
-			a.agent->blocked = false; // explicitly unblock
 		}
 	}
 
-	//// swap cars
-	//for (int i=0; i<(int)node->agents.test.list.size()-1; ++i) {
-	//	auto& a = node->agents.test.list[i];
-	//	auto& b = node->agents.test.list[i+1];
-	//
-	//	bool diverge = a.conn.a == b.conn.a; // same start point
-	//	if (diverge) continue;
-	//
-	//	auto ya = test_agent(a);
-	//	auto yb = test_agent(b);
-	//
-	//	// estimated time to leave intersection based on cur speed
-	//	float eta_a = (ya.conn_len - ya.front_k) / (ya.agent->speed + 0.01f);
-	//	float eta_b = (yb.conn_len - yb.front_k) / (yb.agent->speed + 0.01f);
-	//	
-	//	bool swap = eta_b < eta_a * 0.5f;
-	//
-	//	if (swap) {
-	//		// make a yield to b
-	//		// TODO: should check if a is not already blocking b's path
-	//
-	//		std::swap(a, b);
-	//	}
-	//}
-
+	// Check each car against higher prio cars to yield to them
 	int count = (int)node->agents.test.list.size();
-	for (int j=0; j<count; ++j) {
-		auto& a = node->agents.test.list[j];
-		for (int i=0; i<j; ++i) {
-			auto& b = node->agents.test.list[i];
+	for (int i=0; i<count; ++i) {
+		auto& a = node->agents.test.list[i];
 
-			_yield_for_car(app, node, a, b);
+		// swap with car that has prio 1 higher according to heuristic
+		if (i > 0) {
+			auto& b = node->agents.test.list[i-1];
+
+			if (swap_cars(node, a, b)) {
+				std::swap(a, b);
+			}
+		}
+
+		// loop over all previous cars (higher prio to yield for)
+		for (int j=0; j<i; ++j) {
+			auto& b = node->agents.test.list[j];
+
+			bool dbg = (a.agent == sel || a.agent == sel2) && (b.agent == sel || b.agent == sel2);
+		
+			if (dbg) {
+				printf("");
+			}
+
+			_yield_for_car(app, node, a, b, dbg);
 		}
 
 		// brake for target lane car
@@ -769,23 +793,52 @@ void update_node (App& app, Node* node) {
 	}
 }
 
-void update_vehicle (App& app, Agent* agent) {
+float calc_car_accel (float base_accel, float target_speed, float cur_speed) {
+	float drag_fac = 0.0014f; // ~220km/h top speed
+	
+	float accel = base_accel;
+	
+	//// slow down acceleration close to target_speed
+	//float target_ease = 0.2f;
+	//float end_slow_amount = 0.3f;
+	//
+	//if (cur_speed > target_speed * (1.0f - target_ease)) {
+	//	float fac = map(cur_speed, target_speed * (1.0f - target_ease), target_speed);
+	//	accel *= fac*fac;
+	//}
+	//
+	//// slow down acceleration from standstill
+	//float start_slow_end = 2.5f;
+	//float start_slow_amount = 0.3f;
+	//if (cur_speed < start_slow_end) {
+	//	accel *= lerp(start_slow_amount, 1, cur_speed / start_slow_end);
+	//}
+	
+	accel -= drag_fac * cur_speed*cur_speed;
+
+	return accel;
+}
+
+void update_vehicle (App& app, Metrics::Var& met, Agent* agent) {
 	if (app.sim_paused)
 		return;
 
 	float dt = app.input.dt * app.sim_speed;
 
 	assert(agent->bez_t < 1.0f);
-	
+
 	// car speed change
-	float target_speed = app.net.top_speed * agent->brake;
+	float target_speed = app.net.speed_limit * agent->brake;
 	if (target_speed >= agent->speed) {
-		agent->speed += app.net.car_accel * dt;
+		float accel = calc_car_accel(app.net.car_accel, app.net.speed_limit, agent->speed);
+		agent->speed += accel * dt;
 		agent->speed = min(agent->speed, target_speed);
 	}
 	else {
 		agent->speed = target_speed; // brake instantly for now
 	}
+
+	met.total_flow += agent->speed / app.net.speed_limit;
 	
 	// move car with speed on bezier based on previous frame delta t
 	agent->bez_t += agent->speed * dt / agent->bez_speed;
@@ -830,6 +883,9 @@ void update_vehicle (App& app, Agent* agent) {
 	agent->cit->rear_pos  = float3(new_rear,  agent->state.pos_z);
 };
 
+void Metrics::update (Var& var, App& app) {
+	avg_flow = var.total_flow / (float)app.entities.citizens.size();
+}
 
 void Network::simulate (App& app) {
 	ZoneScoped;
@@ -866,12 +922,13 @@ void Network::simulate (App& app) {
 	
 	// to avoid debugging overlays only showing while not paused, only skip moving the car when paused, later actually skip sim steps
 	//if (!app.sim_paused) {
+		Metrics::Var met;
+		
 		{
 			ZoneScopedN("init pass");
 			for (auto& cit : app.entities.citizens) {
 				if (cit->building) continue;
 				cit->agent->brake = 1;
-				cit->agent->blocked = false;
 			}
 		}
 		
@@ -895,10 +952,12 @@ void Network::simulate (App& app) {
 					do_pathfind(cit.get());
 				}
 				else {
-					update_vehicle(app, cit->agent.get());
+					update_vehicle(app, met, cit->agent.get());
 				}
 			}
 		}
+
+		metrics.update(met, app);
 	//}
 
 	debug_node(app, app.selection.get<Node*>());

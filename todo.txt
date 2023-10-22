@@ -3,17 +3,25 @@
  Fixed deadlocks from blocked cars through blocked bool
 
 TODO:
-  
-> Have a metric of traffic flow
-  -> avg car speed vs speed limit?
-  
-> add heuristic for right before left
- -> how to avoid randomness when all for lanes have arriving cars?
- -> only apply before entering intersection (ziplock by first come first serve inside)
+ 
+> add heuristic for stopped penalty
  
 > add heuristic for prioritizing long waiting cars
    wait time > thres && wait time > other wait time * 2  or similar
  
+> add heuristic for right before left
+ -> how to avoid randomness when all for lanes have arriving cars?
+  -> if all get same right before left penalty then will cancel out!
+ -> only apply before entering intersection (ziplock by first come first serve inside)
+ 
+> can do priority road as heuristic as well
+
+ -> heuristic is just a number per car that determines when cars are swapped
+ 
+ -> do we even need to swap/sort? can we simply have waiting (arrival) time as the primary heuristic (prio number), iterate pairs and yield lower prio cars
+   -> probably not, since i'm not sure how to ensure prio stays higher for cars behind other cars
+   -> during pair iteration always yield car behind and ignore prio?
+   -> or clamp prio to be higher than car in front? -> could lead to blocked cars not being yielded for, which is probably good
  
  Turn SegLane pointers into lane pointers, where lane contains info about agents, reserved space, maybe cached bezier?
   -> how do I access the segment then?
@@ -21,9 +29,6 @@ TODO:
    -> and maybe turn SegLane into the (unique) lane* for hashing and comparisons, since it's slightly faster
   -> also lanes can be allocated directly after Segment itself to avoid vector
   
-> Actually fix deadlocks
- -> 
- 
 > Add actual tick system with interpolation
  
 > add 4 lane (main) streets

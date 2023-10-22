@@ -17,11 +17,32 @@ struct Node;
 struct Segment;
 struct Agent;
 struct LaneAgents;
+
+enum AllowedTurns : uint8_t {
+	ALLOWED_LEFT     = 0b0001,
+	ALLOWED_STRAIGHT = 0b0010,
+	ALLOWED_RIGHT    = 0b0100,
+	//ALLOWED_UTURN    = 8,
+	//ALLOWED_CUSTOM     = 16,
 	
+	ALLOWED_LS     = ALLOWED_LEFT | ALLOWED_STRAIGHT,
+	ALLOWED_LR     = ALLOWED_LEFT | ALLOWED_RIGHT,
+	ALLOWED_SR     = ALLOWED_STRAIGHT | ALLOWED_RIGHT,
+	ALLOWED_ALL    = ALLOWED_LEFT | ALLOWED_STRAIGHT | ALLOWED_RIGHT,
+};
+ENUM_BITFLAG_OPERATORS_TYPE(AllowedTurns, uint8_t)
 
 struct Line {
 	float3 a, b;
 };
+inline Bezier3 calc_curve (Line const& l0, Line const& l1) {
+	float2 point;
+	if (!line_line_intersect((float2)l0.a, (float2)l0.b, (float2)l1.a, (float2)l1.b, &point))
+		point = (l0.b+l1.a)*0.5f;
+		//point = (l0.b+l1.a)*0.5f + 0.5f * distance(l0.a, l1.b) * normalizesafe(l0.b - l0.a);
+					
+	return { l0.b, float3(point, l0.a.z), l1.a };
+}
 
 struct SegLane {
 	Segment* seg;
@@ -141,8 +162,8 @@ struct AgentState {
 	network::AgentList<Agent*>* next_agents = nullptr;
 
 	network::Node* cur_node = nullptr;
-	network::SegLane* seg_before_node = nullptr;
-	network::SegLane* seg_after_node = nullptr;
+	network::SegLane* seg_before_node = nullptr; // current segment
+	network::SegLane* seg_after_node = nullptr;  // next segment
 };
 
 struct Agent {
@@ -230,31 +251,6 @@ struct Node {
 
 	NodeAgents agents;
 	
-	//template <typename FUNC>
-	//void for_outgoing_lanes (FUNC func) const {
-	//	for (auto* seg : segments) {
-	//		int dir = this == seg->node_a ? 0 : 1;
-	//		for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
-	//			auto& lane = seg->layout->lanes[i];
-	//			if (lane.direction == dir) {
-	//				func(SegLane{ seg, i });
-	//			}
-	//		}
-	//	}
-	//}
-	//template <typename FUNC>
-	//void for_ingoing_lanes (FUNC func) const {
-	//	for (auto* seg : segments) {
-	//		int dir = this == seg->node_a ? 1 : 0;
-	//		for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
-	//			auto& lane = seg->layout->lanes[i];
-	//			if (lane.direction == dir) {
-	//				func(SegLane{ seg, i });
-	//			}
-	//		}
-	//	}
-	//}
-
 	// TODO: can we get this info without needing so much memory
 	std::vector<SegLane> in_lanes;
 	std::vector<SegLane> out_lanes;
@@ -269,6 +265,10 @@ struct Node {
 	}
 };
 
+struct Lane {
+	AllowedTurns allowed_turns = ALLOWED_ALL;
+};
+
 // Segments are oriented from a -> b, such that the 'forward' lanes go from a->b and reverse lanes from b->a
 struct Segment { // better name? Keep Path and call path Route?
 	RoadLayout* layout;
@@ -278,8 +278,23 @@ struct Segment { // better name? Keep Path and call path Route?
 	float lane_length; // length of segment - node radii
 	SegAgents agents;
 
+	std::vector<Lane> lanes;
+
+	Lane& get_lane (RoadLayout::Lane* layout_lane) {
+		return lanes[layout_lane - &layout->lanes[0]];
+	}
+	RoadLayout::Lane& get_lane_layout (Lane* lane) {
+		return layout->lanes[lane - &lanes[0]];
+	}
+
+	LaneDir get_dir_to_node (Node* node) {
+		return node_b == node ? DIR_FORWARD : DIR_BACKWARD;
+	}
+
 	void update_cached () {
 		lane_length = distance(node_a->pos, node_b->pos) - (node_a->radius + node_b->radius);
+
+		lanes.resize(layout->lanes.size());
 	}
 		
 	// Segment direction vectors
@@ -312,19 +327,6 @@ inline LaneAgents& SegLane::agents () const {
 	return seg->agents.lanes[lane];
 }
 
-inline void Node::update_cached () {
-	for (auto* seg : segments) {
-		int dir = this == seg->node_a ? 0 : 1; // 0: segment points 'away' from this node
-
-		for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
-			auto& lane = seg->layout->lanes[i];
-
-			auto& vec = lane.direction == dir ? out_lanes : in_lanes;
-			vec.push_back(SegLane{ seg, (uint16_t)i });
-		}
-	}
-}
-
 // max lanes/segment and max segments per node == 256
 inline uint32_t conn_id (Node* node, Connection const& conn) {
 	int a_idx = indexof(node->segments, conn.a.seg); // TODO: optimize this? or just cache conn_id of cars instead?
@@ -354,7 +356,7 @@ struct Metrics {
 	void imgui () {
 		if (!ImGui::TreeNodeEx("Metrics", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
-		flow_plot.update_and_imgui("speed", avg_flow, 0.0f, 1.0f);
+		flow_plot.imgui_display("speed", 0.0f, 1.0f);
 
 		ImGui::TreePop();
 	}
@@ -364,35 +366,13 @@ struct Network {
 	std::vector<std::unique_ptr<Node>> nodes;
 	std::vector<std::unique_ptr<Segment>> segments;
 	
-	SpeedUnit speed_unit = UNIT_KPH;
-
-	float speed_limit = 30 / KPH_PER_MS;
 	float car_accel = 5;
 
 	float rear_test = 0.4f;
 
 	Metrics metrics;
 
-	bool imgui_slider_speed (const char* label, float* speed, float min, float max) {
-		float fac = SpeedUnitPerMs[speed_unit];
-
-		speed_limit *= fac;
-		min *= fac;
-		max *= fac;
-
-		bool ret = ImGui::SliderFloat(
-			prints("%s (%s)",label, SpeedUnitStr[speed_unit]).c_str(),
-			speed, min, max);
-
-		speed_limit /= fac;
-		return ret;
-	}
-
 	void imgui () {
-		ImGui::Combo("speed_unit", (int*)&speed_unit, SpeedUnitStr, ARRLEN(SpeedUnitStr));
-
-		imgui_slider_speed("speed_limit", &speed_limit, 0, 200/KPH_PER_MS);
-
 		ImGui::SliderFloat("car_accel (m/s^2)", &car_accel, 0, 20);
 
 		ImGui::SliderFloat("rear_test", &rear_test, 0, 1);
@@ -406,5 +386,42 @@ struct Network {
 
 	void simulate (App& app);
 };
+
+inline void calc_default_allowed_turns (Node& node) {
+	for (auto& in_lane : node.in_lanes) {
+		auto& lane = in_lane.seg->lanes[in_lane.lane];
+
+		auto dir = in_lane.seg->get_dir_to_node(&node);
+
+		int count = in_lane.seg->layout->lanes_in_dir[dir];
+		int idx   = in_lane.seg->get_lane_layout(&lane).order;
+
+		if (count == 1) {
+			lane.allowed_turns = ALLOWED_ALL;
+		}
+		else if (count == 2) {
+			if (idx == 0) lane.allowed_turns = ALLOWED_LS;
+			else          lane.allowed_turns = ALLOWED_SR;
+		}
+		else {
+			lane.allowed_turns = ALLOWED_ALL;
+		}
+	}
+}
+inline void Node::update_cached () {
+	for (auto* seg : segments) {
+		int dir = this == seg->node_a ? 0 : 1; // 0: segment points 'away' from this node
+
+		for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
+			auto& lane = seg->layout->lanes[i];
+
+			auto& vec = lane.direction == dir ? out_lanes : in_lanes;
+			vec.push_back(SegLane{ seg, (uint16_t)i });
+		}
+	}
+
+	calc_default_allowed_turns(*this);
+}
+
 
 } // namespace network

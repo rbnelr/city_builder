@@ -49,15 +49,18 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 
 		// update neighbours with new minimum distances
 		for (auto& seg : cur_node->segments) {
-			int dir = cur_node == seg->node_a ? 0 : 1;
-			Node* other_node = dir ? seg->node_a : seg->node_b;
+			auto dir = seg->get_dir_to_node(cur_node);
+			Node* other_node = dir == DIR_FORWARD ? seg->node_a : seg->node_b;
 
 			for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
 				auto& lane = seg->layout->lanes[i];
 
 				if (lane.direction == dir) { // TODO: could cache list to avoid this check and iterate half as many lanes
 
-					float new_cost = cur_node->_cost + seg->lane_length + seg->node_a->radius + seg->node_b->radius; // TODO: ??
+					float len = seg->lane_length + seg->node_a->radius + seg->node_b->radius;
+					float cost = len / seg->layout->speed_limit;
+
+					float new_cost = cur_node->_cost + cost;
 					if (new_cost < other_node->_cost) {
 						other_node->_pred      = cur_node;
 						other_node->_pred_seg  = { seg, (uint16_t)i };
@@ -119,15 +122,6 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 	agent->segments.push_back({ target, (uint16_t)end_lane });
 
 	return true;
-}
-
-inline Bezier3 calc_curve (Line const& l0, Line const& l1) {
-	float2 point;
-	if (!line_line_intersect((float2)l0.a, (float2)l0.b, (float2)l1.a, (float2)l1.b, &point))
-		point = (l0.b+l1.a)*0.5f;
-		//point = (l0.b+l1.a)*0.5f + 0.5f * distance(l0.a, l1.b) * normalizesafe(l0.b - l0.a);
-					
-	return { l0.b, float3(point, l0.a.z), l1.a };
 }
 
 AgentState _FORCEINLINE get_agent_state (Agent* agent, int idx) {
@@ -225,44 +219,6 @@ AgentState _FORCEINLINE get_agent_state (Agent* agent, int idx) {
 	return s;
 }
 
-//AgentState _FORCEINLINE get_agent_state_only_conn (Agent* agent, int idx) {
-//	AgentState s;
-//
-//	int num_nodes  = (int)agent->nodes.size();
-//	int num_seg    = (int)agent->segments.size();
-//	int num_moves = num_nodes + num_seg + 2;
-//
-//	assert(num_nodes >= 1);
-//	assert(num_nodes + 1 == num_seg);
-//	assert(idx < num_moves);
-//
-//	if (idx == 0) {
-//		
-//	}
-//	else if (idx == num_moves-1) {
-//		
-//	}
-//	else {
-//		int i = idx - 1;
-//				
-//		bool last_seg = i/2+1 >= num_seg;
-//		assert(i/2 < num_nodes == !last_seg);
-//
-//		auto* seg = &agent->segments[i/2];
-//		auto* node = !last_seg ? agent->nodes[i/2] : nullptr;
-//		auto* seg2 = !last_seg ? &agent->segments[i/2+1] : nullptr;
-//
-//		s.cur_node = node;
-//		s.seg_before_node = seg;
-//		s.seg_after_node = seg2;
-//
-//		if (node) assert(contains(node->in_lanes, *s.seg_before_node));
-//		if (node) assert(contains(node->out_lanes, *s.seg_after_node));
-//	}
-//
-//	return s;
-//}
-	
 float _brake_for_dist (float obstacle_dist) {
 	return clamp(map(obstacle_dist, 0.0f, 8.0f), 0.0f, 1.0f);
 }
@@ -270,12 +226,6 @@ void brake_for_dist (Agent* agent, float obstacle_dist) {
 	float brake = _brake_for_dist(obstacle_dist);
 	agent->brake = min(agent->brake, brake);
 }
-
-//void brake_for_leading_car (Agent* cur, Agent* leading) {
-//	float dist = distance(cur->cit->front_pos, leading->cit->rear_pos) - 2; // safety dist
-//
-//	cur->brake = min(cur->brake, brake_for_dist(dist));
-//}
 
 void debug_node (App& app, Node* node) {
 	if (!node) return;
@@ -376,7 +326,8 @@ void debug_citizen (App& app, Citizen* cit) {
 	ImGui::TextColored(lrgba(cit->col, 1), "debug citizen");
 
 	static ValuePlotter speed_plot = ValuePlotter();
-	speed_plot.update_and_imgui("speed", cit->agent->speed, 0.0f, app.net.speed_limit*1.25f);
+	speed_plot.push_value(cit->agent->speed);
+	speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
 }
 
 void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col) {
@@ -819,6 +770,21 @@ float calc_car_accel (float base_accel, float target_speed, float cur_speed) {
 	return accel;
 }
 
+float get_cur_speed_limit (Agent* agent) {
+	auto state = agent->state.state;
+	if (state == AgentState::SEGMENT) {
+		return agent->state.seg_before_node->seg->layout->speed_limit;
+	}
+	else if (state == AgentState::NODE) {
+		float a = agent->state.seg_before_node->seg->layout->speed_limit;
+		float b = agent->state.seg_after_node ->seg->layout->speed_limit;
+		return min(a, b); // TODO: ??
+	}
+	else {
+		return 20 / KPH_PER_MS;
+	}
+}
+
 void update_vehicle (App& app, Metrics::Var& met, Agent* agent) {
 	if (app.sim_paused)
 		return;
@@ -826,11 +792,12 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent) {
 	float dt = app.input.dt * app.sim_speed;
 
 	assert(agent->bez_t < 1.0f);
+	float speed_limit = get_cur_speed_limit(agent);
 
 	// car speed change
-	float target_speed = app.net.speed_limit * agent->brake;
+	float target_speed = speed_limit * agent->brake;
 	if (target_speed >= agent->speed) {
-		float accel = calc_car_accel(app.net.car_accel, app.net.speed_limit, agent->speed);
+		float accel = calc_car_accel(app.net.car_accel, speed_limit, agent->speed);
 		agent->speed += accel * dt;
 		agent->speed = min(agent->speed, target_speed);
 	}
@@ -838,7 +805,7 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent) {
 		agent->speed = target_speed; // brake instantly for now
 	}
 
-	met.total_flow += agent->speed / app.net.speed_limit;
+	met.total_flow += agent->speed / speed_limit;
 	
 	// move car with speed on bezier based on previous frame delta t
 	agent->bez_t += agent->speed * dt / agent->bez_speed;
@@ -885,6 +852,8 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent) {
 
 void Metrics::update (Var& var, App& app) {
 	avg_flow = var.total_flow / (float)app.entities.citizens.size();
+
+	flow_plot.push_value(avg_flow);
 }
 
 void Network::simulate (App& app) {

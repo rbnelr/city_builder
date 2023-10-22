@@ -1,6 +1,7 @@
 #pragma once
 #include "common.hpp"
 #include "agnostic_render.hpp"
+#include "util.hpp"
 #include "kisslib/collision.hpp"
 #include "engine/camera.hpp"
 
@@ -86,19 +87,71 @@ struct AssetMesh {
 	}
 };
 
-	
+enum LaneDir : uint8_t {
+	DIR_FORWARD = 0,
+	DIR_BACKWARD = 1,
+};
+
 struct RoadLayout { // TODO: name?
+	SERIALIZE(RoadLayout, width, lanes)
+
 	struct Lane {
+		SERIALIZE(Lane, shift, width, direction)
+
 		float shift;
 		float width;
-		int direction; // 0: forward  1: backwards
+		LaneDir direction;
 		// agent types (cars, trams, pedestrian etc.)
+
+		int order; // left to right lane index in direction
 	};
-		
+	
+	std::string name;
+
 	float width;
-	// for now: (RHD) outer forward, inner forward, ..., inner reverse, outer reverse
+	// for now: (RHD) outer forward, inner forward, ..., outer reverse, inner reverse
+	// ie. sorted from left to right per direction
 	// (relevant for pathing)
 	std::vector<Lane> lanes;
+
+	float speed_limit;
+
+
+	int lanes_in_dir[2];
+
+	void update_cached () {
+		lanes_in_dir[DIR_FORWARD] = 0;
+		lanes_in_dir[DIR_BACKWARD] = 0;
+
+		for (auto& lane : lanes) {
+			int& idx = lanes_in_dir[lane.direction];
+			lane.order = idx;
+			idx++;
+		}
+	}
+
+	bool imgui (Settings& settings) {
+		bool changed = false;
+
+		changed = ImGui::InputText("name", &name) || changed;
+
+		changed = ImGui::DragFloat("width", &width, 0.1f) || changed;
+		changed = imgui_edit_vector("lanes", lanes, [] (Lane& l) {
+			bool changed = ImGui::DragFloat("shift", &l.shift, 0.1f);
+			changed = ImGui::DragFloat("width", &l.width, 0.1f) || changed;
+
+			int val = (int)l.direction;
+			changed = ImGui::Combo("direction", &val, "forward\0backwards", 2) || changed;
+			l.direction = (LaneDir)val;
+
+			return changed;
+		}) || changed;
+
+		changed = (settings, "speed_limit", &speed_limit, 0, 200/KPH_PER_MS) || changed;
+
+		if (changed) update_cached();
+		return changed;
+	}
 };
 
 // seperate into lists instead?
@@ -155,14 +208,40 @@ struct Assets {
 	
 	Assets () {
 		road_layouts.push_back(std::make_unique<RoadLayout>(RoadLayout{
-			12, {
-				{ +1.8f, 3.4f, 0 },
-				{ -1.8f, 3.4f, 1 }
-			}
+			"small road",
+			9, {
+				{ +1.4f, 2.6f, DIR_FORWARD },
+				{ -1.4f, 2.6f, DIR_BACKWARD }
+			},
+			30 / KPH_PER_MS,
+		}));
+		road_layouts.push_back(std::make_unique<RoadLayout>(RoadLayout{
+			"medium road",
+			16, {
+				{ +4.5f, 2.8f, DIR_FORWARD },
+				{ +1.5f, 2.8f, DIR_FORWARD },
+				{ -4.5f, 2.8f, DIR_BACKWARD },
+				{ -1.5f, 2.8f, DIR_BACKWARD },
+			},
+			50 / KPH_PER_MS,
 		}));
 
 		cars.push_back(std::make_unique<CarAsset>(CarAsset{
 			"cars/kei0.fbx"
 		}));
+
+		for (auto& l : road_layouts)
+			l->update_cached();
+	}
+
+	void imgui (Settings& settings) {
+		if (!ImGui::TreeNode("Assets")) return;
+
+		imgui_edit_vector("road_layouts", road_layouts, [&] (std::unique_ptr<RoadLayout>& layout) {
+			layout->imgui(settings);
+			return false;
+		});
+
+		ImGui::TreePop();
 	}
 };

@@ -8,13 +8,78 @@
 #include "engine/text_render.hpp"
 
 namespace ogl {
+	
+struct Textures {
+	// TODO: need some sort of texture array or atlas system! (atlas sucks tho)
+	// -> find out if there is a modern system for single drawcall many textures (of differing sizes)
+	// because it would be wierd that you can go all out with indirect instanced drawing, yet have to adjust your textures
+	// just to be able to use them with one texture array
+
+	//Texture2D clouds = load_texture<srgba8>("clouds", "textures/clouds.png");
+	Texture2D grid = load_texture<srgba8>("grid", "misc/grid2.png");
+	Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
+	
+	//Sampler sampler_heightmap = sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
+	Sampler sampler_normal = sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
+
+	Texture2D house_diffuse = load_texture<srgb8>("house_diffuse", "buildings/house.png");
+	Texture2D car_diffuse = load_texture<srgb8>("car_diffuse", "cars/car.png");
+
+	Texture2DArray turn_arrows = load_texture_array<srgba8>("lane_arrows", {
+		"misc/turn_arrow_R.png",
+		"misc/turn_arrow_S.png",
+		"misc/turn_arrow_SR.png",
+		"misc/turn_arrow_L.png",
+		"misc/turn_arrow_LR.png",
+		"misc/turn_arrow_LS.png",
+		"misc/turn_arrow_LSR.png",
+	});
+
+	template <typename T>
+	static Texture2D load_texture (std::string_view gl_label, const char* filepath) {
+		Texture2D tex = {gl_label};
+		if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str()))
+			assert(false);
+		return tex;
+	}
+
+	template <typename T>
+	static Texture2DArray load_texture_array (std::string_view gl_label, std::vector<const char*> filepaths) {
+		Texture2DArray tex = {gl_label};
+
+		int count = (int)filepaths.size();
+		int i = 0;
+		int2 size;
+
+		glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
+
+		for (auto path : filepaths) {
+			Image<T> img;
+			if (!Image<T>::load_from_file(prints("assets/%s", path).c_str(), &img)) {
+				fprintf(stderr, "Error! Could not load texture \"%s\"", path);
+				assert(false);
+				continue;
+			}
+
+			if (i == 0) {
+				size = img.size;
+				glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_SRGB8_ALPHA8, size.x, size.y, count, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+			}
+			assert(img.size == size);
+
+			glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0,0,i, size.x, size.y, 1, GL_RGBA, GL_UNSIGNED_BYTE, img.pixels);
+			i++;
+		}
+			
+		glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+
+		glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+		return tex;
+	}
+};
 
 struct TriRenderer {
 	Shader* shad  = g_shaders.compile("tris");
-
-	//Texture2D tex = texture2D<srgba8>("logo", "textures/Opengl-logo.png");
-
-	Sampler sampler_normal = sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, false);
 
 	struct Vertex {
 		float3 pos;
@@ -33,75 +98,80 @@ struct TriRenderer {
 	std::vector<Vertex>   verticies;
 	std::vector<uint16_t> indices;
 
-	void push_path (float2 forw, float2 right, float3 a, float3 b, float width, float2 offsets, float shift, float z, float4 col) {
-		uint16_t idx = (uint16_t)verticies.size();
-		
-		float2 half_width = width*0.5f;
-
-		float3 a0 = a + float3(right * (shift - half_width) + forw * offsets[0], z);
-		float3 a1 = a + float3(right * (shift + half_width) + forw * offsets[0], z);
-		float3 b0 = b + float3(right * (shift - half_width) - forw * offsets[1], z);
-		float3 b1 = b + float3(right * (shift + half_width) - forw * offsets[1], z);
-
-		auto* pv = push_back(verticies, 4);
-		pv[0] = { a0, float2(0,0), col };
-		pv[1] = { a1, float2(1,0), col };
-		pv[2] = { b1, float2(1,1), col };
-		pv[3] = { b0, float2(0,1), col };
-
-		render::shapes::push_quad_indices<uint16_t>(indices, idx+0u, idx+1u, idx+2u, idx+3u);
-	}
-	void push_node (float3 center, float radius, float z, float4 col) {
-		uint16_t idx = (uint16_t)verticies.size();
-		
-		auto* pv = push_back(verticies, 4);
-		pv[0] = { center + float3(-radius, -radius, z), float2(0,0), col };
-		pv[1] = { center + float3(+radius, -radius, z), float2(1,0), col };
-		pv[2] = { center + float3(+radius, +radius, z), float2(1,1), col };
-		pv[3] = { center + float3(-radius, +radius, z), float2(0,1), col };
-
-		render::shapes::push_quad_indices<uint16_t>(indices, idx+0u, idx+1u, idx+2u, idx+3u);
-	}
-
-	void update (network::Network& net) {
-
+	void clear () {
 		verticies.clear();
 		verticies.shrink_to_fit();
 		indices.clear();
 		indices.shrink_to_fit();
-
-		for (auto& seg : net.segments) {
-			auto v = seg->clac_seg_vecs();
-			float width = seg->layout->width;
-			float2 offsets = { seg->node_a->radius, seg->node_b->radius };
-
-			push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos, width, offsets, 0.0f, 0.05f, lrgba(lrgb(0.05f), 1.0f));
-			
-			for (auto& lane : seg->layout->lanes) {
-				push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos, lane.width, offsets, lane.shift, 0.10f, lrgba(lrgb(0.08f), 1.0f));
-			}
-		}
-
-		for (auto& node : net.nodes) {
-			push_node(node->pos, node->radius, 0.05f, lrgba(lrgb(0.05f), 1.0f));
-		}
 	}
-
-	void render (StateManager& state) {
+	void render (StateManager& state, Textures& tex) {
 		OGL_TRACE("TriRenderer");
-
 		ZoneScoped;
 
 		if (shad->prog) {
-			OGL_TRACE("TriRenderer");
-
 			vbo_tris.stream(verticies, indices);
 
 			if (indices.size() > 0) {
 				glUseProgram(shad->prog);
 
 				state.bind_textures(shad, {
-					//{ "tex", tex, sampler_normal }
+					//{ "turn_arrows", tex.turn_arrows, tex.sampler_normal }
+				});
+
+				PipelineState s;
+				s.blend_enable = true;
+				state.set(s);
+
+				glBindVertexArray(vbo_tris.vao);
+				glDrawElements(GL_TRIANGLES, (GLsizei)indices.size(), GL_UNSIGNED_SHORT, (void*)0);
+			}
+		}
+
+		glBindVertexArray(0);
+	}
+};
+struct DecalRenderer {
+	Shader* shad  = g_shaders.compile("decals");
+
+	struct Vertex {
+		float3 pos;
+		float2 uv;
+		float4 col;
+		float  tex_id;
+
+		VERTEX_CONFIG(
+			ATTRIB(FLT3, Vertex, pos),
+			ATTRIB(FLT2, Vertex, uv),
+			ATTRIB(FLT4, Vertex, col),
+			ATTRIB(FLT, Vertex, tex_id),
+		)
+	};
+
+	VertexBufferI vbo_tris = vertex_bufferI<Vertex>("DecalRenderer.Vertex");
+
+	std::vector<Vertex>   verticies;
+	std::vector<uint16_t> indices;
+
+	// TODO: instance this
+	
+	void clear () {
+		verticies.clear();
+		verticies.shrink_to_fit();
+		indices.clear();
+		indices.shrink_to_fit();
+	}
+	void render (StateManager& state, Textures& tex) {
+		ZoneScoped;
+		OGL_TRACE("DecalRenderer");
+
+		if (shad->prog) {
+			vbo_tris.stream(verticies, indices);
+
+			if (indices.size() > 0) {
+				glUseProgram(shad->prog);
+
+				state.bind_textures(shad, {
+					{ "turn_arrows", tex.turn_arrows, tex.sampler_normal }
 				});
 
 				PipelineState s;
@@ -467,6 +537,7 @@ struct OglRenderer : public Renderer {
 	TerrainRenderer terrain_renderer;
 
 	TriRenderer network_renderer;
+	DecalRenderer decal_rederer;
 
 	struct SkyboxRenderer {
 	
@@ -727,25 +798,93 @@ struct OglRenderer : public Renderer {
 	EntityRenderer<BuildingAsset> building_renderer;
 	EntityRenderer<CarAsset> car_renderer;
 
-	struct Textures {
-		//Texture2D clouds = load_texture<srgba8>("clouds", "textures/clouds.png");
-		Texture2D grid = load_texture<srgba8>("grid", "misc/grid2.png");
-		Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
 	
-		//Sampler sampler_heightmap = sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
-		Sampler sampler_normal = sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
+	void push_path (float2 forw, float2 right, float3 a, float3 b, float width, float2 offsets, float shift, float z, float4 col) {
+		uint16_t idx = (uint16_t)network_renderer.verticies.size();
+		
+		float2 half_width = width*0.5f;
 
-		Texture2D house_diffuse = load_texture<srgb8>("house_diffuse", "buildings/house.png");
-		Texture2D car_diffuse = load_texture<srgb8>("car_diffuse", "cars/car.png");
+		float3 a0 = a + float3(right * (shift - half_width) + forw * offsets[0], z);
+		float3 a1 = a + float3(right * (shift + half_width) + forw * offsets[0], z);
+		float3 b0 = b + float3(right * (shift - half_width) - forw * offsets[1], z);
+		float3 b1 = b + float3(right * (shift + half_width) - forw * offsets[1], z);
 
-		template <typename T>
-		static Texture2D load_texture (std::string_view gl_label, const char* filepath) {
-			Texture2D tex = {gl_label};
-			if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str()))
-				assert(false);
-			return tex;
+		auto* pv = push_back(network_renderer.verticies, 4);
+		pv[0] = { a0, float2(0,0), col };
+		pv[1] = { a1, float2(1,0), col };
+		pv[2] = { b1, float2(1,1), col };
+		pv[3] = { b0, float2(0,1), col };
+
+		render::shapes::push_quad_indices<uint16_t>(network_renderer.indices, idx+0u, idx+1u, idx+2u, idx+3u);
+	}
+	void push_node (float3 center, float radius, float z, float4 col) {
+		uint16_t idx = (uint16_t)network_renderer.verticies.size();
+		
+		auto* pv = push_back(network_renderer.verticies, 4);
+		pv[0] = { center + float3(-radius, -radius, z), float2(0,0), col };
+		pv[1] = { center + float3(+radius, -radius, z), float2(1,0), col };
+		pv[2] = { center + float3(+radius, +radius, z), float2(1,1), col };
+		pv[3] = { center + float3(-radius, +radius, z), float2(0,1), col };
+
+		render::shapes::push_quad_indices<uint16_t>(network_renderer.indices, idx+0u, idx+1u, idx+2u, idx+3u);
+	}
+
+	void push_decal (float3 center, float3 forw, float3 right, float4 col, int tex_id) {
+		uint16_t idx = (uint16_t)decal_rederer.verticies.size();
+		
+		auto* pv = push_back(decal_rederer.verticies, 4);
+		pv[0] = { center -forw -right, float2(0,0), col, (float)tex_id };
+		pv[1] = { center -forw +right, float2(1,0), col, (float)tex_id };
+		pv[2] = { center +forw +right, float2(1,1), col, (float)tex_id };
+		pv[3] = { center +forw -right, float2(0,1), col, (float)tex_id };
+
+		render::shapes::push_quad_indices<uint16_t>(decal_rederer.indices, idx+0u, idx+1u, idx+2u, idx+3u);
+	}
+
+	void remesh_network (network::Network& net) {
+
+		network_renderer.clear();
+		decal_rederer.clear();
+
+		for (auto& seg : net.segments) {
+			auto v = seg->clac_seg_vecs();
+			float width = seg->layout->width;
+			float2 offsets = { seg->node_a->radius, seg->node_b->radius };
+
+			push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos, width, offsets, 0.0f, 0.01f, lrgba(lrgb(0.05f), 1.0f));
+			
+			int i=0;
+			for (auto& lane : seg->lanes) {
+				auto& lane_layout = seg->get_lane_layout(&lane);
+
+				network::SegLane seg_lane = { seg.get(), (uint16_t)i++ };
+				auto li = seg_lane.clac_lane_info();
+				// TODO: this will be a bezier
+				float3 forw = normalizesafe(li.b - li.a);
+				float3 right = float3(rotate90(-forw), 0);
+
+				push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos,
+					lane_layout.width, offsets, lane_layout.shift, 0.02f, lrgba(lrgb(0.08f), 1.0f));
+				
+				{ // push turn arrow
+					float2 size = float2(1, 1.5f) * lane_layout.width;
+
+					float3 pos = li.b;
+					pos -= forw * size.y*0.5f;
+					pos.z += 0.03f;
+
+					int decal_id = (int)lane.allowed_turns - 1;
+					push_decal(pos, forw*size.y*0.5f, right*size.x*0.5f, 1, decal_id);
+				}
+			}
+
 		}
-	};
+
+		for (auto& node : net.nodes) {
+			push_node(node->pos, node->radius, 0.01f, lrgba(lrgb(0.05f), 1.0f));
+		}
+	}
+
 	Textures textures;
 
 	OglRenderer () {
@@ -765,7 +904,7 @@ struct OglRenderer : public Renderer {
 		}
 
 		if (app.entities.buildings_changed) {
-			network_renderer.update(app.net);
+			remesh_network(app.net);
 
 			building_renderer.update_instances([&] () {
 				std::vector<decltype(building_renderer)::MeshInstance> instances;
@@ -844,7 +983,8 @@ struct OglRenderer : public Renderer {
 			building_renderer.draw(*this, textures.house_diffuse);
 			car_renderer.draw(*this, textures.car_diffuse);
 
-			network_renderer.render(state);
+			network_renderer.render(state, textures);
+			decal_rederer.render(state, textures);
 
 			skybox.render_skybox_last(state, *this);
 		}

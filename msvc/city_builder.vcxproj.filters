@@ -139,9 +139,6 @@
     <ClInclude Include="..\src\engine\kisslib\bit_twiddling.hpp">
       <Filter>engine\kisslib</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\engine\kisslib\circular_buffer.hpp">
-      <Filter>engine\kisslib</Filter>
-    </ClInclude>
     <ClInclude Include="..\src\engine\kisslib\clean_windows_h.hpp">
       <Filter>engine\kisslib</Filter>
     </ClInclude>

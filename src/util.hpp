@@ -20,6 +20,35 @@ inline std::string format_speed (float speed, SpeedUnit unit) {
 	return prints("%.0f %s", speed * SpeedUnitPerMs[unit], SpeedUnitStr[unit]);
 }
 
+struct Settings {
+	SpeedUnit speed_unit = UNIT_KPH;
+
+	void imgui () {
+		if (!ImGui::TreeNode("Settings")) return;
+		
+		ImGui::Combo("speed_unit", (int*)&speed_unit, SpeedUnitStr, ARRLEN(SpeedUnitStr));
+
+		ImGui::TreePop();
+	}
+};
+
+inline bool imgui_slider_speed (Settings& settings, const char* label, float* speed, float min, float max) {
+	float fac = SpeedUnitPerMs[settings.speed_unit];
+
+	float val = *speed * fac;
+	min *= fac;
+	max *= fac;
+
+	bool ret = ImGui::SliderFloat(
+		prints("%s (%s)",label, SpeedUnitStr[settings.speed_unit]).c_str(),
+		speed, min, max);
+
+	*speed = val / fac;
+	return ret;
+}
+
+
+
 inline float angle2d (float2 dir) {
 	return length_sqr(dir) > 0 ? atan2f(dir.y, dir.x) : 0;
 }
@@ -211,6 +240,10 @@ struct Bezier4 {
 		
 		return { value, deriv, curv };
 	}
+};
+
+struct Line {
+	float3 a, b;
 };
 
 inline bool line_line_intersect (float2 const& a, float2 const& b, float2 const& c, float2 const& d, float2* out_point) {

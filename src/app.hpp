@@ -150,6 +150,8 @@ struct App : public Engine {
 
 		ImGui::Separator();
 
+		settings.imgui();
+
 		cam.imgui("cam");
 		dbg_cam.imgui("dbg_cam");
 		ImGui::SameLine();
@@ -170,9 +172,12 @@ struct App : public Engine {
 		ImGui::Checkbox("sim_paused", &sim_paused);
 		ImGui::SliderFloat("sim_speed", &sim_speed, 0, 10);
 
+		assets.imgui(settings);
+
 		net.imgui();
 	}
 
+	Settings settings;
 	
 	Assets assets;
 	Entities entities;
@@ -265,7 +270,7 @@ struct App : public Engine {
 		static int grid_n = 10;
 		static int citizens_n = 600;
 
-		static float intersection_scale = 1.25f;
+		static float intersection_scale = 1.0f;
 
 		static float connection_chance = 0.7f;
 
@@ -302,29 +307,38 @@ struct App : public Engine {
 				return net.nodes[y * (grid_n+1) + x].get();
 			};
 			
-			auto* road_layout = assets.road_layouts[0].get();
+			auto* small_road  = assets.road_layouts[0].get();
+			auto* medium_road = assets.road_layouts[1].get();
 			
-			float node_r = road_layout->width*0.5f * intersection_scale;
-			float2 spacing = float2(50, 50) + node_r;
+			float2 spacing = float2(60, 60);
+
+			auto road_type = [&] (int x_or_y) {
+				return (x_or_y-5) % 10 == 0 ? medium_road : small_road;
+			};
 
 			// create path nodes grid
 			for (int y=0; y<grid_n+1; ++y)
 			for (int x=0; x<grid_n+1; ++x) {
+				auto a = road_type(x);
+				auto b = road_type(y);
+
+				float node_r = max(a->width, b->width)*0.5f * intersection_scale;
+				
 				float3 pos = base_pos + float3((float)x,(float)y,0) * float3(spacing, 0);
 				net.nodes[y * (grid_n+1) + x] = std::make_unique<Node>(Node{pos, node_r});
 			}
 			
-			auto create_segment = [&] (Node* a, Node* b) {
+			auto create_segment = [&] (RoadLayout* layout, Node* a, Node* b) {
 				assert(a && b && a != b);
 
 				auto* seg = net.segments.emplace_back(std::make_unique<Segment>(Segment{
-					road_layout, a, b
+					layout, a, b
 				})).get();
 
 				a->segments.push_back(seg);
 				b->segments.push_back(seg);
 
-				seg->agents.lanes.resize(road_layout->lanes.size());
+				seg->agents.lanes.resize(layout->lanes.size());
 
 				seg->update_cached();
 			};
@@ -332,17 +346,21 @@ struct App : public Engine {
 			// create x paths
 			for (int y=0; y<grid_n+1; ++y)
 			for (int x=0; x<grid_n; ++x) {
+				auto layout = road_type(y);
+
 				auto* a = get_node(x, y);
 				auto* b = get_node(x+1, y);
-				create_segment(a, b);
+				create_segment(layout, a, b);
 			}
 			// create y paths
 			for (int y=0; y<grid_n; ++y)
 			for (int x=0; x<grid_n+1; ++x) {
-				if (rand.chance(connection_chance)) {
+				auto layout = road_type(x);
+
+				if (rand.chance(connection_chance) || layout == medium_road) {
 					auto* a = get_node(x, y);
 					auto* b = get_node(x, y+1);
-					create_segment(a, b);
+					create_segment(layout, a, b);
 				}
 			}
 

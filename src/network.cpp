@@ -22,34 +22,51 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 		node->_cost = INF;
 		node->_visited = false;
 		node->_pred = nullptr;
+		node->_pred_seg = nullptr;
 	}
 
 	// TODO: could actually start only on the lane facing the target building
 	//  (ie. don't allow crossing the road middle)
 	{ // handle the two start nodes
-		start->node_a->_cost = start->lane_length / 0.5f; // pretend start point is at center of start segment for now
-		start->node_b->_cost = start->lane_length / 0.5f;
+		// pretend start point is at center of start segment for now
+		start->node_a->_cost = start->lane_length / 0.5f / start->layout->speed_limit;
+		start->node_b->_cost = start->lane_length / 0.5f / start->layout->speed_limit;
+
+		start->node_a->_pred_seg = start;
+		start->node_b->_pred_seg = start;
 	}
 
 	unvisited.push(start->node_a);
 	unvisited.push(start->node_b);
 
 	while (!unvisited.empty()) {
-		// visit node with min distance
+		// visit node with min cost
 		Node* cur_node = unvisited.top();
 		unvisited.pop();
 			
 		if (cur_node->_visited) continue;
 		cur_node->_visited = true;
 
-		// Just an optimization
-		//if (cur_node == target->a || cur_node == target->b)
-		//	break; // shortest path found (either a or b works becase shortest one will always be visited first)
-		//	       // -> not quite true due to the possible difference in additional distance along the final segment! -> if either node found just check again that both are visited
+		// early out optimization
+		if (target->node_a->_visited && target->node_b->_visited)
+			break; // shortest path found if both target segment nodes are visited
 
-		// update neighbours with new minimum distances
+		// Get all allowed turns for incoming segment
+		AllowedTurns allowed = (AllowedTurns)0;
+		for (auto& lane : cur_node->_pred_seg->lanes) {
+			allowed |= lane.allowed_turns;
+		}
+
+		// update neighbours with new minimum cost
 		for (auto& lane : cur_node->out_lanes) {
 			Node* other_node = lane.seg->get_other_node(cur_node);
+
+			auto turn = classify_turn(cur_node, cur_node->_pred_seg, lane.seg);
+			if ((allowed & turn) == 0) {
+				// turn not allowed
+				assert(false); // currently impossible, only the case for roads with no right turn etc.
+				//continue;
+			}
 
 			float len = lane.seg->lane_length + lane.seg->node_a->radius + lane.seg->node_b->radius;
 			float cost = len / lane.seg->layout->speed_limit;
@@ -57,7 +74,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 			float new_cost = cur_node->_cost + cost;
 			if (new_cost < other_node->_cost) {
 				other_node->_pred      = cur_node;
-				other_node->_pred_seg  = lane;
+				other_node->_pred_seg  = lane.seg;
 				other_node->_cost      = new_cost;
 
 				unvisited.push(other_node); // push updated neighbour (duplicate)
@@ -80,70 +97,107 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 
 	assert(end_node->_cost < INF);
 
-	std::vector<Node*> tmp_nodes;
+	std::vector<Segment*> reverse_segments;
+	reverse_segments.push_back(target);
 
 	Node* cur = end_node;
 	while (cur) {
-		tmp_nodes.push_back(cur);
+		assert(cur->_pred_seg);
+		reverse_segments.push_back(cur->_pred_seg);
 		cur = cur->_pred;
 	}
-	assert(tmp_nodes.size() >= 1);
+	assert(reverse_segments.size() >= 1);
 
-	Node* start_node = tmp_nodes.back();
-
-	// first node
-	agent->nodes.push_back(start_node);
-
-	// start segment
-	// if start node is segment.a then we go from b->a and thus need to start on a reverse lane
-	int start_lane = start_node == start->node_b ? 0 : (int)start->layout->lanes.size()-1;
-	agent->segments.push_back({ start, (uint16_t)start_lane });
-
-	// nodes
-	for (int i=(int)tmp_nodes.size()-2; i>=0; --i) {
-		assert(tmp_nodes[i]->_pred_seg.seg);
-		// segment of predecessor to path node
-		agent->segments.push_back( tmp_nodes[i]->_pred_seg );
-		// path node
-		agent->nodes.push_back(tmp_nodes[i]);
+	for (int i=(int)reverse_segments.size()-1; i>=0; --i) {
+		agent->path.push_back(reverse_segments[i]);
 	}
-
-	// end segment
-	// if end node is segment.a then we go from a->b and thus need to start on a forward lane
-	int end_lane = end_node == target->node_a ? 0 : (int)target->layout->lanes.size()-1;
-	agent->segments.push_back({ target, (uint16_t)end_lane });
 
 	return true;
 }
 
-AgentState _FORCEINLINE get_agent_state (Agent* agent, int idx) {
+AgentState get_agent_state (Agent* agent, int idx) {
 	AgentState s;
 
-	int num_nodes  = (int)agent->nodes.size();
-	int num_seg    = (int)agent->segments.size();
-	int num_moves = num_nodes + num_seg + 2;
+	int num_seg = (int)agent->path.size();
+	int num_moves = num_seg + (num_seg-1) + 2;
+	assert(num_seg >= 1);
 
-	assert(num_nodes >= 1);
-	assert(num_nodes + 1 == num_seg);
-	assert(idx < num_moves);
+	// figure out node between in and out segment
+	auto find_node = [&] (Segment* in, Segment* out) {
+		if (in->node_a == out->node_a || in->node_a == out->node_b)
+			return in->node_a;
+		else
+			return in->node_b;
+	};
+	auto choose_lane = [&] (Segment* in, Node* node, Segment* out) {
+		auto turn = classify_turn(node, in, out);
+		auto dir = in->get_dir_to_node(node);
+
+		for (auto& l : in->lanes) {
+			if (  in->get_lane_layout(&l).direction == dir &&
+				  (l.allowed_turns & turn) != 0) {
+				return (int)(&l - in->lanes.data());
+			}
+		}
+
+		assert(false);
+		return 0;
+	};
+	auto choose_lane_for_building = [&] (Node* prev_node, Segment* in) {
+		auto dir = in->get_dir_to_node(prev_node);
+		// TODO: make it so lanes in a direction (sorted left to right) can be accessed easier
+		for (auto& l : in->lanes) {
+			if (in->get_lane_layout(&l).direction != dir) { // != for opposite direction
+				return (int)(&l - in->lanes.data());
+			}
+		}
+		return 0;
+	};
+
+	int i = idx > 0 ? (idx-1)/2 : 0;
+	
+	Segment* seg0 = i-1 >= 0      ? agent->path[i-1] : nullptr;
+	Segment* seg1 = i   < num_seg ? agent->path[i  ] : nullptr;
+	Segment* seg2 = i+1 < num_seg ? agent->path[i+1] : nullptr;
+	Segment* seg3 = i+2 < num_seg ? agent->path[i+2] : nullptr;
+
+	Node* node0 = seg0 && seg1 ? find_node(seg0, seg1) : nullptr;
+	Node* node1 = seg1 && seg2 ? find_node(seg1, seg2) : nullptr;
+	Node* node2 = seg2 && seg3 ? find_node(seg2, seg3) : nullptr;
+
+	int lane1 = seg1 && seg2 ? choose_lane(seg1, node1, seg2) : -1;
+	int lane2 = seg2 && seg3 ? choose_lane(seg2, node2, seg3) : -1;
+
+	if (lane1 < 0) {
+		assert(node0);
+		lane1 = choose_lane_for_building(node0, seg1);
+	}
+	if (lane2 < 0 && node1) {
+		lane2 = choose_lane_for_building(node1, seg2);
+	}
+
+	s.cur_lane  = { seg1, (uint16_t)lane1 };
+	s.next_lane = { seg2, (uint16_t)lane2 };
+	s.cur_node  = node1;
+
+	if (s.cur_lane)  assert(s.cur_lane.lane  >= 0);
+	if (s.next_lane) assert(s.next_lane.lane >= 0);
 
 	if (idx == 0) {
-		auto s_seg = agent->segments.front();
-		auto s_lane = s_seg.clac_lane_info();
+		auto s_lane = s.cur_lane.clac_lane_info();
 		float3 s0 = agent->start->pos;
 		float3 s1 = (s_lane.a + s_lane.b) * 0.5f;
 
 		s.state = AgentState::EXIT_BUILDING;
 		s.next_start_t = 0.5f;
 
-		s.next_agents = &s_seg.agents().list;
+		s.next_agents = &s.cur_lane.agents().list;
 
 		s.bezier = { s0, (s0+s1)*0.5f, s1 };
 		s.pos_z = s0.z;
 	}
 	else if (idx == num_moves-1) {
-		auto e_seg = agent->segments.back();
-		auto e_lane = e_seg.clac_lane_info();
+		auto e_lane = s.cur_lane.clac_lane_info();
 		float3 e0 = (e_lane.a + e_lane.b) * 0.5f;
 		float3 e1 = agent->end->pos;
 
@@ -153,55 +207,38 @@ AgentState _FORCEINLINE get_agent_state (Agent* agent, int idx) {
 		s.pos_z = e1.z;
 	}
 	else {
-		int i = idx - 1;
-				
-		bool last_seg = i/2+1 >= num_seg;
-		assert(i/2 < num_nodes == !last_seg);
+		auto l  = s.cur_lane.clac_lane_info();
+		auto l2 = s.next_lane ? s.next_lane.clac_lane_info() : Line{0,0};
 
-		auto* seg = &agent->segments[i/2];
-		auto l = seg->clac_lane_info();
+		if (s.cur_node) assert(contains(s.cur_node->in_lanes , s.cur_lane ));
+		if (s.cur_node) assert(contains(s.cur_node->out_lanes, s.next_lane));
 
-		auto* node = !last_seg ? agent->nodes[i/2] : nullptr;
-
-		auto* seg2 = !last_seg ? &agent->segments[i/2+1] : nullptr;
-		auto l2 = seg2 ? seg2->clac_lane_info() : Line{0,0};
-
-		s.cur_node = node;
-		s.seg_before_node = seg;
-		s.seg_after_node = seg2;
-
-		//if (node) assert(contains(node->in_lanes, *s.seg_before_node));
-		//if (node) assert(contains(node->out_lanes, *s.seg_after_node));
-
-		if (i % 2 == 0) {
-			assert(seg);
-
-			if (s.seg_before_node && agent->idx == idx)
-				assert(contains(s.seg_before_node->agents().list.list, agent));
+		if ((idx-1) % 2 == 0) {
+			assert(s.cur_lane);
 
 			s.state = AgentState::SEGMENT;
 
-			s.cur_agents = &seg->agents().list;
-			s.next_agents = node ? &node->agents.free : nullptr;
+			s.cur_agents  = &s.cur_lane.agents().list;
+			s.next_agents = s.cur_node ? &s.cur_node->agents.free : nullptr;
 
 
 			// handle enter building
-			if (last_seg)
+			if (!node1)
 				s.end_t = 0.5f;
 
 			s.bezier = { l.a, (l.a+l.b)*0.5f, l.b }; // 3d 2d?
 			s.pos_z = l.a.z;
 		}
 		else {
-			assert(seg && node && seg2);
+			assert(s.cur_lane && s.cur_node && s.next_lane);
 
 			if (agent->idx == idx)
 				assert(contains(s.cur_node->agents.free.list, agent));
 
 			s.state = AgentState::NODE;
 
-			s.cur_agents = &node->agents.free;
-			s.next_agents = &seg2->agents().list;
+			s.cur_agents  = &s.cur_node->agents.free;
+			s.next_agents = &s.next_lane.agents().list;
 
 			s.bezier = calc_curve(l, l2);
 			s.pos_z = l.a.z;
@@ -612,14 +649,14 @@ void update_node (App& app, Node* node) {
 			if (dist > 10.0f) break;
 
 			//auto s = get_agent_state_only_conn(agent, agent->idx);
-			if (!agent->state.seg_before_node || !agent->state.seg_after_node)
+			if (!agent->state.cur_lane || !agent->state.next_lane)
 				continue;
 
 			NodeAgent a;
 			a.agent = agent;
 			a.node_idx = agent->idx+1;
 
-			a.conn.conn = { *agent->state.seg_before_node, *agent->state.seg_after_node };
+			a.conn.conn = { agent->state.cur_lane, agent->state.next_lane };
 			auto bez = calc_curve(a.conn.conn.a.clac_lane_info(), a.conn.conn.b.clac_lane_info());
 			a.conn.bez_len = bez.approx_len(COLLISION_STEPS);
 			
@@ -765,11 +802,11 @@ float calc_car_accel (float base_accel, float target_speed, float cur_speed) {
 float get_cur_speed_limit (Agent* agent) {
 	auto state = agent->state.state;
 	if (state == AgentState::SEGMENT) {
-		return agent->state.seg_before_node->seg->layout->speed_limit;
+		return agent->state.cur_lane.seg->layout->speed_limit;
 	}
 	else if (state == AgentState::NODE) {
-		float a = agent->state.seg_before_node->seg->layout->speed_limit;
-		float b = agent->state.seg_after_node ->seg->layout->speed_limit;
+		float a = agent->state.cur_lane .seg->layout->speed_limit;
+		float b = agent->state.next_lane.seg->layout->speed_limit;
 		return min(a, b); // TODO: ??
 	}
 	else {

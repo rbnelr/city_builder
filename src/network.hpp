@@ -45,8 +45,8 @@ inline Bezier3 calc_curve (Line const& l0, Line const& l1) {
 }
 
 struct SegLane {
-	Segment* seg;
-	uint16_t lane;
+	Segment* seg = nullptr;
+	uint16_t lane = (uint16_t)-1;
 
 	inline bool operator== (SegLane const& r) const {
 		return seg == r.seg && lane == r.lane;
@@ -54,6 +54,8 @@ struct SegLane {
 	inline bool operator!= (SegLane const& r) const {
 		return seg != r.seg || lane != r.lane;
 	}
+
+	operator bool () const { return seg != nullptr; }
 	
 	Line clac_lane_info (float shift=0) const;
 
@@ -161,9 +163,9 @@ struct AgentState {
 	network::AgentList<Agent*>* cur_agents = nullptr;
 	network::AgentList<Agent*>* next_agents = nullptr;
 
-	network::Node* cur_node = nullptr;
-	network::SegLane* seg_before_node = nullptr; // current segment
-	network::SegLane* seg_after_node = nullptr;  // next segment
+	network::SegLane cur_lane = {}; // always valid
+	network::Node*   cur_node = nullptr; // valid if != null
+	network::SegLane next_lane = {}; // only valid if cur_node != null
 };
 
 struct Agent {
@@ -174,8 +176,7 @@ struct Agent {
 	float bez_t = 0;
 	//float rear_t = 0; // only approximately correct
 	
-	std::vector<Node*>   nodes;
-	std::vector<SegLane> segments;
+	std::vector<Segment*> path;
 
 	Building* start = nullptr;
 	Building* end   = nullptr;
@@ -247,7 +248,7 @@ struct Node {
 	bool     _visited;
 
 	Node*    _pred;
-	SegLane  _pred_seg;
+	Segment* _pred_seg;
 
 	NodeAgents agents;
 	
@@ -411,6 +412,27 @@ inline void calc_default_allowed_turns (Node& node) {
 		}
 	}
 }
+inline AllowedTurns classify_turn (Node* node, Segment* in, Segment* out) {
+	// TODO: store dir for seg end and start point?
+
+	float2 in_dir = in->clac_seg_vecs().forw; // dir: node_a -> node_b
+	if (in->node_a == node) in_dir = -in_dir;
+
+	float2 out_dir = out->clac_seg_vecs().forw;
+	if (out->node_a != node) out_dir = -out_dir;
+
+	float d_forw  = dot(out_dir, in_dir);
+	float d_right = dot(out_dir, rotate90(-in_dir));
+
+	// TODO: track uturns?
+	if (d_forw > abs(d_right)) return ALLOWED_STRAIGHT;
+	else if (d_right < 0.0f)   return ALLOWED_RIGHT;
+	else                       return ALLOWED_LEFT;
+}
+inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, AllowedTurns allowed) {
+	return (classify_turn(node, in, out) & allowed) != 0;
+}
+
 inline void Node::update_cached () {
 	for (auto* seg : segments) {
 		int dir = this == seg->node_a ? 0 : 1; // 0: segment points 'away' from this node

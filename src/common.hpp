@@ -64,7 +64,6 @@
 
 #include "engine/kisslib/string.hpp"
 #include "engine/kisslib/file_io.hpp"
-#include "engine/kisslib/circular_buffer.hpp"
 #include "engine/kisslib/macros.hpp"
 #include "engine/kisslib/random.hpp"
 #include "engine/kisslib/raw_array.hpp"

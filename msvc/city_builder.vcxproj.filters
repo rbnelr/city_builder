@@ -175,9 +175,6 @@
     <ClInclude Include="..\src\engine\kisslib\read_directory.hpp">
       <Filter>engine\kisslib</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\engine\kisslib\running_average.hpp">
-      <Filter>engine\kisslib</Filter>
-    </ClInclude>
     <ClInclude Include="..\src\engine\kisslib\serialization.hpp">
       <Filter>engine\kisslib</Filter>
     </ClInclude>

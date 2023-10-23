@@ -286,7 +286,10 @@ struct Segment { // better name? Keep Path and call path Route?
 	RoadLayout::Lane& get_lane_layout (Lane* lane) {
 		return layout->lanes[lane - &lanes[0]];
 	}
-
+	
+	Node* get_other_node (Node* node) {
+		return node_a == node ? node_b : node_a;
+	}
 	LaneDir get_dir_to_node (Node* node) {
 		return node_b == node ? DIR_FORWARD : DIR_BACKWARD;
 	}

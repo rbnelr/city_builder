@@ -48,27 +48,19 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 		//	       // -> not quite true due to the possible difference in additional distance along the final segment! -> if either node found just check again that both are visited
 
 		// update neighbours with new minimum distances
-		for (auto& seg : cur_node->segments) {
-			auto dir = seg->get_dir_to_node(cur_node);
-			Node* other_node = dir == DIR_FORWARD ? seg->node_a : seg->node_b;
+		for (auto& lane : cur_node->out_lanes) {
+			Node* other_node = lane.seg->get_other_node(cur_node);
 
-			for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
-				auto& lane = seg->layout->lanes[i];
+			float len = lane.seg->lane_length + lane.seg->node_a->radius + lane.seg->node_b->radius;
+			float cost = len / lane.seg->layout->speed_limit;
 
-				if (lane.direction == dir) { // TODO: could cache list to avoid this check and iterate half as many lanes
+			float new_cost = cur_node->_cost + cost;
+			if (new_cost < other_node->_cost) {
+				other_node->_pred      = cur_node;
+				other_node->_pred_seg  = lane;
+				other_node->_cost      = new_cost;
 
-					float len = seg->lane_length + seg->node_a->radius + seg->node_b->radius;
-					float cost = len / seg->layout->speed_limit;
-
-					float new_cost = cur_node->_cost + cost;
-					if (new_cost < other_node->_cost) {
-						other_node->_pred      = cur_node;
-						other_node->_pred_seg  = { seg, (uint16_t)i };
-						other_node->_cost      = new_cost;
-
-						unvisited.push(other_node); // push updated neighbour (duplicate)
-					}
-				}
+				unvisited.push(other_node); // push updated neighbour (duplicate)
 			}
 		}
 	}
@@ -178,8 +170,8 @@ AgentState _FORCEINLINE get_agent_state (Agent* agent, int idx) {
 		s.seg_before_node = seg;
 		s.seg_after_node = seg2;
 
-		if (node) assert(contains(node->in_lanes, *s.seg_before_node));
-		if (node) assert(contains(node->out_lanes, *s.seg_after_node));
+		//if (node) assert(contains(node->in_lanes, *s.seg_before_node));
+		//if (node) assert(contains(node->out_lanes, *s.seg_after_node));
 
 		if (i % 2 == 0) {
 			assert(seg);

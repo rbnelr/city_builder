@@ -260,7 +260,6 @@
     <ClInclude Include="..\src\engine\kisslib\random.hpp" />
     <ClInclude Include="..\src\engine\kisslib\raw_array.hpp" />
     <ClInclude Include="..\src\engine\kisslib\read_directory.hpp" />
-    <ClInclude Include="..\src\engine\kisslib\running_average.hpp" />
     <ClInclude Include="..\src\engine\kisslib\serialization.hpp" />
     <ClInclude Include="..\src\engine\kisslib\stb_image.hpp" />
     <ClInclude Include="..\src\engine\kisslib\stb_image_write.hpp" />

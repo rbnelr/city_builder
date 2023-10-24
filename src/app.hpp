@@ -307,8 +307,8 @@ struct App : public Engine {
 				return net.nodes[y * (grid_n+1) + x].get();
 			};
 			
-			auto* small_road  = assets.road_layouts[0].get();
-			auto* medium_road = assets.road_layouts[1].get();
+			auto* small_road  = assets.networks[0].get();
+			auto* medium_road = assets.networks[1].get();
 			
 			float2 spacing = float2(60, 60);
 
@@ -328,7 +328,7 @@ struct App : public Engine {
 				net.nodes[y * (grid_n+1) + x] = std::make_unique<Node>(Node{pos, node_r});
 			}
 			
-			auto create_segment = [&] (RoadLayout* layout, Node* a, Node* b) {
+			auto create_segment = [&] (NetworkAsset* layout, Node* a, Node* b) {
 				assert(a && b && a != b);
 
 				auto* seg = net.segments.emplace_back(std::make_unique<Segment>(Segment{

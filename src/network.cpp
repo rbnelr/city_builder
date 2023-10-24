@@ -29,8 +29,8 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 	//  (ie. don't allow crossing the road middle)
 	{ // handle the two start nodes
 		// pretend start point is at center of start segment for now
-		start->node_a->_cost = start->lane_length / 0.5f / start->layout->speed_limit;
-		start->node_b->_cost = start->lane_length / 0.5f / start->layout->speed_limit;
+		start->node_a->_cost = start->lane_length / 0.5f / start->asset->speed_limit;
+		start->node_b->_cost = start->lane_length / 0.5f / start->asset->speed_limit;
 
 		start->node_a->_pred_seg = start;
 		start->node_b->_pred_seg = start;
@@ -69,7 +69,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 			}
 
 			float len = lane.seg->lane_length + lane.seg->node_a->radius + lane.seg->node_b->radius;
-			float cost = len / lane.seg->layout->speed_limit;
+			float cost = len / lane.seg->asset->speed_limit;
 
 			float new_cost = cur_node->_cost + cost;
 			if (new_cost < other_node->_cost) {
@@ -802,11 +802,11 @@ float calc_car_accel (float base_accel, float target_speed, float cur_speed) {
 float get_cur_speed_limit (Agent* agent) {
 	auto state = agent->state.state;
 	if (state == AgentState::SEGMENT) {
-		return agent->state.cur_lane.seg->layout->speed_limit;
+		return agent->state.cur_lane.seg->asset->speed_limit;
 	}
 	else if (state == AgentState::NODE) {
-		float a = agent->state.cur_lane .seg->layout->speed_limit;
-		float b = agent->state.next_lane.seg->layout->speed_limit;
+		float a = agent->state.cur_lane .seg->asset->speed_limit;
+		float b = agent->state.next_lane.seg->asset->speed_limit;
 		return min(a, b); // TODO: ??
 	}
 	else {

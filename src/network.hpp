@@ -272,7 +272,7 @@ struct Lane {
 
 // Segments are oriented from a -> b, such that the 'forward' lanes go from a->b and reverse lanes from b->a
 struct Segment { // better name? Keep Path and call path Route?
-	RoadLayout* layout;
+	NetworkAsset* asset;
 	Node* node_a;
 	Node* node_b;
 
@@ -281,24 +281,24 @@ struct Segment { // better name? Keep Path and call path Route?
 
 	std::vector<Lane> lanes;
 
-	Lane& get_lane (RoadLayout::Lane* layout_lane) {
-		return lanes[layout_lane - &layout->lanes[0]];
+	Lane& get_lane (NetworkAsset::Lane* layout_lane) {
+		return lanes[layout_lane - &asset->lanes[0]];
 	}
-	RoadLayout::Lane& get_lane_layout (Lane* lane) {
-		return layout->lanes[lane - &lanes[0]];
+	NetworkAsset::Lane& get_lane_layout (Lane* lane) {
+		return asset->lanes[lane - &lanes[0]];
 	}
 	
 	Node* get_other_node (Node* node) {
 		return node_a == node ? node_b : node_a;
 	}
 	LaneDir get_dir_to_node (Node* node) {
-		return node_b == node ? DIR_FORWARD : DIR_BACKWARD;
+		return node_b == node ? LaneDir::FORWARD : LaneDir::BACKWARD;
 	}
 
 	void update_cached () {
 		lane_length = distance(node_a->pos, node_b->pos) - (node_a->radius + node_b->radius);
 
-		lanes.resize(layout->lanes.size());
+		lanes.resize(asset->lanes.size());
 	}
 		
 	// Segment direction vectors
@@ -315,16 +315,16 @@ struct Segment { // better name? Keep Path and call path Route?
 inline Line SegLane::clac_lane_info (float shift) const {
 	auto v = seg->clac_seg_vecs();
 
-	auto& l = seg->layout->lanes[lane];
+	auto& l = seg->asset->lanes[lane];
 
 	float2 seg_right  = v.right;
-	float2 lane_right = l.direction == 0 ? v.right : -v.right;
+	float2 lane_right = l.direction == LaneDir::FORWARD ? v.right : -v.right;
 
 	float3 a = seg->node_a->pos + float3(seg_right * l.shift + lane_right * shift + v.forw * seg->node_a->radius, 0);
 	float3 b = seg->node_b->pos + float3(seg_right * l.shift + lane_right * shift - v.forw * seg->node_b->radius, 0);
 
-	if (l.direction == 0) return { a, b };
-	else                  return { b, a };
+	if (l.direction == LaneDir::FORWARD) return { a, b };
+	else                                 return { b, a };
 }
 
 inline LaneAgents& SegLane::agents () const {
@@ -360,7 +360,7 @@ struct Metrics {
 	void imgui () {
 		if (!ImGui::TreeNodeEx("Metrics", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
-		flow_plot.imgui_display("speed", 0.0f, 1.0f);
+		flow_plot.imgui_display("avg_flow", 0.0f, 1.0f);
 
 		ImGui::TreePop();
 	}
@@ -397,7 +397,7 @@ inline void calc_default_allowed_turns (Node& node) {
 
 		auto dir = in_lane.seg->get_dir_to_node(&node);
 
-		int count = in_lane.seg->layout->lanes_in_dir[dir];
+		int count = in_lane.seg->asset->num_lanes_in_dir(dir);
 		int idx   = in_lane.seg->get_lane_layout(&lane).order;
 
 		if (count == 1) {
@@ -434,11 +434,22 @@ inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, AllowedTurns
 }
 
 inline void Node::update_cached () {
-	for (auto* seg : segments) {
-		int dir = this == seg->node_a ? 0 : 1; // 0: segment points 'away' from this node
+	auto get_seg_angle = [] (Node* node, Segment* a) {
+		Node* other = a->get_other_node(node);
+		float2 dir = other->pos - node->pos;
+		return atan2f(dir.y, dir.x);
+	};
+	std::sort(segments.begin(), segments.end(), [&] (Segment* l, Segment* r) {
+		float ang_l = get_seg_angle(this, l);
+		float ang_r = get_seg_angle(this, r);
+		return ang_l < ang_r;
+	});
 
-		for (int i=0; i<(int)seg->layout->lanes.size(); ++i) {
-			auto& lane = seg->layout->lanes[i];
+	for (auto* seg : segments) {
+		LaneDir dir = this == seg->node_a ? LaneDir::FORWARD : LaneDir::BACKWARD; // 0: segment points 'away' from this node
+
+		for (int i=0; i<(int)seg->asset->lanes.size(); ++i) {
+			auto& lane = seg->asset->lanes[i];
 
 			auto& vec = lane.direction == dir ? out_lanes : in_lanes;
 			vec.push_back(SegLane{ seg, (uint16_t)i });

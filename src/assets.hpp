@@ -79,6 +79,7 @@ struct AssetMesh {
 		aabb.hi -= center;
 	}
 	
+	// needed so we can later load from json because json lib does not handle contructing from json
 	AssetMesh () {}
 
 	AssetMesh (const char* filename) {
@@ -87,44 +88,79 @@ struct AssetMesh {
 	}
 };
 
-enum LaneDir : uint8_t {
-	DIR_FORWARD = 0,
-	DIR_BACKWARD = 1,
+enum class LaneDir : uint8_t {
+	FORWARD = 0,
+	BACKWARD = 1,
 };
+NLOHMANN_JSON_SERIALIZE_ENUM(LaneDir, { { LaneDir::FORWARD, "FORWARD" }, { LaneDir::BACKWARD, "BACKWARD" } })
 
-struct RoadLayout { // TODO: name?
-	SERIALIZE(RoadLayout, width, lanes)
+enum class LineMarkingType {
+	LINE = 0,
+	STRIPED = 1,
+};
+NLOHMANN_JSON_SERIALIZE_ENUM(LineMarkingType, { { LineMarkingType::LINE, "LINE" }, { LineMarkingType::STRIPED, "STRIPED" } })
+
+struct NetworkAsset {
+	friend SERIALIZE_TO_JSON(NetworkAsset)   { SERIALIZE_TO_JSON_EXPAND(  name, filename, width, lanes, line_markings, sidewalkL, sidewalkR, speed_limit) }
+	friend SERIALIZE_FROM_JSON(NetworkAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, width, lanes, line_markings, sidewalkL, sidewalkR, speed_limit)
+		//t.mesh = { prints("%s.fbx", t.filename.c_str()).c_str() };
+
+		t.update_cached();
+	}
 
 	struct Lane {
 		SERIALIZE(Lane, shift, width, direction)
 
-		float shift;
-		float width;
-		LaneDir direction;
+		float shift = 0;
+		float width = 3;
+		LaneDir direction = LaneDir::FORWARD;
 		// agent types (cars, trams, pedestrian etc.)
-
+		
+		// This is stupid
+		// TODO: just sort lanes beforehand and return subsets as span?
 		int order; // left to right lane index in direction
 	};
-	
-	std::string name;
 
-	float width;
+	struct LineMarking {
+		SERIALIZE(LineMarking, type, shift, scale)
+
+		LineMarkingType type = LineMarkingType::LINE;
+		float2 shift = 0;
+		float2 scale = 1;
+	};
+	
+	std::string name = "<unnamed>";
+	std::string filename;
+
+	float width = 16;
+
 	// for now: (RHD) outer forward, inner forward, ..., outer reverse, inner reverse
 	// ie. sorted from left to right per direction
 	// (relevant for pathing)
 	std::vector<Lane> lanes;
 
-	float speed_limit;
+	std::vector<LineMarking> line_markings;
+
+	float sidewalkL = -6;
+	float sidewalkR = +6;
 
 
-	int lanes_in_dir[2];
+	float speed_limit = 40 / KPH_PER_MS;
+
+	// TODO: return list of all lanes in dir, how? span?
+	// I just wish I had generator functions...
+	int _lanes_in_dir[2];
+	int num_lanes_in_dir (LaneDir dir) {
+		return _lanes_in_dir[(int)dir];
+	}
+
 
 	void update_cached () {
-		lanes_in_dir[DIR_FORWARD] = 0;
-		lanes_in_dir[DIR_BACKWARD] = 0;
+		_lanes_in_dir[(int)LaneDir::FORWARD] = 0;
+		_lanes_in_dir[(int)LaneDir::BACKWARD] = 0;
 
 		for (auto& lane : lanes) {
-			int& idx = lanes_in_dir[lane.direction];
+			int& idx = _lanes_in_dir[(int)lane.direction];
 			lane.order = idx;
 			idx++;
 		}
@@ -136,6 +172,7 @@ struct RoadLayout { // TODO: name?
 		changed = ImGui::InputText("name", &name) || changed;
 
 		changed = ImGui::DragFloat("width", &width, 0.1f) || changed;
+
 		changed = imgui_edit_vector("lanes", lanes, [] (Lane& l) {
 			bool changed = ImGui::DragFloat("shift", &l.shift, 0.1f);
 			changed = ImGui::DragFloat("width", &l.width, 0.1f) || changed;
@@ -147,6 +184,19 @@ struct RoadLayout { // TODO: name?
 			return changed;
 		}) || changed;
 
+		changed = imgui_edit_vector("line_markings", line_markings, [] (LineMarking& l) {
+			bool changed = ImGui::Combo("type", (int*)&l.type, "LINE\0STRIPED", 2);
+			changed = ImGui::DragFloat2("shift", &l.shift.x, 0.1f) || changed;
+			changed = ImGui::DragFloat2("scale", &l.scale.x, 0.1f) || changed;
+			return changed;
+		}) || changed;
+
+		//changed = ImGui::Checkbox("has_sidewalk", &has_sidewalk) || changed;
+		//if (has_sidewalk) {
+			changed = ImGui::DragFloat("sidewalkL", &sidewalkL, 0.1f) || changed;
+			changed = ImGui::DragFloat("sidewalkR", &sidewalkR, 0.1f) || changed;
+		//}
+
 		changed = (settings, "speed_limit", &speed_limit, 0, 200/KPH_PER_MS) || changed;
 
 		if (changed) update_cached();
@@ -156,42 +206,56 @@ struct RoadLayout { // TODO: name?
 
 // seperate into lists instead?
 // Or maybe give buildings sub-buildings of certain types (maybe even track individual homes/workplaces?
-enum BuildingType {
-	BT_RESIDENTIAL,
-	BT_COMMERCIAL
+enum class BuildingType {
+	RESIDENTIAL,
+	COMMERCIAL
 };
-NLOHMANN_JSON_SERIALIZE_ENUM(BuildingType, { { BT_RESIDENTIAL, "residential" }, { BT_COMMERCIAL, "commercial" } })
+NLOHMANN_JSON_SERIALIZE_ENUM(BuildingType, { { BuildingType::RESIDENTIAL, "RESIDENTIAL" }, { BuildingType::COMMERCIAL, "COMMERCIAL" } })
 
 struct BuildingAsset {
-	friend SERIALIZE_TO_JSON(BuildingAsset) { SERIALIZE_TO_JSON_EXPAND(name, type, citizens, size) };
+	friend SERIALIZE_TO_JSON(BuildingAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, type, citizens, size) }
+	friend SERIALIZE_FROM_JSON(BuildingAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, type, citizens, size)
+		t.mesh = { t.filename.c_str() };
+	}
 
 	std::string name = "<unnamed>";
+	std::string filename;
 
-	BuildingType type = BT_RESIDENTIAL;
+	BuildingType type = BuildingType::RESIDENTIAL;
 	int citizens = 10;
 
 	float3 size = 16;
+	
 	AssetMesh<BasicVertex> mesh;
+
+	bool imgui (Settings& settings) {
+		bool changed = false;
+
+		changed = ImGui::InputText("name", &name) || changed;
+		
+		changed = ImGui::Combo("type", (int*)&type, "RESIDENTIAL\0COMMERCIAL", 2) || changed;
+		changed = ImGui::DragInt("citizens", &citizens, 0.1f) || changed;
+
+		changed = ImGui::DragFloat3("size", &size.x, 0.1f) || changed;
+
+		return changed;
+	}
 };
 struct CarAsset {
+	friend SERIALIZE_TO_JSON(CarAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename) }
+	friend SERIALIZE_FROM_JSON(CarAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename)
+		t.mesh = { t.filename.c_str() };
+	}
+
+	std::string name = "<unnamed>";
+	std::string filename;
+
 	AssetMesh<BasicVertex> mesh;
 };
 
 struct Assets {
-	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(buildings); }
-	friend SERIALIZE_FROM_JSON(Assets) {
-		t.buildings = Collection<BuildingAsset>();
-
-		if (j.contains("buildings")) {
-			for (auto& build : j.at("buildings")) {
-				std::string    name     = build["name"];
-				BuildingType   type     = build["type"];
-				int            citizens = build["citizens"];
-				float3         size     = build["size"];
-				t.buildings.emplace_back(std::make_unique<BuildingAsset>(BuildingAsset{ name, type, citizens, size, prints("buildings/%s.fbx", name.c_str()).c_str() }));
-			}
-		}
-
+	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(networks, buildings, cars) }
+	friend SERIALIZE_FROM_JSON(Assets) { SERIALIZE_FROM_JSON_EXPAND(networks, buildings, cars)
 		t.assets_reloaded = true;
 	}
 
@@ -200,45 +264,24 @@ struct Assets {
 	// use a vector of pointers for now, asset pointers stay valid on edit, but need ordered data for gpu-side data
 	template <typename T>
 	using Collection = std::vector< std::unique_ptr<T> >;
-
-	Collection<BuildingAsset> buildings;
-	Collection<CarAsset> cars;
 	
-	Collection<RoadLayout> road_layouts;
+	Collection<NetworkAsset>  networks;
+	Collection<BuildingAsset> buildings;
+	Collection<CarAsset>      cars;
 	
 	Assets () {
-		road_layouts.push_back(std::make_unique<RoadLayout>(RoadLayout{
-			"small road",
-			9, {
-				{ +1.4f, 2.6f, DIR_FORWARD },
-				{ -1.4f, 2.6f, DIR_BACKWARD }
-			},
-			30 / KPH_PER_MS,
-		}));
-		road_layouts.push_back(std::make_unique<RoadLayout>(RoadLayout{
-			"medium road",
-			16, {
-				{ +4.5f, 2.8f, DIR_FORWARD },
-				{ +1.5f, 2.8f, DIR_FORWARD },
-				{ -4.5f, 2.8f, DIR_BACKWARD },
-				{ -1.5f, 2.8f, DIR_BACKWARD },
-			},
-			50 / KPH_PER_MS,
-		}));
 
-		cars.push_back(std::make_unique<CarAsset>(CarAsset{
-			"cars/kei0.fbx"
-		}));
-
-		for (auto& l : road_layouts)
-			l->update_cached();
 	}
 
 	void imgui (Settings& settings) {
 		if (!ImGui::TreeNode("Assets")) return;
-
-		imgui_edit_vector("road_layouts", road_layouts, [&] (std::unique_ptr<RoadLayout>& layout) {
-			layout->imgui(settings);
+		
+		imgui_edit_vector("networks", networks, [&] (std::unique_ptr<NetworkAsset>& network) {
+			network->imgui(settings);
+			return false;
+		});
+		imgui_edit_vector("buildings", buildings, [&] (std::unique_ptr<BuildingAsset>& building) {
+			building->imgui(settings);
 			return false;
 		});
 

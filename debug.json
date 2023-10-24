@@ -1,14 +1,14 @@
 {
 	"cam": {
 		"orbit_pos": [
-			359.6268005371094,
-			291.2957458496094,
+			520.8824462890625,
+			398.3805236816406,
 			0.0
 		],
-		"zoom_target": -8.75,
+		"zoom_target": -5.5,
 		"rot_aer": [
-			0.005576372146606445,
-			-0.9341006875038147,
+			1.3690321445465088,
+			-0.5466400980949402,
 			0.0
 		],
 		"vfov": 0.8726646304130554,
@@ -16,10 +16,111 @@
 		"clip_far": 10000.0
 	},
 	"assets": {
+		"networks": [
+			{
+				"name": "small road",
+				"filename": "",
+				"width": 9.0,
+				"lanes": [
+					{
+						"shift": 1.399999976158142,
+						"width": 2.5999999046325684,
+						"direction": "FORWARD"
+					},
+					{
+						"shift": -1.399999976158142,
+						"width": 2.5999999046325684,
+						"direction": "BACKWARD"
+					}
+				],
+				"line_markings": [
+					{
+						"type": "LINE",
+						"shift": [
+							0.0,
+							0.0
+						],
+						"scale": [
+							0.5,
+							2.0
+						]
+					}
+				],
+				"sidewalkL": -2.799999952316284,
+				"sidewalkR": 2.799999952316284,
+				"speed_limit": 8.333333969116211
+			},
+			{
+				"name": "medium road",
+				"filename": "",
+				"width": 18.0,
+				"lanes": [
+					{
+						"shift": 4.5,
+						"width": 2.799999952316284,
+						"direction": "FORWARD"
+					},
+					{
+						"shift": 1.5,
+						"width": 2.799999952316284,
+						"direction": "FORWARD"
+					},
+					{
+						"shift": -4.5,
+						"width": 2.799999952316284,
+						"direction": "BACKWARD"
+					},
+					{
+						"shift": -1.5,
+						"width": 2.799999952316284,
+						"direction": "BACKWARD"
+					}
+				],
+				"line_markings": [
+					{
+						"type": "STRIPED",
+						"shift": [
+							-3.0,
+							0.0
+						],
+						"scale": [
+							0.5,
+							2.0
+						]
+					},
+					{
+						"type": "LINE",
+						"shift": [
+							0.0,
+							0.0
+						],
+						"scale": [
+							0.5,
+							2.0
+						]
+					},
+					{
+						"type": "STRIPED",
+						"shift": [
+							3.0,
+							0.0
+						],
+						"scale": [
+							0.5,
+							2.0
+						]
+					}
+				],
+				"sidewalkL": -6.0,
+				"sidewalkR": 6.0,
+				"speed_limit": 13.88888931274414
+			}
+		],
 		"buildings": [
 			{
 				"name": "house",
-				"type": "residential",
+				"filename": "buildings/house.fbx",
+				"type": "RESIDENTIAL",
 				"citizens": 3,
 				"size": [
 					16.0,
@@ -29,13 +130,20 @@
 			},
 			{
 				"name": "urban_mixed_use",
-				"type": "commercial",
+				"filename": "buildings/urban_mixed_use.fbx",
+				"type": "RESIDENTIAL",
 				"citizens": 20,
 				"size": [
 					16.0,
 					16.0,
 					16.0
 				]
+			}
+		],
+		"cars": [
+			{
+				"name": "kei0",
+				"filename": "cars/kei0.fbx"
 			}
 		]
 	}

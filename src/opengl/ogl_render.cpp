@@ -35,8 +35,24 @@ struct Mesh {
 		render::shapes::push_quad_indices<IDX_T>(indices, idx+0u, idx+1u, idx+2u, idx+3u);
 	}
 
-	static constexpr GLenum GL_IDX_T = get_gl_idx_type<IDX_T>();
 
+	void _FORCEINLINE push_tri (VERT_T const& a, VERT_T const& b, VERT_T const& c) {
+		//assert(verticies.size() < (IDX_T)-1)
+		IDX_T idx = (IDX_T)verticies.size();
+		
+		auto* pv = push_back(verticies, 3);
+		pv[0] = a;
+		pv[1] = b;
+		pv[2] = c;
+		
+		auto* pi = push_back(indices, 3);
+		pi[0] = idx+0u;
+		pi[1] = idx+1u;
+		pi[2] = idx+2u;
+	}
+
+	static constexpr GLenum GL_IDX_T = get_gl_idx_type<IDX_T>();
+	
 	void stream_draw (VertexBufferI& vbo) {
 		vbo.stream(verticies, indices);
 		
@@ -62,6 +78,11 @@ struct Textures {
 
 	Texture2D house_diffuse = load_texture<srgb8>("house_diffuse", "buildings/house.png");
 	Texture2D car_diffuse = load_texture<srgb8>("car_diffuse", "cars/car.png");
+	
+	Texture2DArray lines = load_texture_array<srgba8>("lane_arrows", {
+		"misc/line.png",
+		"misc/stripe.png",
+	});
 
 	Texture2DArray turn_arrows = load_texture_array<srgba8>("lane_arrows", {
 		"misc/turn_arrow_R.png",
@@ -71,6 +92,21 @@ struct Textures {
 		"misc/turn_arrow_LR.png",
 		"misc/turn_arrow_LS.png",
 		"misc/turn_arrow_LSR.png",
+	});
+
+	Texture2DArray surfaces_color = load_texture_array<srgba8>("surfaces_color", {
+		//"misc/street/Asphalt_001_COLOR.jpg",
+		//"misc/street/Asphalt_002_COLOR.jpg",
+		//"misc/street/Asphalt_004_COLOR.jpg",
+		"misc/street/pebbled_asphalt_albedo.png",
+		"misc/street/Flooring_Stone_001_COLOR.png",
+	});
+	Texture2DArray surfaces_normal = load_texture_array<srgba8>("surfaces_normal", {
+		//"misc/street/Asphalt_001_NORM.jpg",
+		//"misc/street/Asphalt_002_NORM.jpg",
+		//"misc/street/Asphalt_004_NORM.jpg",
+		"misc/street/pebbled_asphalt_Normal-ogl.png",
+		"misc/street/Flooring_Stone_001_NRM.png",
 	});
 
 	template <typename T>
@@ -172,14 +208,13 @@ struct DecalRenderer {
 			ATTRIB(FLT, Vertex, tex_id),
 		)
 	};
-
-	VertexBufferI vbo = vertex_bufferI<Vertex>("DecalRenderer.Vertex");
 	
-	Mesh<Vertex, uint32_t> mesh;
-
 	// TODO: instance this
 	
-	void render (StateManager& state, Textures& texs) {
+	Mesh<DecalRenderer::Vertex, uint32_t> mesh;
+	VertexBufferI vbo = vertex_bufferI<Vertex>("DecalRenderer.vbo");
+	
+	void render (StateManager& state, Textures& texs, Texture2DArray& tex) {
 		ZoneScoped;
 		OGL_TRACE("DecalRenderer");
 
@@ -187,14 +222,19 @@ struct DecalRenderer {
 			glUseProgram(shad->prog);
 
 			state.bind_textures(shad, {
-				{ "turn_arrows", texs.turn_arrows, texs.sampler_normal }
+				{ "tex", tex, texs.sampler_normal }
 			});
 
 			PipelineState s;
+			s.depth_test   = true;
+			s.depth_write  = false;
 			s.blend_enable = true;
 			state.set(s);
 
-			mesh.stream_draw(vbo);
+			if (mesh.indices.size() > 0) {
+				glBindVertexArray(vbo.vao);
+				glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_INT, (void*)0);
+			}
 		}
 
 		glBindVertexArray(0);
@@ -708,24 +748,342 @@ struct EntityRenderer {
 	}
 };
 
-struct NetworkMesh {
+struct NetworkRenderer {
 	struct Vertex {
 		float3 pos;
+		float3 norm;
 		//float2 uv;
 		float tex_id;
-		float4 col;
+		//float4 col;
 
 		VERTEX_CONFIG(
 			ATTRIB(FLT3, Vertex, pos),
+			ATTRIB(FLT3, Vertex, norm),
 			ATTRIB(FLT , Vertex, tex_id),
-			ATTRIB(FLT4, Vertex, col),
 		)
 	};
 
-	Mesh<Vertex> mesh;
+	Mesh<Vertex, uint32_t> mesh;
 
-	void remesh (App& app) {
+	DecalRenderer line_renderer;
+	DecalRenderer turn_arrow_renderer;
+
+	// Could be instanced in smart ways, by computing beziers on gpu
+	// for ex. for road segments: store 'cross section' per road time and extrude it along bezier during instancing on gpu
+	// for intersections: greatly depends on how intersecyions will look, but could probably do similar
+	// but if properly lodded (via chunks probably) should run fine and unlikely take too much vram
+
+	template <typename T, typename IT>
+	static void extrude (Mesh<T, IT>& mesh, network::Segment& seg, T const& l, T const& r) {
+		float3 dir = seg.node_b->pos - seg.node_a->pos;
+
+		float3 forw = normalizesafe(dir);
+		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
+		float3 up = cross(right, forw);
 		
+		float3 a = seg.node_a->pos + forw * seg.node_a->radius;
+		float3 b = seg.node_b->pos - forw * seg.node_b->radius;
+		
+		T l0 = l;
+		T l1 = l;
+		T r0 = r;
+		T r1 = r;
+
+		l0.pos = a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+		l1.pos = b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+
+		r0.pos = a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+		r1.pos = b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+
+		mesh.push_quad(l0, r0, r1, l1);
+	}
+	template <typename T, typename IT>
+	static void extrude_line (Mesh<T, IT>& mesh, network::Segment& seg, T const& l, T const& r, float2 scale) {
+		float3 dir = seg.node_b->pos - seg.node_a->pos;
+
+		float len = length(dir);
+		float3 forw = normalizesafe(dir);
+		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
+		float3 up = cross(right, forw);
+		
+		float3 a = seg.node_a->pos + forw * seg.node_a->radius;
+		float3 b = seg.node_b->pos - forw * seg.node_b->radius;
+		
+		float uv_len = len / (scale.y*4); // *4 since 1-4 aspect ratio
+		uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
+
+		T l0 = l;
+		T l1 = l;
+		T r0 = r;
+		T r1 = r;
+
+		l0.pos = a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+		r0.pos = a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+
+		l1.pos = b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+		r1.pos = b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+
+		l0.uv = float2(0,0);
+		r0.uv = float2(1,0);
+		l1.uv = float2(0,uv_len);
+		r1.uv = float2(1,uv_len);
+
+		mesh.push_quad(l0, r0, r1, l1);
+	}
+
+	float sidewalk_h = 0.2f;
+
+	float asphalt_tex_id = 0;
+	float sidewalk_tex_id = 1;
+
+	// TODO: change to properly use indicies please!
+	void mesh_segment (network::Segment& seg) {
+		float width = seg.asset->width;
+
+		Vertex sL0 = { float3(         -width*0.5f, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
+		Vertex sL1 = { float3(seg.asset->sidewalkL, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
+		Vertex sL2 = { float3(seg.asset->sidewalkL, 0,          0), float3(0,0,1), sidewalk_tex_id };
+		
+		Vertex r0 = { float3(seg.asset->sidewalkL, 0, 0), float3(0,0,1), asphalt_tex_id };
+		Vertex r1 = { float3(seg.asset->sidewalkR, 0, 0), float3(0,0,1), asphalt_tex_id };
+		
+		Vertex sR0 = { float3(seg.asset->sidewalkR, 0,          0), float3(0,0,1), sidewalk_tex_id };
+		Vertex sR1 = { float3(seg.asset->sidewalkR, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
+		Vertex sR2 = { float3(         +width*0.5f, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
+
+		extrude(mesh, seg, sL0, sL1);
+		extrude(mesh, seg, sL1, sL2);
+		extrude(mesh, seg, r0, r1);
+		extrude(mesh, seg, sR0, sR1);
+		extrude(mesh, seg, sR1, sR2);
+		
+		for (auto& line : seg.asset->line_markings) {
+			float tex_id = (float)(int)line.type;
+			
+			float width = line.scale.x;
+
+			DecalRenderer::Vertex sL0 = { float3(line.shift.x - width*0.5f, 0, 0.02f), float2(0,0), 1, tex_id };
+			DecalRenderer::Vertex sL1 = { float3(line.shift.x + width*0.5f, 0, 0.02f), float2(0,1), 1, tex_id };
+			
+			extrude_line(line_renderer.mesh, seg, sL0, sL1, line.scale);
+		}
+	}
+
+	void mesh_node (network::Node* node) {
+		struct SegInfo {
+			float2 pos;
+			float2 forw;
+			float2 right;
+			NetworkAsset* asset;
+		};
+		auto calc_seg_info = [&] (network::Segment* seg) {
+			SegInfo info;
+
+			auto* other = seg->get_other_node(node);
+			info.forw = normalizesafe(node->pos - other->pos);
+			info.right = rotate90(-info.forw);
+
+			info.pos = node->pos - info.forw * node->radius;
+
+			info.asset = seg->asset;
+
+			return info;
+		};
+
+		auto get_bez = [] (float2 a, float2 a_dir, float2 b, float2 b_dir) {
+			network::Line la = { float3(a - a_dir,0), float3(a,0) };
+			network::Line lb = { float3(b,0), float3(b - b_dir,0) };
+			return network::calc_curve(la, lb);
+		};
+
+		int count = (int)node->segments.size();
+		for (int i=0; i<count; ++i) {
+			//network::Segment* l = node->segments[((i-1)+count) % count];
+			network::Segment* s = node->segments[i];
+			network::Segment* r = node->segments[(i+1) % count];
+
+			auto si = calc_seg_info(s);
+			auto ri = calc_seg_info(r);
+
+			float2 sidewalk_Ra0  = si.pos + si.right * si.asset->sidewalkR;
+			float2 sidewalk_Rb0  = si.pos + si.right * si.asset->width*0.5f;
+
+			float2 sidewalk_Ra1  = ri.pos + ri.right * ri.asset->sidewalkL;
+			float2 sidewalk_Rb1  = ri.pos - ri.right * ri.asset->width*0.5f;
+
+			float2 sidewalk_RR = ri.pos + ri.right * ri.asset->sidewalkL;
+
+			auto sidewalk_Ra = get_bez(sidewalk_Ra0, si.forw, sidewalk_Ra1, ri.forw);
+			auto sidewalk_Rb = get_bez(sidewalk_Rb0, si.forw, sidewalk_Rb1, ri.forw);
+
+			//sidewalk_Ra.dbg_draw(app.view, 0, 4, lrgba(1,0,0,1));
+			//sidewalk_Rb.dbg_draw(app.view, 0, 4, lrgba(0,1,0,1));
+
+			float2 segL = si.pos + si.right * si.asset->sidewalkL;
+			float2 segR = si.pos + si.right * si.asset->sidewalkR;
+
+			Vertex nodeCenter = { node->pos + float3(0, 0, 0.01f), float3(0,0,1), asphalt_tex_id };
+			Vertex seg0 = { float3(segL, 0.01f), float3(0,0,1), asphalt_tex_id };
+			Vertex seg1 = { float3(segR, 0.01f), float3(0,0,1), asphalt_tex_id };
+
+			int res = 4;
+			for (int i=0; i<res; ++i) {
+				float t0 = (float)(i  ) / (res);
+				float t1 = (float)(i+1) / (res);
+
+				float2 a0 = sidewalk_Ra.eval(t0).pos;
+				float2 a1 = sidewalk_Ra.eval(t1).pos;
+				float2 b0 = sidewalk_Rb.eval(t0).pos;
+				float2 b1 = sidewalk_Rb.eval(t1).pos;
+
+				Vertex sa0g = { float3(a0,            + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				Vertex sa1g = { float3(a1,            + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				Vertex sa0  = { float3(a0, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				Vertex sa1  = { float3(a1, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				Vertex sb0  = { float3(b0, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				Vertex sb1  = { float3(b1, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				
+				Vertex sa0gA = { float3(a0,            + 0.01f), float3(0,0,1), asphalt_tex_id };
+				Vertex sa1gA = { float3(a1,            + 0.01f), float3(0,0,1), asphalt_tex_id };
+
+				mesh.push_quad(sa0, sb0, sb1, sa1);
+				mesh.push_quad(sa0g, sa0, sa1, sa1g);
+				mesh.push_tri(sa0gA, sa1gA, nodeCenter);
+			}
+
+			mesh.push_tri(seg0, seg1, nodeCenter);
+		}
+	}
+
+	void push_decal_rect (float3 center, float3 forw, float3 right, float4 col, int tex_id) {
+		turn_arrow_renderer.mesh.push_quad(
+			{ center -forw -right, float2(0,0), col, (float)tex_id },
+			{ center -forw +right, float2(1,0), col, (float)tex_id },
+			{ center +forw +right, float2(1,1), col, (float)tex_id },
+			{ center +forw -right, float2(0,1), col, (float)tex_id }
+		);
+	}
+	
+	void remesh (network::Network& net) {
+		mesh.clear();
+		line_renderer.mesh.clear();
+		turn_arrow_renderer.mesh.clear();
+		
+		for (auto& seg : net.segments) {
+			mesh_segment(*seg);
+
+			auto v = seg->clac_seg_vecs();
+			
+			float f0=+INF, f1=-INF, r0=+INF, r1=-INF; // first and last forward and reverse lane shifts
+
+			for (int i=0; i<(int)seg->lanes.size(); ++i) {
+				auto& lane = seg->lanes[i];
+				network::SegLane seg_lane = { seg.get(), (uint16_t)i };
+
+				auto li = seg_lane.clac_lane_info();
+				// TODO: this will be a bezier
+				float3 forw = normalizesafe(li.b - li.a);
+				float3 right = float3(rotate90(-forw), 0);
+
+				{ // push turn arrow
+					float2 size = float2(1, 1.5f) * seg->asset->lanes[i].width;
+
+					float3 pos = li.b;
+					pos -= forw * size.y*0.5f;
+					pos.z += 0.02f;
+
+					int decal_id = (int)lane.allowed_turns - 1;
+					push_decal_rect(pos, forw*size.y*0.5f, right*size.x*0.5f, 1, decal_id);
+				}
+
+				auto& lane_asset = seg->asset->lanes[i];
+				if (lane_asset.direction == LaneDir::FORWARD) {
+					f0 = min(f0, lane_asset.shift - lane_asset.width*0.5f);
+					f1 = max(f1, lane_asset.shift + lane_asset.width*0.5f);
+				}
+				else {
+					r0 = min(r0, lane_asset.shift - lane_asset.width*0.5f);
+					r1 = max(r1, lane_asset.shift + lane_asset.width*0.5f);
+				}
+			}
+
+			// stop lines
+			float tex_id = (float)(int)LineMarkingType::LINE;
+			if (f0 < INF) {
+				float width = 0.25f;
+
+				float3 base = seg->node_b->pos + float3(- v.forw * seg->node_b->radius, 0.02f);
+
+				float3 a = base + float3(+ v.forw * width*0.5f + v.right * f0, 0);
+				float3 b = base + float3(- v.forw * width*0.5f + v.right * f0, 0);
+				float3 c = base + float3(- v.forw * width*0.5f + v.right * f1, 0);
+				float3 d = base + float3(+ v.forw * width*0.5f + v.right * f1, 0);
+
+				line_renderer.mesh.push_quad(
+					{ a, float2(0,0), 1, (float)tex_id },
+					{ b, float2(1,0), 1, (float)tex_id },
+					{ c, float2(1,1), 1, (float)tex_id },
+					{ d, float2(0,1), 1, (float)tex_id }
+				);
+			}
+			if (r0 < INF) {
+				float width = 0.5f;
+
+				float3 base = seg->node_a->pos + float3(+ v.forw * seg->node_a->radius, 0.02f);
+
+				float3 a = base + float3(+ v.forw * width*0.5f + v.right * r0, 0);
+				float3 b = base + float3(- v.forw * width*0.5f + v.right * r0, 0);
+				float3 c = base + float3(- v.forw * width*0.5f + v.right * r1, 0);
+				float3 d = base + float3(+ v.forw * width*0.5f + v.right * r1, 0);
+
+				line_renderer.mesh.push_quad(
+					{ a, float2(0,0), 1, (float)tex_id },
+					{ b, float2(1,0), 1, (float)tex_id },
+					{ c, float2(1,1), 1, (float)tex_id },
+					{ d, float2(0,1), 1, (float)tex_id }
+				);
+			}
+		}
+
+		for (auto& node : net.nodes) {
+			mesh_node(node.get());
+		}
+
+		vbo.upload(mesh.verticies, mesh.indices);
+		line_renderer.vbo.upload(line_renderer.mesh.verticies, line_renderer.mesh.indices);
+		turn_arrow_renderer.vbo.upload(turn_arrow_renderer.mesh.verticies, turn_arrow_renderer.mesh.indices);
+	}
+
+	
+	Shader* shad  = g_shaders.compile("networks");
+
+	VertexBufferI vbo = vertex_bufferI<Vertex>("NetworkRenderer.vbo");
+
+	void render (StateManager& state, Textures& texs) {
+		OGL_TRACE("NetworkRenderer");
+		ZoneScoped;
+
+		if (shad->prog) {
+			glUseProgram(shad->prog);
+
+			state.bind_textures(shad, {
+				{ "surfaces_color",  texs.surfaces_color, texs.sampler_normal },
+				{ "surfaces_normal", texs.surfaces_normal, texs.sampler_normal },
+			});
+
+			PipelineState s;
+			state.set(s);
+
+			if (mesh.indices.size() > 0) {
+				glBindVertexArray(vbo.vao);
+				glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_INT, (void*)0);
+			}
+		}
+
+		glBindVertexArray(0);
+
+		line_renderer.render(state, texs, texs.lines);
+		turn_arrow_renderer.render(state, texs, texs.turn_arrows);
 	}
 };
 
@@ -761,7 +1119,7 @@ struct OglRenderer : public Renderer {
 
 		float4 sun_dir;
 
-		lrgb sun_col = lrgb(0.8f, 0.77f, 0.4f) * 2.0f;
+		lrgb sun_col = lrgb(1.0f, 0.95f, 0.8f);
 		float _pad0;
 
 		lrgb sky_col = srgb(210, 230, 255);
@@ -821,9 +1179,10 @@ struct OglRenderer : public Renderer {
 	Lighting lighting;
 
 	TerrainRenderer terrain_renderer;
+	
+	NetworkRenderer network_renderer;
 
-	TriRenderer network_renderer;
-	DecalRenderer decal_rederer;
+	//TriRenderer _network_renderer;
 
 	SkyboxRenderer skybox;
 	
@@ -832,83 +1191,23 @@ struct OglRenderer : public Renderer {
 	EntityRenderer<BuildingAsset> building_renderer;
 	EntityRenderer<CarAsset> car_renderer;
 
-	
-	void push_path (float2 forw, float2 right, float3 a, float3 b, float width, float2 offsets, float shift, float z, float4 col) {
-		float2 half_width = width*0.5f;
-
-		float3 a0 = a + float3(right * (shift - half_width) + forw * offsets[0], z);
-		float3 a1 = a + float3(right * (shift + half_width) + forw * offsets[0], z);
-		float3 b0 = b + float3(right * (shift - half_width) - forw * offsets[1], z);
-		float3 b1 = b + float3(right * (shift + half_width) - forw * offsets[1], z);
-
-		network_renderer.mesh.push_quad(
-			{ a0, float2(0,0), col },
-			{ a1, float2(1,0), col },
-			{ b1, float2(1,1), col },
-			{ b0, float2(0,1), col }
-		);
-	}
-	void push_node (float3 center, float radius, float z, float4 col) {
-		network_renderer.mesh.push_quad(
-			{ center + float3(-radius, -radius, z), float2(0,0), col },
-			{ center + float3(+radius, -radius, z), float2(1,0), col },
-			{ center + float3(+radius, +radius, z), float2(1,1), col },
-			{ center + float3(-radius, +radius, z), float2(0,1), col }
-		);
-	}
-
-	void push_decal (float3 center, float3 forw, float3 right, float4 col, int tex_id) {
-		decal_rederer.mesh.push_quad(
-			{ center -forw -right, float2(0,0), col, (float)tex_id },
-			{ center -forw +right, float2(1,0), col, (float)tex_id },
-			{ center +forw +right, float2(1,1), col, (float)tex_id },
-			{ center +forw -right, float2(0,1), col, (float)tex_id }
-		);
-	}
-
-	void remesh_network (network::Network& net) {
-
-		network_renderer.mesh.clear();
-		decal_rederer.mesh.clear();
-
-		for (auto& seg : net.segments) {
-			auto v = seg->clac_seg_vecs();
-			float width = seg->layout->width;
-			float2 offsets = { seg->node_a->radius, seg->node_b->radius };
-
-			push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos, width, offsets, 0.0f, 0.01f, lrgba(lrgb(0.05f), 1.0f));
-			
-			int i=0;
-			for (auto& lane : seg->lanes) {
-				auto& lane_layout = seg->get_lane_layout(&lane);
-
-				network::SegLane seg_lane = { seg.get(), (uint16_t)i++ };
-				auto li = seg_lane.clac_lane_info();
-				// TODO: this will be a bezier
-				float3 forw = normalizesafe(li.b - li.a);
-				float3 right = float3(rotate90(-forw), 0);
-
-				push_path(v.forw, v.right, seg->node_a->pos, seg->node_b->pos,
-					lane_layout.width, offsets, lane_layout.shift, 0.02f, lrgba(lrgb(0.08f), 1.0f));
-				
-				{ // push turn arrow
-					float2 size = float2(1, 1.5f) * lane_layout.width;
-
-					float3 pos = li.b;
-					pos -= forw * size.y*0.5f;
-					pos.z += 0.03f;
-
-					int decal_id = (int)lane.allowed_turns - 1;
-					push_decal(pos, forw*size.y*0.5f, right*size.x*0.5f, 1, decal_id);
-				}
-			}
-
-		}
-
-		for (auto& node : net.nodes) {
-			push_node(node->pos, node->radius, 0.01f, lrgba(lrgb(0.05f), 1.0f));
-		}
-	}
+	//void push_node (float3 center, float radius, float z, float4 col) {
+	//	_network_renderer.mesh.push_quad(
+	//		{ center + float3(-radius, -radius, z), float2(0,0), col },
+	//		{ center + float3(+radius, -radius, z), float2(1,0), col },
+	//		{ center + float3(+radius, +radius, z), float2(1,1), col },
+	//		{ center + float3(-radius, +radius, z), float2(0,1), col }
+	//	);
+	//}
+	//
+	//void remesh_network (network::Network& net) {
+	//
+	//	_network_renderer.mesh.clear();
+	//
+	//	for (auto& node : net.nodes) {
+	//		push_node(node->pos, node->radius, 0.01f, lrgba(lrgb(0.05f), 1.0f));
+	//	}
+	//}
 
 	Textures textures;
 
@@ -929,7 +1228,8 @@ struct OglRenderer : public Renderer {
 		}
 
 		if (app.entities.buildings_changed) {
-			remesh_network(app.net);
+			//remesh_network(app.net);
+			network_renderer.remesh(app.net);
 
 			building_renderer.update_instances([&] () {
 				std::vector<decltype(building_renderer)::MeshInstance> instances;
@@ -1008,8 +1308,8 @@ struct OglRenderer : public Renderer {
 			building_renderer.draw(state, textures, textures.house_diffuse);
 			car_renderer.draw(state, textures, textures.car_diffuse);
 
+			//_network_renderer.render(state, textures);
 			network_renderer.render(state, textures);
-			decal_rederer.render(state, textures);
 
 			skybox.render_skybox_last(state, textures);
 		}

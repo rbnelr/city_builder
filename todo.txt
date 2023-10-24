@@ -1,7 +1,12 @@
--Wno-unused-variable -Wno-misleading-indentation -Wno-unused-but-set-variable 
- 
- Fixed deadlocks from blocked cars through blocked bool
 
+>> clang no warn
+-Wno-unused-variable -Wno-misleading-indentation -Wno-unused-but-set-variable 
+
+>> Free Textures:
+https://Ko-fi.com/home/coffeeshop?txid=38b5da22-2bc7-4156-a3f6-5113eed07958&mode=public&img=ogiboughtsomeone
+https://drive.google.com/drive/folders/101Ff98vBAZMg20ZSqnNnqMhb2MuglhDC
+ 
+ 
 TODO:
  
 > add heuristic for stopped penalty

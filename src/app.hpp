@@ -278,7 +278,7 @@ struct App : public Engine {
 			|| assets.assets_reloaded;
 		buildings = ImGui::Button("Respawn buildings") || buildings;
 
-		bool citizens  = ImGui::SliderInt("citizens_n",  &citizens_n,  1, 1000)
+		bool citizens  = ImGui::SliderInt("citizens_n",  &citizens_n,  0, 1000)
 			|| assets.assets_reloaded || buildings;
 		citizens = ImGui::Button("Respawn Citizens") || citizens;
 

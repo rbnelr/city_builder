@@ -50,3 +50,10 @@ TODO:
 > A* instead of Dijkstra?
  -> does it make the code less flexible? probably not
  -> profile
+ 
+> crosswalks (graphics)
+> middle nodes
+> end nodes
+
+> swtich to bezier 4 for s curves, uturn etc.
+ -> test if bezier 4 can emulate bezier 3 or if hybrid system is better

@@ -4,6 +4,37 @@
 
 namespace ogl {
 
+struct Gbuffer {
+	Texture2D pos    = {};
+	Texture2D col    = {};
+	Texture2D norm   = {};
+
+	void resize (int2 size) {
+		glActiveTexture(GL_TEXTURE0);
+
+		pos    = {"gbuf.pos"    }; // only depth -> reconstruct position
+		col    = {"gbuf.col"    }; // rgb albedo (emmisive is simply very bright)
+		norm   = {"gbuf.norm"   }; // rgb normal
+
+		glBindTexture(GL_TEXTURE_2D, pos);
+		glTexStorage2D (GL_TEXTURE_2D , 1, GL_R32F, size.x, size.y);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+
+		glBindTexture(GL_TEXTURE_2D, col);
+		glTexStorage2D (GL_TEXTURE_2D , 1, GL_RGB16F, size.x, size.y);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+
+		glBindTexture(GL_TEXTURE_2D, norm);
+		glTexStorage2D (GL_TEXTURE_2D, 1, GL_RGB16F, size.x, size.y);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+};
+
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
 	SERIALIZE(RenderPasses, renderscale, exposure)

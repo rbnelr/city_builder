@@ -926,7 +926,7 @@ struct NetworkRenderer {
 			Vertex seg0 = { float3(segL, 0.01f), float3(0,0,1), asphalt_tex_id };
 			Vertex seg1 = { float3(segR, 0.01f), float3(0,0,1), asphalt_tex_id };
 
-			int res = 4;
+			int res = 10;
 			for (int i=0; i<res; ++i) {
 				float t0 = (float)(i  ) / (res);
 				float t1 = (float)(i+1) / (res);
@@ -1182,32 +1182,12 @@ struct OglRenderer : public Renderer {
 	
 	NetworkRenderer network_renderer;
 
-	//TriRenderer _network_renderer;
-
 	SkyboxRenderer skybox;
 	
 	LOD_Func lod;
 
 	EntityRenderer<BuildingAsset> building_renderer;
 	EntityRenderer<CarAsset> car_renderer;
-
-	//void push_node (float3 center, float radius, float z, float4 col) {
-	//	_network_renderer.mesh.push_quad(
-	//		{ center + float3(-radius, -radius, z), float2(0,0), col },
-	//		{ center + float3(+radius, -radius, z), float2(1,0), col },
-	//		{ center + float3(+radius, +radius, z), float2(1,1), col },
-	//		{ center + float3(-radius, +radius, z), float2(0,1), col }
-	//	);
-	//}
-	//
-	//void remesh_network (network::Network& net) {
-	//
-	//	_network_renderer.mesh.clear();
-	//
-	//	for (auto& node : net.nodes) {
-	//		push_node(node->pos, node->radius, 0.01f, lrgba(lrgb(0.05f), 1.0f));
-	//	}
-	//}
 
 	Textures textures;
 
@@ -1308,7 +1288,6 @@ struct OglRenderer : public Renderer {
 			building_renderer.draw(state, textures, textures.house_diffuse);
 			car_renderer.draw(state, textures, textures.car_diffuse);
 
-			//_network_renderer.render(state, textures);
 			network_renderer.render(state, textures);
 
 			skybox.render_skybox_last(state, textures);

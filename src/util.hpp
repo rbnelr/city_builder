@@ -41,7 +41,7 @@ inline bool imgui_slider_speed (Settings& settings, const char* label, float* sp
 
 	bool ret = ImGui::SliderFloat(
 		prints("%s (%s)",label, SpeedUnitStr[settings.speed_unit]).c_str(),
-		speed, min, max);
+		&val, min, max);
 
 	*speed = val / fac;
 	return ret;

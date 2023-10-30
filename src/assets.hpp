@@ -197,7 +197,7 @@ struct NetworkAsset {
 			changed = ImGui::DragFloat("sidewalkR", &sidewalkR, 0.1f) || changed;
 		//}
 
-		changed = (settings, "speed_limit", &speed_limit, 0, 200/KPH_PER_MS) || changed;
+		changed = imgui_slider_speed(settings, "speed_limit", &speed_limit, 0, 200/KPH_PER_MS) || changed;
 
 		if (changed) update_cached();
 		return changed;

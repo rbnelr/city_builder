@@ -4,15 +4,60 @@
 
 namespace ogl {
 
+struct GbufRenderbuffer {
+
+	GLuint fbo = 0;
+	GLuint col = 0;
+	GLuint depth = 0;
+
+	GbufRenderbuffer () {} // not allocated
+	GbufRenderbuffer (std::string_view label, int2 size, GLenum color_format, GLenum depth_format=0, bool color_mips=false, int msaa=1) { // allocate
+		GLint levels = color_mips ? calc_mipmaps(size.x, size.y) : 1;
+
+		std::string lbl = (std::string)label;
+
+		col = make_msaa_tex(lbl+".col", size, color_format, levels, msaa);
+
+		if (depth_format)
+			depth = make_msaa_tex(lbl+".depth", size, depth_format, levels, msaa);
+
+		GLenum msaa_targ = msaa > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
+
+		{
+			glGenFramebuffers(1, &fbo);
+			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+			OGL_DBG_LABEL(GL_FRAMEBUFFER, fbo, lbl+".fbo");
+
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, msaa_targ, col, 0);
+			if (depth)
+				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, msaa_targ, depth, 0);
+
+			GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+			if (status != GL_FRAMEBUFFER_COMPLETE) {
+				fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
+			}
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glBindTexture(msaa_targ, 0);
+	}
+	~GbufRenderbuffer () {
+		if (fbo)   glDeleteFramebuffers(1, &fbo);
+		if (col)   glDeleteTextures(1, &col);
+		if (depth) glDeleteTextures(1, &depth);
+	}
+};
+
+
 struct Gbuffer {
-	Texture2D pos    = {};
-	Texture2D col    = {};
-	Texture2D norm   = {};
+	GLuint pos    = 0;
+	GLuint col    = 0;
+	GLuint norm   = 0;
 
 	void resize (int2 size) {
 		glActiveTexture(GL_TEXTURE0);
 
-		pos    = {"gbuf.pos"    }; // only depth -> reconstruct position
+		pos    = Renderbuffer("gbuf.pos", size, GL_R32F, }; // only depth -> reconstruct position
 		col    = {"gbuf.col"    }; // rgb albedo (emmisive is simply very bright)
 		norm   = {"gbuf.norm"   }; // rgb normal
 

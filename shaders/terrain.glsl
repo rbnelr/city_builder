@@ -74,16 +74,9 @@ VS2FS
 #ifdef _FRAGMENT
 	uniform sampler2D terrain_diffuse;
 	
-	out vec4 frag_col;
+	GBUF_OUT
 	void main () {
-		vec3 col = texture(terrain_diffuse, v.pos.xy / 32.0).rgb;
-		//vec3 col = vec3(0.5);
-		
-		col *= simple_lighting(v.pos, v.normal);
-		col = apply_fog(col, v.pos);
-		
-		//col = overlay_grid(col, v.pos);
-		
-		frag_col = vec4(col, 1.0);
+		frag_col = vec4(texture(terrain_diffuse, v.pos.xy / 32.0).rgb, 1.0);
+		frag_norm = vec4(v.normal, 1.0);
 	}
 #endif

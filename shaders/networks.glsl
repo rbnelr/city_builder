@@ -26,6 +26,7 @@ VS2FS
 	
 	vec3 normal_map (vec2 uv) {
 		vec3 norm_sampl = texture(surfaces_normal, vec3(uv, v.tex_id)).rgb;
+		//norm_sampl *= 4.0;
 		norm_sampl = pow(norm_sampl, vec3(1.0/2.2)); // is this right?
 		
 		norm_sampl.y = 1.0 - norm_sampl.y;
@@ -39,15 +40,14 @@ VS2FS
 		return mat * norm_sampl;
 	}
 	
-	out vec4 frag_col;
+	GBUF_OUT
 	void main () {
 		vec2 uv = v.pos.xy * 0.5;
 		vec3 norm = normal_map(uv);
-		vec4 col = texture(surfaces_color, vec3(uv, v.tex_id));
+		vec3 col = texture(surfaces_color, vec3(uv, v.tex_id)).rgb;
 		//col = vec4(1,1,1,1);
 		
-		col.rgb *= simple_lighting(v.pos, norm);
-		
-		frag_col = col;
+		frag_col = vec4(col, 1.0);
+		frag_norm = vec4(norm, 1.0);
 	}
 #endif

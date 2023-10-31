@@ -63,95 +63,6 @@ struct Mesh {
 	}
 };
 
-struct Textures {
-	// TODO: need some sort of texture array or atlas system! (atlas sucks tho)
-	// -> find out if there is a modern system for single drawcall many textures (of differing sizes)
-	// because it would be wierd that you can go all out with indirect instanced drawing, yet have to adjust your textures
-	// just to be able to use them with one texture array
-
-	//Texture2D clouds = load_texture<srgba8>("clouds", "textures/clouds.png");
-	Texture2D grid = load_texture<srgba8>("grid", "misc/grid2.png");
-	Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
-	
-	//Sampler sampler_heightmap = sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
-	Sampler sampler_normal = sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
-
-	Texture2D house_diffuse = load_texture<srgb8>("house_diffuse", "buildings/house.png");
-	Texture2D car_diffuse = load_texture<srgb8>("car_diffuse", "cars/car.png");
-	
-	Texture2DArray lines = load_texture_array<srgba8>("lane_arrows", {
-		"misc/line.png",
-		"misc/stripe.png",
-	});
-
-	Texture2DArray turn_arrows = load_texture_array<srgba8>("lane_arrows", {
-		"misc/turn_arrow_R.png",
-		"misc/turn_arrow_S.png",
-		"misc/turn_arrow_SR.png",
-		"misc/turn_arrow_L.png",
-		"misc/turn_arrow_LR.png",
-		"misc/turn_arrow_LS.png",
-		"misc/turn_arrow_LSR.png",
-	});
-
-	Texture2DArray surfaces_color = load_texture_array<srgba8>("surfaces_color", {
-		//"misc/street/Asphalt_001_COLOR.jpg",
-		//"misc/street/Asphalt_002_COLOR.jpg",
-		//"misc/street/Asphalt_004_COLOR.jpg",
-		"misc/street/pebbled_asphalt_albedo.png",
-		"misc/street/Flooring_Stone_001_COLOR.png",
-	});
-	Texture2DArray surfaces_normal = load_texture_array<srgba8>("surfaces_normal", {
-		//"misc/street/Asphalt_001_NORM.jpg",
-		//"misc/street/Asphalt_002_NORM.jpg",
-		//"misc/street/Asphalt_004_NORM.jpg",
-		"misc/street/pebbled_asphalt_Normal-ogl.png",
-		"misc/street/Flooring_Stone_001_NRM.png",
-	});
-
-	template <typename T>
-	static Texture2D load_texture (std::string_view gl_label, const char* filepath) {
-		Texture2D tex = {gl_label};
-		if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str()))
-			assert(false);
-		return tex;
-	}
-
-	template <typename T>
-	static Texture2DArray load_texture_array (std::string_view gl_label, std::vector<const char*> filepaths) {
-		Texture2DArray tex = {gl_label};
-
-		int count = (int)filepaths.size();
-		int i = 0;
-		int2 size;
-
-		glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
-
-		for (auto path : filepaths) {
-			Image<T> img;
-			if (!Image<T>::load_from_file(prints("assets/%s", path).c_str(), &img)) {
-				fprintf(stderr, "Error! Could not load texture \"%s\"", path);
-				assert(false);
-				continue;
-			}
-
-			if (i == 0) {
-				size = img.size;
-				glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_SRGB8_ALPHA8, size.x, size.y, count, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-			}
-			assert(img.size == size);
-
-			glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0,0,i, size.x, size.y, 1, GL_RGBA, GL_UNSIGNED_BYTE, img.pixels);
-			i++;
-		}
-			
-		glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
-
-		glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-		return tex;
-	}
-};
-
 struct TriRenderer {
 	Shader* shad  = g_shaders.compile("tris");
 
@@ -197,12 +108,14 @@ struct DecalRenderer {
 
 	struct Vertex {
 		float3 pos;
+		float3 norm;
 		float2 uv;
 		float4 col;
 		float  tex_id;
 
 		VERTEX_CONFIG(
 			ATTRIB(FLT3, Vertex, pos),
+			ATTRIB(FLT3, Vertex, norm),
 			ATTRIB(FLT2, Vertex, uv),
 			ATTRIB(FLT4, Vertex, col),
 			ATTRIB(FLT, Vertex, tex_id),
@@ -210,6 +123,9 @@ struct DecalRenderer {
 	};
 	
 	// TODO: instance this
+	// TODO: make box shaped decals with falloff?
+
+	// Decals that simply blend over gbuf color and normal channel
 	
 	Mesh<DecalRenderer::Vertex, uint32_t> mesh;
 	VertexBufferI vbo = vertex_bufferI<Vertex>("DecalRenderer.vbo");
@@ -449,7 +365,7 @@ struct TerrainRenderer {
 			glUseProgram(shad_terrain->prog);
 
 			state.bind_textures(shad_terrain, {
-				{"grid_tex", texs.grid, texs.sampler_normal},
+			//	{"grid_tex", texs.grid, texs.sampler_normal},
 			//	{"clouds", r.textures.clouds, r.textures.sampler_normal},
 			//	{"heightmap", heightmap, r.sampler_heightmap},
 				{"terrain_diffuse", texs.terrain_diffuse, texs.sampler_normal},
@@ -862,8 +778,8 @@ struct NetworkRenderer {
 			
 			float width = line.scale.x;
 
-			DecalRenderer::Vertex sL0 = { float3(line.shift.x - width*0.5f, 0, 0.02f), float2(0,0), 1, tex_id };
-			DecalRenderer::Vertex sL1 = { float3(line.shift.x + width*0.5f, 0, 0.02f), float2(0,1), 1, tex_id };
+			DecalRenderer::Vertex sL0 = { float3(line.shift.x - width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,0), 1, tex_id };
+			DecalRenderer::Vertex sL1 = { float3(line.shift.x + width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,1), 1, tex_id };
 			
 			extrude_line(line_renderer.mesh, seg, sL0, sL1, line.scale);
 		}
@@ -955,12 +871,12 @@ struct NetworkRenderer {
 		}
 	}
 
-	void push_decal_rect (float3 center, float3 forw, float3 right, float4 col, int tex_id) {
+	void push_decal_rect (float3 center, float3 forw, float3 right, float3 norm, float4 col, int tex_id) {
 		turn_arrow_renderer.mesh.push_quad(
-			{ center -forw -right, float2(0,0), col, (float)tex_id },
-			{ center -forw +right, float2(1,0), col, (float)tex_id },
-			{ center +forw +right, float2(1,1), col, (float)tex_id },
-			{ center +forw -right, float2(0,1), col, (float)tex_id }
+			{ center -forw -right, norm, float2(0,0), col, (float)tex_id },
+			{ center -forw +right, norm, float2(1,0), col, (float)tex_id },
+			{ center +forw +right, norm, float2(1,1), col, (float)tex_id },
+			{ center +forw -right, norm, float2(0,1), col, (float)tex_id }
 		);
 	}
 	
@@ -993,7 +909,7 @@ struct NetworkRenderer {
 					pos.z += 0.02f;
 
 					int decal_id = (int)lane.allowed_turns - 1;
-					push_decal_rect(pos, forw*size.y*0.5f, right*size.x*0.5f, 1, decal_id);
+					push_decal_rect(pos, forw*size.y*0.5f, right*size.x*0.5f, float3(0,0,1), 1, decal_id);
 				}
 
 				auto& lane_asset = seg->asset->lanes[i];
@@ -1020,10 +936,10 @@ struct NetworkRenderer {
 				float3 d = base + float3(+ v.forw * width*0.5f + v.right * f1, 0);
 
 				line_renderer.mesh.push_quad(
-					{ a, float2(0,0), 1, (float)tex_id },
-					{ b, float2(1,0), 1, (float)tex_id },
-					{ c, float2(1,1), 1, (float)tex_id },
-					{ d, float2(0,1), 1, (float)tex_id }
+					{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
+					{ b, float3(0,0,1), float2(1,0), 1, (float)tex_id },
+					{ c, float3(0,0,1), float2(1,1), 1, (float)tex_id },
+					{ d, float3(0,0,1), float2(0,1), 1, (float)tex_id }
 				);
 			}
 			if (r0 < INF) {
@@ -1037,10 +953,10 @@ struct NetworkRenderer {
 				float3 d = base + float3(+ v.forw * width*0.5f + v.right * r1, 0);
 
 				line_renderer.mesh.push_quad(
-					{ a, float2(0,0), 1, (float)tex_id },
-					{ b, float2(1,0), 1, (float)tex_id },
-					{ c, float2(1,1), 1, (float)tex_id },
-					{ d, float2(0,1), 1, (float)tex_id }
+					{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
+					{ b, float3(0,0,1), float2(1,0), 1, (float)tex_id },
+					{ c, float3(0,0,1), float2(1,1), 1, (float)tex_id },
+					{ d, float3(0,0,1), float2(0,1), 1, (float)tex_id }
 				);
 			}
 		}
@@ -1279,9 +1195,9 @@ struct OglRenderer : public Renderer {
 
 		passes.update(app.input.window_size);
 
-		passes.begin_primary();
+		passes.begin_geometry_pass();
 		{
-			OGL_TRACE("draw opaque");
+			OGL_TRACE("geometry_pass");
 
 			terrain_renderer.render_terrain(state, textures, app.view);
 		
@@ -1293,17 +1209,21 @@ struct OglRenderer : public Renderer {
 			skybox.render_skybox_last(state, textures);
 		}
 
-		passes.copy_primary_for_distortion();
 		{
-			OGL_TRACE("draw transparent");
+			OGL_TRACE("lighting_pass");
 
-			//terrain_renderer.render_ocean(g, *this);
+			passes.begin_lighting_pass();
 
-			gl_dbgdraw.render(state, g_dbgdraw);
+			passes.fullscreen_lighting_pass(state, textures);
+
+			passes.end_lighting_pass();
 		}
 
 		// 
 		passes.postprocess(state, app.input.window_size);
+
+		gl_dbgdraw.render(state, g_dbgdraw);
+
 		{
 			OGL_TRACE("draw ui");
 		

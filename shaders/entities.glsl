@@ -42,13 +42,9 @@ void main () {
 #ifdef _FRAGMENT
 	uniform sampler2D tex;
 	
-	out vec4 frag_col;
+	GBUF_OUT
 	void main () {
-		vec4 col = texture(tex, v.uv);
-		
-		col.rgb *= simple_lighting(v.world_pos, v.world_normal);
-		col.rgb = apply_fog(col.rgb, v.world_pos);
-		
-		frag_col = col * vec4(v.col, 1.0);
+		frag_col = texture(tex, v.uv) * vec4(v.col, 1.0);
+		frag_norm = vec4(v.world_normal, 1.0);
 	}
 #endif

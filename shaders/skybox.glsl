@@ -18,12 +18,13 @@ VS2FS
 	}
 #endif
 #ifdef _FRAGMENT
-	out vec4 frag_col;
+	GBUF_OUT
 	void main () {
 		vec3 dir = normalize(v.pos); // worldspace dir
 		
 		vec3 col = get_skybox_light(view.cam_pos, dir);
 		col = apply_fog(col, view.cam_pos + dir * 100000.0);
 		frag_col = vec4(col, 1.0);
+		frag_norm = vec4(0,0,0,1);
 	}
 #endif

@@ -8,6 +8,19 @@ https://drive.google.com/drive/folders/101Ff98vBAZMg20ZSqnNnqMhb2MuglhDC
  
  
 TODO:
+
+allow nodes to be non-square
+ -> maybe just give segments arbitray end points like in cs2?
+ -> would still need to limit segment end to not be across node
+ -> add automatic segment end, but allow to move manually
+ 
+add shadows!
+
+add street lights
+ -> props
+ -> deferred point lights
+
+add terrain clipping to roads
  
 > add heuristic for stopped penalty
  

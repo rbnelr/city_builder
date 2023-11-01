@@ -1075,17 +1075,22 @@ struct OglRenderer : public Renderer {
 			Lighting lighting;
 		};
 
-		void set (View3D const& view, Lighting& l) {
-			Common common = {};
-			common.view = view;
-			common.lighting = l;
-			common.lighting.fog_base = l.fog_base / 100;
-			common.lighting.fog_falloff = l.fog_falloff / 100;
-			stream_buffer(GL_UNIFORM_BUFFER, ubo, sizeof(common), &common, GL_STREAM_DRAW);
-
+		void begin () {
 			glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+			glBufferData(GL_UNIFORM_BUFFER, sizeof(Common), nullptr, GL_STREAM_DRAW);
 			glBindBufferBase(GL_UNIFORM_BUFFER, UBO_BINDING, ubo);
 			glBindBuffer(GL_UNIFORM_BUFFER, 0);
+		}
+		void upload (size_t offset, size_t size, void const* data) {
+			glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+			glBufferSubData(GL_UNIFORM_BUFFER, offset, size, data);
+			glBindBuffer(GL_UNIFORM_BUFFER, 0);
+		}
+		void set_lighting (Lighting const& l) {
+			upload(offsetof(Common, lighting), sizeof(l), &l);
+		}
+		void set_view (View3D const& view) {
+			upload(offsetof(Common, view), sizeof(view), &view);
 		}
 	};
 	CommonUniforms common_ubo;
@@ -1117,6 +1122,8 @@ struct OglRenderer : public Renderer {
 	}
 	virtual void end (App& app) {
 		ZoneScoped;
+
+		lighting.sun_dir = float4(app.sun_dir, 0.0);
 
 		if (app.assets.assets_reloaded) {
 			building_renderer.upload_meshes(app.assets.buildings);
@@ -1183,17 +1190,30 @@ struct OglRenderer : public Renderer {
 			}
 
 			{
-				common_ubo.set(app.view, lighting);
-			
+				common_ubo.begin();
+				common_ubo.set_lighting(lighting);
+
 				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, gl_dbgdraw.indirect_vbo);
 
 				gl_dbgdraw.update(app.input);
 			}
 		}
-		
-		lighting.sun_dir = float4(app.sun_dir, 0.0);
 
 		passes.update(app.input.window_size);
+
+		//passes.begin_shadow_pass(app, [&] (View3D const& view) { common_ubo.set_view(view); });
+		//{
+		//	OGL_TRACE("shadow_pass");
+		//
+		//	terrain_renderer.render_terrain(state, textures, app.view);
+		//
+		//	building_renderer.draw(state, textures, textures.house_diffuse);
+		//	car_renderer.draw(state, textures, textures.car_diffuse);
+		//
+		//	network_renderer.render(state, textures);
+		//}
+
+		common_ubo.set_view(app.view);
 
 		passes.begin_geometry_pass();
 		{
@@ -1206,6 +1226,8 @@ struct OglRenderer : public Renderer {
 
 			network_renderer.render(state, textures);
 
+			// TODO: draw during lighting pass?
+			//  how to draw it without depth buffer? -> could use gbuf_normal == vec3(0) as draw condition?
 			skybox.render_skybox_last(state, textures);
 		}
 

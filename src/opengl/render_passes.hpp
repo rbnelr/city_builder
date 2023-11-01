@@ -135,6 +135,67 @@ struct Gbuffer {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 };
+struct DirectionalShadowmap {
+	SERIALIZE(DirectionalShadowmap, shadow_res)
+
+	// No cascades for now
+
+	int shadow_res = 1024;
+	bool changed = true;
+
+	Render_Texture shadow_tex;
+
+	Fbo fbo;
+
+	void resize (int2 size) {
+		glActiveTexture(GL_TEXTURE0);
+
+		shadow_tex = Render_Texture("DirectionalShadowmap", size, GL_DEPTH_COMPONENT16);
+
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		fbo = Fbo("DirectionalShadowmap.fbo");
+		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadow_tex, 0);
+
+		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE) {
+			fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+
+	void imgui () {
+		if (!ImGui::TreeNode("DirectionalShadowmap")) return;
+
+		ImGui::InputInt("shadow_res", &shadow_res);
+		shadow_res = clamp(shadow_res, 1, 1024*16);
+
+		ImGui::TreePop();
+	}
+
+	void update () {
+		if (!changed) return;
+
+		resize(int2(shadow_res,shadow_res));
+	}
+
+	template <typename FUNC>
+	void begin_draw (App& app, FUNC set_view) {
+		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+		glViewport(0, 0, shadow_res, shadow_res);
+
+		glClear(GL_DEPTH_BUFFER_BIT);
+
+		//Camera
+		//
+		//View3D
+		//
+		//set_view();
+	}
+};
 
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
@@ -142,7 +203,8 @@ struct RenderPasses {
 
 	Gbuffer gbuf;
 	Renderbuffer lighting_fbo;
-	
+	DirectionalShadowmap shadowmap;
+
 	render::RenderScale renderscale;
 	
 	Sampler fbo_sampler         = sampler("fbo_sampler", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
@@ -160,6 +222,8 @@ struct RenderPasses {
 	void imgui () {
 		renderscale.imgui(false);
 
+		shadowmap.imgui();
+
 		if (ImGui::TreeNode("Postprocessing")) {
 			ImGui::SliderFloat("exposure", &exposure, 0.02f, 20.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
 			ImGui::TreePop();
@@ -167,10 +231,17 @@ struct RenderPasses {
 	}
 	
 	void update (int2 window_size) {
+		shadowmap.update();
+
 		if (renderscale.update(window_size)) {
 			gbuf.resize(renderscale.size);
 			lighting_fbo = Renderbuffer("lighting_fbo", renderscale.size, GL_RGB16F, true);
 		}
+	}
+
+	template <typename FUNC>
+	void begin_shadow_pass (App& app, FUNC set_view) {
+		shadowmap.begin_draw(app, set_view);
 	}
 	
 	void begin_geometry_pass () {

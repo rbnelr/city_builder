@@ -193,31 +193,16 @@ struct GameCamera {
 		azimuthal_mount(rot_aer, &world2cam_rot, &cam2world_rot);
 
 		float aspect = viewport_size.x / viewport_size.y;
-		float2 frust_size;
-
-		View3D view;
-		// P matrices
-		persp_cam2clip(vfov, aspect, clip_near, clip_far, &view.cam2clip, &view.clip2cam, &frust_size);
-		// V matrices
-		float3 _pos;
+		
+		float3 collided_pos;
 		{
 			float3 _dir = cam2world_rot * float3(0,0,1);
-			_pos = orbit_pos + _dir * calc_orbit_distance();
-			_pos.z = max(_pos.z, 0.01f);
+			collided_pos = orbit_pos + _dir * calc_orbit_distance();
+			collided_pos.z = max(collided_pos.z, 0.01f);
 		}
-		view.world2cam = float4x4(world2cam_rot) * float4x4(translate(-_pos));
-		view.cam2world = float4x4(translate(_pos)) * float4x4(cam2world_rot);
-		// VP inverses
-		view.world2clip = view.cam2clip * view.world2cam;
-		view.clip2world = view.cam2world * view.clip2cam;
-		// misc
-		view.frust_near_size    = frust_size * 2.0f * clip_near;
-		view.clip_near          = clip_near;
-		view.clip_far           = clip_far;
-		view.cam_pos            = _pos;
-		view.aspect_ratio       = aspect;
-		view.viewport_size      = viewport_size;
-		view.inv_viewport_size  = 1.0f / viewport_size;
-		return view;
+		float3x4 world2cam = float3x4(world2cam_rot) * translate(-collided_pos);
+		float3x4 cam2world = translate(collided_pos) * float3x4(cam2world_rot);
+
+		return persp_view(vfov, aspect, clip_near, clip_far, world2cam, cam2world, viewport_size);
 	}
 };

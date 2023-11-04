@@ -157,17 +157,7 @@ struct App : public Engine {
 		ImGui::SameLine();
 		ImGui::Checkbox("View", &view_dbg_cam);
 
-		if (ImGui::TreeNode("Time of Day")) {
-
-			ImGui::SliderAngle("sun_azim", &sun_azim, 0, 360);
-			ImGui::SliderAngle("sun_elev", &sun_elev, -90, 90);
-			ImGui::SliderFloat("day_t", &day_t, 0,1);
-
-			ImGui::SliderFloat("day_speed", &day_speed, 0, 0.25f, "%.3f", ImGuiSliderFlags_Logarithmic);
-			ImGui::Checkbox("day_pause", &day_pause);
-			
-			ImGui::TreePop();
-		}
+		time_of_day.imgui();
 
 		ImGui::Checkbox("sim_paused", &sim_paused);
 		ImGui::SliderFloat("sim_speed", &sim_speed, 0, 10);
@@ -183,12 +173,6 @@ struct App : public Engine {
 	Entities entities;
 	network::Network net;
 
-	float sun_azim = deg(50); // degrees from east, counter clockwise
-	float sun_elev = deg(14);
-	float day_t = 0.6f; // [0,1] -> [0,24] hours
-	float day_speed = 1.0f / 60.0f;
-	bool  day_pause = true;
-
 	GameCamera cam = GameCamera{ float3(8,8,0) * 1024 };
 	View3D view;
 
@@ -196,7 +180,48 @@ struct App : public Engine {
 	bool view_dbg_cam = false;
 	bool dbg_cam_cursor_was_enabled;
 
-	float3 sun_dir;
+	struct TimeOfDay {
+		float sun_azim = deg(50); // degrees from east, counter clockwise
+		float sun_elev = deg(14);
+		float day_t = 0.6f; // [0,1] -> [0,24] hours
+		float day_speed = 1.0f / 60.0f;
+		bool  day_pause = true;
+
+		float3 sun_dir;
+
+		float3x3 sun2world;
+		float3x3 world2sun;
+
+		void imgui () {
+			if (ImGui::TreeNode("Time of Day")) {
+
+				ImGui::SliderAngle("sun_azim", &sun_azim, 0, 360);
+				ImGui::SliderAngle("sun_elev", &sun_elev, -90, 90);
+				ImGui::SliderFloat("day_t", &day_t, 0,1);
+
+				ImGui::SliderFloat("day_speed", &day_speed, 0, 0.25f, "%.3f", ImGuiSliderFlags_Logarithmic);
+				ImGui::Checkbox("day_pause", &day_pause);
+			
+				ImGui::TreePop();
+			}
+		}
+
+		void update (App& app) {
+			if (!day_pause) day_t = wrap(day_t + day_speed * app.input.dt, 1.0f);
+
+			// move ang into [-0.5, +0.5] range to make default sun be from top
+			// (can use sun2world matrix with -Z facing camera to render shadow map, instead of having wierd camera from below)
+			float ang = wrap(day_t - 0.5f, 0.0f, 1.0f) * deg(360);
+
+			// sun rotates from east (+X) to west (-X) -> CW around Y with day_t=0 => midnight, ie sun at -Z
+			
+			sun2world = rotate3_Z(sun_azim) * rotate3_X(sun_elev) * rotate3_Y(-ang);
+			world2sun = rotate3_Y(ang) * rotate3_X(-sun_elev) * rotate3_Z(-sun_azim);
+
+			sun_dir = sun2world * float3(0,0,-1);
+		}
+	};
+	TimeOfDay time_of_day;
 
 	std::unique_ptr<Renderer> renderer = create_ogl_backend();
 
@@ -463,9 +488,8 @@ struct App : public Engine {
 
 		spawn();
 
-		if (!day_pause) day_t = wrap(day_t + day_speed * input.dt, 1.0f);
-		sun_dir = rotate3_Z(sun_azim) * rotate3_X(sun_elev) * rotate3_Y(day_t * deg(360)) * float3(0,0,-1);
-
+		time_of_day.update(*this);
+		
 		view = view_dbg_cam ?
 			dbg_cam.update(input, (float2)input.window_size) :
 			cam.update(input, (float2)input.window_size);

@@ -110,11 +110,11 @@ vec3 depth_to_pos_world (float depth, vec2 screen_uv) {
 uniform sampler2D clouds;
 
 float sun_strength () {
-	float a = map(lighting.sun_dir.z, 0.5, -0.1);
+	float a = map(-lighting.sun_dir.z, 0.5, -0.1);
 	return smoothstep(1.0, 0.0, a);
 }
 vec3 atmos_scattering () {
-	float a = map(lighting.sun_dir.z, 0.5, -0.05);
+	float a = map(-lighting.sun_dir.z, 0.5, -0.05);
 	return vec3(0.0, 0.75, 0.8) * smoothstep(0.0, 1.0, a);
 }
 vec3 horizon (vec3 dir_world) {
@@ -130,7 +130,7 @@ vec3 get_skybox_light (vec3 view_point, vec3 dir_world) {
 	sun *= stren;
 	
 	// sun
-	float d = dot(dir_world, lighting.sun_dir);
+	float d = dot(dir_world, -lighting.sun_dir);
 	
 	const float sz = 500.0;
 	float c = clamp(d * sz - (sz-1.0), 0.0, 1.0);
@@ -153,7 +153,7 @@ vec3 get_skybox_light (vec3 view_point, vec3 dir_world) {
 	//	}
 	//}
 	
-	float bloom_amount = max(dot(dir_world, lighting.sun_dir) - 0.5, 0.0);
+	float bloom_amount = max(dot(dir_world, -lighting.sun_dir) - 0.5, 0.0);
 	col += bloom_amount * sun * 0.3;
 	
 	return col;
@@ -191,7 +191,7 @@ vec3 apply_fog (vec3 pix_col, vec3 pix_pos) {
 	float t = exp(-od);
 	
 	// adjust color to give sun tint like iquilezles
-	float sun_amount = max(dot(ray_cam, lighting.sun_dir), 0.0);
+	float sun_amount = max(dot(ray_cam, -lighting.sun_dir), 0.0);
 	//vec3  col = mix(lighting.fog_col, lighting.sun_col, pow(sun_amount, 8.0) * 0.5);
 	vec3 sun = lighting.sun_col - atmos_scattering();
 	
@@ -215,17 +215,15 @@ float fresnel_roughness (float dotVN, float F0, float roughness) {
 	return F0 + ((max((1.0 - roughness), F0) - F0) * x2 * x2 * x);
 }
 
-vec3 simple_lighting (vec3 pos, vec3 normal) {
+vec3 sun_lighting (vec3 normal, float shadow) {
 	float stren = sun_strength();
 	
 	vec3 sun = lighting.sun_col - atmos_scattering();
 	
-	//vec3 dir = normalize(pos - view.cam_pos);
-	
-	float d = max(dot(lighting.sun_dir, normal), 0.0);
+	float d = max(dot(-lighting.sun_dir, normal), 0.0);
 	vec3 diffuse =
-		(stren        ) * sun * d +
-		(stren + 0.008) * lighting.sky_col*0.3;
+		(stren        ) * sun * vec3(d * shadow) +
+		(stren + 0.008) * lighting.sky_col*0.18;
 	
 	return vec3(diffuse);
 }

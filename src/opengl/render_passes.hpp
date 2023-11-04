@@ -113,8 +113,6 @@ struct Gbuffer {
 		depth  = Render_Texture("gbuf.depth", size, depth_format);
 		col    = Render_Texture("gbuf.col",   size, col_format);
 		norm   = Render_Texture("gbuf.norm",  size, norm_format);
-
-		glBindTexture(GL_TEXTURE_2D, 0);
 		
 		fbo = Fbo("gbuf.fbo");
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -140,24 +138,32 @@ struct DirectionalShadowmap {
 
 	// No cascades for now
 
-	int shadow_res = 1024;
-	bool changed = true;
+	int shadow_res = 2048;
+	bool tex_changed = true;
+
+	float size = 512;
+	float depth_range = 700;
 
 	Render_Texture shadow_tex;
+	
+	Sampler shadow_sampler = sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_BORDER, lrgba(0,0,0,1));
 
 	Fbo fbo;
 
 	void resize (int2 size) {
 		glActiveTexture(GL_TEXTURE0);
 
-		shadow_tex = Render_Texture("DirectionalShadowmap", size, GL_DEPTH_COMPONENT16);
-
-		glBindTexture(GL_TEXTURE_2D, 0);
+		shadow_tex = Render_Texture("DirectionalShadowmap.depth", size, GL_DEPTH_COMPONENT16);
+		
+		glSamplerParameteri(shadow_sampler, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+		glSamplerParameteri(shadow_sampler, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
 
 		fbo = Fbo("DirectionalShadowmap.fbo");
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadow_tex, 0);
+
+		glDrawBuffers(0, nullptr);
 
 		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 		if (status != GL_FRAMEBUFFER_COMPLETE) {
@@ -170,30 +176,44 @@ struct DirectionalShadowmap {
 	void imgui () {
 		if (!ImGui::TreeNode("DirectionalShadowmap")) return;
 
-		ImGui::InputInt("shadow_res", &shadow_res);
+		tex_changed = ImGui::InputInt("shadow_res", &shadow_res) || tex_changed;
 		shadow_res = clamp(shadow_res, 1, 1024*16);
+		
+		ImGui::DragFloat("size", &size, 0.1f, 0, 1024*16);
+		ImGui::DragFloat("depth_range", &depth_range, 0.1f, 0, 1024*16);
 
 		ImGui::TreePop();
 	}
 
 	void update () {
-		if (!changed) return;
+		if (!tex_changed) return;
+		tex_changed = false;
 
 		resize(int2(shadow_res,shadow_res));
 	}
 
+	View3D view;
+
 	template <typename FUNC>
-	void begin_draw (App& app, FUNC set_view) {
+	void begin_draw (App& app, StateManager& state, FUNC set_view) {
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 		glViewport(0, 0, shadow_res, shadow_res);
-
+		
+		PipelineState s;
+		state.set(s);
 		glClear(GL_DEPTH_BUFFER_BIT);
 
-		//Camera
-		//
-		//View3D
-		//
-		//set_view();
+		//float3 center = float3(size * 0.5f, size * 0.5f, 0.0f);
+		float3 center = app.view.cam_pos;
+		center.z = 0; // force shadowmap center to world plane to avoid depth range running out
+		
+		float3x4 world2cam = app.time_of_day.world2sun * translate(-center);
+		float3x4 cam2world = translate(center) * app.time_of_day.sun2world;
+
+		view = ortho_view(size, size, -depth_range*0.5f, +depth_range*0.5f,
+			world2cam, cam2world, (float)shadow_res);
+		
+		set_view(view);
 	}
 };
 
@@ -240,16 +260,20 @@ struct RenderPasses {
 	}
 
 	template <typename FUNC>
-	void begin_shadow_pass (App& app, FUNC set_view) {
-		shadowmap.begin_draw(app, set_view);
+	void begin_shadow_pass (App& app, StateManager& state,FUNC set_view) {
+		shadowmap.begin_draw(app, state, set_view);
 	}
 	
-	void begin_geometry_pass () {
+	void begin_geometry_pass (StateManager& state) {
 		glBindFramebuffer(GL_FRAMEBUFFER, gbuf.fbo);
 		glViewport(0, 0, renderscale.size.x, renderscale.size.y);
+		
+		PipelineState s;
+		state.set(s);
 
 		glClearColor(0.01f, 0.02f, 0.03f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		//glClear(GL_DEPTH_BUFFER_BIT);
 	}
 	
 	void begin_lighting_pass () {
@@ -261,11 +285,16 @@ struct RenderPasses {
 			OGL_TRACE("fullscreen_lighting");
 			
 			glUseProgram(shad_fullscreen_lighting->prog);
+
+			shad_fullscreen_lighting->set_uniform("shadowmap_mat", shadowmap.view.world2clip);
+			shad_fullscreen_lighting->set_uniform("shadowmap_dir", (float3x3)shadowmap.view.cam2world * float3(0,0,-1));
 			
 			state.bind_textures(shad_fullscreen_lighting, {
 				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, fbo_sampler_nearest },
 				{ "gbuf_col",   { GL_TEXTURE_2D, gbuf.col   }, fbo_sampler_nearest },
 				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, fbo_sampler_nearest },
+
+				{ "shadowmap", { GL_TEXTURE_2D, shadowmap.shadow_tex }, shadowmap.shadow_sampler },
 				
 				{"grid_tex", texs.grid, texs.sampler_normal},
 			});

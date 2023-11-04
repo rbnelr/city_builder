@@ -1123,7 +1123,7 @@ struct OglRenderer : public Renderer {
 	virtual void end (App& app) {
 		ZoneScoped;
 
-		lighting.sun_dir = float4(app.sun_dir, 0.0);
+		lighting.sun_dir = float4(app.time_of_day.sun_dir, 0.0);
 
 		if (app.assets.assets_reloaded) {
 			building_renderer.upload_meshes(app.assets.buildings);
@@ -1201,21 +1201,21 @@ struct OglRenderer : public Renderer {
 
 		passes.update(app.input.window_size);
 
-		//passes.begin_shadow_pass(app, [&] (View3D const& view) { common_ubo.set_view(view); });
-		//{
-		//	OGL_TRACE("shadow_pass");
-		//
-		//	terrain_renderer.render_terrain(state, textures, app.view);
-		//
-		//	building_renderer.draw(state, textures, textures.house_diffuse);
-		//	car_renderer.draw(state, textures, textures.car_diffuse);
-		//
-		//	network_renderer.render(state, textures);
-		//}
+		passes.begin_shadow_pass(app, state, [&] (View3D const& view) { common_ubo.set_view(view); });
+		{
+			OGL_TRACE("shadow_pass");
+		
+			terrain_renderer.render_terrain(state, textures, app.view);
+		
+			building_renderer.draw(state, textures, textures.house_diffuse);
+			car_renderer.draw(state, textures, textures.car_diffuse);
+		
+			network_renderer.render(state, textures);
+		}
 
 		common_ubo.set_view(app.view);
 
-		passes.begin_geometry_pass();
+		passes.begin_geometry_pass(state);
 		{
 			OGL_TRACE("geometry_pass");
 

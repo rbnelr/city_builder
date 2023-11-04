@@ -6,15 +6,28 @@
 https://Ko-fi.com/home/coffeeshop?txid=38b5da22-2bc7-4156-a3f6-5113eed07958&mode=public&img=ogiboughtsomeone
 https://drive.google.com/drive/folders/101Ff98vBAZMg20ZSqnNnqMhb2MuglhDC
  
+* Shadows
+ -> add cascaded shadow maps?
+ -> optimize by not drawing decals (unless clipping decal?)
+ -> optimize by actually adding a shadow shader variant for each shader type to avoid fragment shader load for no reason (usually do nothing other than alpha testing where needed)
+ -> optimize drawn lod for cascades? lods matching with gbuffer lods is good,
+     but should at least avoid casting shadows where shadow resolution is low anyway
+	 but need to be careful not to have low lod object shadows appearing on higher res lod
+ -> add blurry shadows for distant casters?
  
 TODO:
+
+> add glossy effect for sun, and point lights
+   add glossyness to gbuffer
+  especially windows should have strong reflections
+> glossy effect should be skybox reflection, either render sky or use clouds skybox,
+   but ideally one where we can slightly simulate the sun being behind the clouds 
 
 allow nodes to be non-square
  -> maybe just give segments arbitray end points like in cs2?
  -> would still need to limit segment end to not be across node
  -> add automatic segment end, but allow to move manually
  
-add shadows!
 
 add street lights
  -> props

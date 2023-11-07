@@ -17,8 +17,9 @@ struct Textures {
 	//Sampler sampler_heightmap = sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
 	Sampler sampler_normal = sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
 
-	Texture2D house_diffuse = load_texture<srgb8>("house_diffuse", "buildings/house.png");
-	Texture2D car_diffuse = load_texture<srgb8>("car_diffuse", "cars/car.png");
+	Texture2D house_diff = load_texture<srgb8>("house_Diff", "buildings/house.png");
+	Texture2D streetlight_diff = load_texture<srgb8>("streetlight_Diff", "props/streetlight_Diff.png");
+	Texture2D car_diff = load_texture<srgb8>("car_Diffe", "cars/car.png");
 	
 	Texture2DArray lines = load_texture_array<srgba8>("lane_arrows", {
 		"misc/line.png",
@@ -134,7 +135,7 @@ struct Gbuffer {
 	}
 };
 struct DirectionalShadowmap {
-	SERIALIZE(DirectionalShadowmap, shadow_res)
+	SERIALIZE(DirectionalShadowmap, shadow_res, size, depth_range, bias_fac_world, bias_max_world)
 
 	// No cascades for now
 
@@ -248,10 +249,56 @@ struct DirectionalShadowmap {
 
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
-	SERIALIZE(RenderPasses, renderscale, exposure)
+	SERIALIZE(RenderPasses, renderscale, shadowmap, exposure)
 
 	Gbuffer gbuf;
-	Renderbuffer lighting_fbo;
+
+	// Need to include gbuf depth buffer in lighting fbo because point light require depth testing (but not depth writing)
+	// at the same time we can't apply defferred point lights to the gbuf itself, since albedo need to stay around, so we need this seperate render target
+	// attaching the existing depth to a second FBO should be the correct solution
+	struct LightingFbo {
+		MOVE_ONLY_CLASS(LightingFbo); // No move implemented for now
+	public:
+
+		static void swap (LightingFbo& l, LightingFbo& r) {
+			std::swap(l.fbo, r.fbo);
+			std::swap(l.col, r.col);
+		}
+
+		Fbo fbo = {};
+		Render_Texture col = {};
+
+		LightingFbo () {}
+		LightingFbo (std::string_view label, int2 size, GLenum color_format, Render_Texture& depth, bool mips=false) {
+			GLint levels = mips ? calc_mipmaps(size.x, size.y) : 1;
+
+			std::string lbl = (std::string)label;
+
+			col = Render_Texture(lbl+".col", size, color_format, levels);
+
+			{
+				fbo = Fbo(lbl+".fbo");
+				glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, col, 0);
+				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
+
+				GLuint bufs[] = { GL_COLOR_ATTACHMENT0 };
+				glDrawBuffers(ARRLEN(bufs), bufs);
+		
+				GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+				if (status != GL_FRAMEBUFFER_COMPLETE) {
+					fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
+				}
+			}
+
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			glBindTexture(GL_TEXTURE_2D, 0);
+		}
+
+	};
+	LightingFbo lighting_fbo;
+	
 	DirectionalShadowmap shadowmap;
 
 	render::RenderScale renderscale;
@@ -269,7 +316,7 @@ struct RenderPasses {
 	float exposure = 1.0f;
 	
 	void imgui () {
-		renderscale.imgui(false);
+		renderscale.imgui();
 
 		shadowmap.imgui();
 
@@ -284,7 +331,7 @@ struct RenderPasses {
 
 		if (renderscale.update(window_size)) {
 			gbuf.resize(renderscale.size);
-			lighting_fbo = Renderbuffer("lighting_fbo", renderscale.size, GL_RGB16F, true);
+			lighting_fbo = LightingFbo("lighting_fbo", renderscale.size, GL_RGB16F, gbuf.depth, true);
 		}
 	}
 
@@ -309,9 +356,17 @@ struct RenderPasses {
 		glBindFramebuffer(GL_FRAMEBUFFER, lighting_fbo.fbo);
 		glViewport(0, 0, renderscale.size.x, renderscale.size.y);
 	}
-	void fullscreen_lighting_pass (StateManager& state, Textures& texs) {
+
+	template <typename FUNC>
+	void fullscreen_lighting_pass (StateManager& state, Textures& texs, FUNC draw_deffered_lights) {
 		if (shad_fullscreen_lighting->prog) {
 			OGL_TRACE("fullscreen_lighting");
+
+			PipelineState s;
+			s.depth_test = false;
+			s.depth_write = false;
+			s.blend_enable = false;
+			state.set(s);
 			
 			glUseProgram(shad_fullscreen_lighting->prog);
 
@@ -331,6 +386,8 @@ struct RenderPasses {
 				{"grid_tex", texs.grid, texs.sampler_normal},
 			});
 			draw_fullscreen_triangle(state);
+
+			draw_deffered_lights();
 		}
 	}
 	void end_lighting_pass () {

@@ -8,7 +8,7 @@
 #include "engine/text_render.hpp"
 
 namespace ogl {
-
+	
 template <typename VERT_T, typename IDX_T=uint16_t>
 struct Mesh {
 	std::vector<VERT_T> verticies;
@@ -127,8 +127,14 @@ struct DecalRenderer {
 
 	// Decals that simply blend over gbuf color and normal channel
 	
-	Mesh<DecalRenderer::Vertex, uint32_t> mesh;
 	VertexBufferI vbo = vertex_bufferI<Vertex>("DecalRenderer.vbo");
+	
+	GLsizei indices_count = 0;
+
+	void upload (Mesh<Vertex, uint32_t>& mesh) {
+		vbo.upload(mesh.verticies, mesh.indices);
+		indices_count = (GLsizei)mesh.indices.size();
+	}
 	
 	void render (StateManager& state, Textures& texs, Texture2DArray& tex) {
 		ZoneScoped;
@@ -147,9 +153,9 @@ struct DecalRenderer {
 			s.blend_enable = true;
 			state.set(s);
 
-			if (mesh.indices.size() > 0) {
+			if (indices_count > 0) {
 				glBindVertexArray(vbo.vao);
-				glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_INT, (void*)0);
+				glDrawElements(GL_TRIANGLES, indices_count, GL_UNSIGNED_INT, (void*)0);
 			}
 		}
 
@@ -529,8 +535,8 @@ struct EntityRenderer {
 
 	std::unordered_map<ASSET_T*, int> asset2mesh_id;
 		
-	uint32_t entities;
-		
+	uint32_t entities = 0;
+	
 	EntityRenderer () {
 		//int3 sz = -1;
 		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &sz.x);
@@ -597,11 +603,11 @@ struct EntityRenderer {
 	}
 
 	template <typename FUNC>
-	void update_instances (FUNC push_instances) {
+	void update_instances (FUNC get_instances) {
 		ZoneScoped;
 		OGL_TRACE("update instances");
 
-		auto instances = push_instances();
+		auto instances = get_instances();
 		vbo.stream_instances(instances);
 
 		entities = (uint32_t)instances.size();
@@ -679,10 +685,177 @@ struct NetworkRenderer {
 		)
 	};
 
-	Mesh<Vertex, uint32_t> mesh;
-
 	DecalRenderer line_renderer;
 	DecalRenderer turn_arrow_renderer;
+
+	Shader* shad  = g_shaders.compile("networks");
+
+	VertexBufferI vbo = vertex_bufferI<Vertex>("NetworkRenderer.vbo");
+
+	GLsizei indices_count = 0;
+
+	void upload (Mesh<Vertex, uint32_t>& mesh) {
+		vbo.upload(mesh.verticies, mesh.indices);
+		indices_count = (GLsizei)mesh.indices.size();
+	}
+
+	void render (StateManager& state, Textures& texs) {
+		OGL_TRACE("NetworkRenderer");
+		ZoneScoped;
+
+		if (shad->prog) {
+			glUseProgram(shad->prog);
+
+			state.bind_textures(shad, {
+				{ "surfaces_color",  texs.surfaces_color, texs.sampler_normal },
+				{ "surfaces_normal", texs.surfaces_normal, texs.sampler_normal },
+			});
+
+			PipelineState s;
+			state.set(s);
+
+			if (indices_count > 0) {
+				glBindVertexArray(vbo.vao);
+				glDrawElements(GL_TRIANGLES, indices_count, GL_UNSIGNED_INT, (void*)0);
+			}
+		}
+
+		glBindVertexArray(0);
+
+		line_renderer.render(state, texs, texs.lines);
+		turn_arrow_renderer.render(state, texs, texs.turn_arrows);
+	}
+};
+
+struct DefferedPointLightRenderer {
+	typedef typename VertexPos3 vert_t;
+	typedef typename uint32_t   idx_t;
+
+	Shader* shad = g_shaders.compile("point_lights");
+
+	struct MeshInstance {
+		//int    type;
+		float3 pos;
+		float  radius;
+		float3 col;
+			
+		VERTEX_CONFIG_INSTANCED(
+			ATTRIB(FLT3, MeshInstance, pos),
+			ATTRIB(FLT , MeshInstance, radius),
+			ATTRIB(FLT3, MeshInstance, col),
+		)
+	};
+
+	// All meshes/lods vbo (indexed) GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER
+	// All entities instance data GL_ARRAY_BUFFER
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<vert_t, MeshInstance>("point_lights");
+
+	GLsizei index_count = 0;
+	GLsizei instance_count = 0;
+	
+	DefferedPointLightRenderer () {
+		SimpleMesh mesh;
+		if (!assimp::load_simple("assets/misc/ico_sphere.fbx", &mesh)) {
+			assert(false);
+		}
+
+		vbo.upload_mesh(mesh.vertices, mesh.indices);
+		index_count = (GLsizei)mesh.indices.size();
+	}
+
+	template <typename FUNC>
+	void update_instances (FUNC get_instances) {
+		ZoneScoped;
+		OGL_TRACE("update lights");
+
+		auto instances = get_instances();
+		vbo.stream_instances(instances);
+
+		instance_count = (GLsizei)instances.size();
+	}
+
+	void draw (StateManager& state) {
+		ZoneScoped;
+		OGL_TRACE("draw lights");
+
+		if (shad->prog) {
+			OGL_TRACE("draw lights");
+
+			// additive light blending
+			PipelineState s;
+			s.depth_test = true; // draw only surfaces with are in light radius
+			s.depth_write = false;
+
+			//s.cull_face = false; // need to draw lights even when inside the light radius sphere
+			
+			s.blend_enable = true; // additive light shading
+			s.blend_func.dfactor = GL_ONE;
+			s.blend_func.sfactor = GL_ONE;
+			s.blend_func.equation = GL_FUNC_ADD;
+
+			state.set(s);
+
+			glUseProgram(shad->prog);
+
+			// reuse textures bound previously during fullscreen_lighting_pass
+			
+			glBindVertexArray(vbo.vao);
+			glDrawElementsInstanced(GL_TRIANGLES, index_count, GL_UNSIGNED_SHORT, (void*)0, instance_count);
+			glBindVertexArray(0);
+		}
+	}
+};
+
+struct Mesher {
+	EntityRenderer<BuildingAsset>& building_renderer;
+	NetworkRenderer              & network_renderer;
+	EntityRenderer<PropAsset>    & prop_renderer;
+	DefferedPointLightRenderer   & light_renderer;
+	
+	typedef EntityRenderer<PropAsset>::MeshInstance PropInstance;
+
+	std::vector<EntityRenderer<BuildingAsset>::MeshInstance> building_instances;
+	std::vector<PropInstance>     prop_instances;
+	std::vector<DefferedPointLightRenderer::MeshInstance>    light_instances;
+	
+	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
+	Mesh<DecalRenderer::Vertex, uint32_t> turn_arrow_mesh;
+	Mesh<DecalRenderer::Vertex, uint32_t> lines_mesh;
+
+	PropInstance& push_prop (PropAsset* asset, float3 pos, float rot) {
+		auto* i = push_back(prop_instances, 1);
+		
+		i->mesh_id = prop_renderer.asset2mesh_id[asset];
+		i->pos = pos;
+		i->rot = rot;
+		i->col = 1;
+
+		return *i;
+	}
+	void push_light (float3 pos, float radius, lrgb col) {
+		auto* i = push_back(light_instances, 1);
+			
+		i->pos = pos;
+		i->radius = radius;
+		i->col = 1;
+	}
+	
+	PropInstance& place_prop (network::Segment& seg, float3 shift, float rot, PropAsset* prop) {
+		float3 dir = seg.node_b->pos - seg.node_a->pos;
+
+		float3 forw = normalizesafe(dir);
+		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
+		float3 up = cross(right, forw);
+		
+		float3 a = seg.node_a->pos + forw * seg.node_a->radius;
+		//float3 b = seg.node_b->pos - forw * seg.node_b->radius;
+		
+		float3 pos = a + right * shift.x + forw * shift.y + up * shift.z;
+		rot += angle2d(forw);
+
+		return push_prop(streetlight_asset, pos, rot);
+	}
+
 
 	// Could be instanced in smart ways, by computing beziers on gpu
 	// for ex. for road segments: store 'cross section' per road time and extrude it along bezier during instancing on gpu
@@ -746,32 +919,37 @@ struct NetworkRenderer {
 
 		mesh.push_quad(l0, r0, r1, l1);
 	}
-
-	float sidewalk_h = 0.2f;
+	
+	float sidewalk_h = 0.15f;
 
 	float asphalt_tex_id = 0;
 	float sidewalk_tex_id = 1;
 
+	float streetlight_spacing = 10;
+
+	PropAsset* streetlight_asset = nullptr;
+
 	// TODO: change to properly use indicies please!
 	void mesh_segment (network::Segment& seg) {
 		float width = seg.asset->width;
-
-		Vertex sL0 = { float3(         -width*0.5f, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
-		Vertex sL1 = { float3(seg.asset->sidewalkL, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
-		Vertex sL2 = { float3(seg.asset->sidewalkL, 0,          0), float3(0,0,1), sidewalk_tex_id };
 		
-		Vertex r0 = { float3(seg.asset->sidewalkL, 0, 0), float3(0,0,1), asphalt_tex_id };
-		Vertex r1 = { float3(seg.asset->sidewalkR, 0, 0), float3(0,0,1), asphalt_tex_id };
+		typedef NetworkRenderer::Vertex V;
+		V sL0 = { float3(         -width*0.5f, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
+		V sL1 = { float3(seg.asset->sidewalkL, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
+		V sL2 = { float3(seg.asset->sidewalkL, 0,          0), float3(0,0,1), sidewalk_tex_id };
 		
-		Vertex sR0 = { float3(seg.asset->sidewalkR, 0,          0), float3(0,0,1), sidewalk_tex_id };
-		Vertex sR1 = { float3(seg.asset->sidewalkR, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
-		Vertex sR2 = { float3(         +width*0.5f, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
+		V r0 = { float3(seg.asset->sidewalkL, 0, 0), float3(0,0,1), asphalt_tex_id };
+		V r1 = { float3(seg.asset->sidewalkR, 0, 0), float3(0,0,1), asphalt_tex_id };
+		
+		V sR0 = { float3(seg.asset->sidewalkR, 0,          0), float3(0,0,1), sidewalk_tex_id };
+		V sR1 = { float3(seg.asset->sidewalkR, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
+		V sR2 = { float3(         +width*0.5f, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
 
-		extrude(mesh, seg, sL0, sL1);
-		extrude(mesh, seg, sL1, sL2);
-		extrude(mesh, seg, r0, r1);
-		extrude(mesh, seg, sR0, sR1);
-		extrude(mesh, seg, sR1, sR2);
+		extrude(network_mesh, seg, sL0, sL1);
+		extrude(network_mesh, seg, sL1, sL2);
+		extrude(network_mesh, seg, r0, r1);
+		extrude(network_mesh, seg, sR0, sR1);
+		extrude(network_mesh, seg, sR1, sR2);
 		
 		for (auto& line : seg.asset->line_markings) {
 			float tex_id = (float)(int)line.type;
@@ -781,7 +959,22 @@ struct NetworkRenderer {
 			DecalRenderer::Vertex sL0 = { float3(line.shift.x - width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,0), 1, tex_id };
 			DecalRenderer::Vertex sL1 = { float3(line.shift.x + width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,1), 1, tex_id };
 			
-			extrude_line(line_renderer.mesh, seg, sL0, sL1, line.scale);
+			extrude_line(lines_mesh, seg, sL0, sL1, line.scale);
+		}
+
+		for (auto& light : seg.asset->streetlights) {
+			float y = 0;
+			while (y < seg.lane_length) {
+				auto& prop = place_prop(seg, light.shift + float3(0,y,0), light.rot, streetlight_asset);
+
+				auto mat = obj_transform(prop.pos, prop.rot);
+				auto light_pos = mat * light.light.pos;
+				auto col = light.light.col * light.light.strength;
+
+				push_light(light_pos, light.light.radius, col);
+
+				y += light.spacing;
+			}
 		}
 	}
 
@@ -838,9 +1031,10 @@ struct NetworkRenderer {
 			float2 segL = si.pos + si.right * si.asset->sidewalkL;
 			float2 segR = si.pos + si.right * si.asset->sidewalkR;
 
-			Vertex nodeCenter = { node->pos + float3(0, 0, 0.01f), float3(0,0,1), asphalt_tex_id };
-			Vertex seg0 = { float3(segL, 0.01f), float3(0,0,1), asphalt_tex_id };
-			Vertex seg1 = { float3(segR, 0.01f), float3(0,0,1), asphalt_tex_id };
+			typedef NetworkRenderer::Vertex V;
+			V nodeCenter = { node->pos + float3(0, 0, 0.01f), float3(0,0,1), asphalt_tex_id };
+			V seg0 = { float3(segL, 0.01f), float3(0,0,1), asphalt_tex_id };
+			V seg1 = { float3(segR, 0.01f), float3(0,0,1), asphalt_tex_id };
 
 			int res = 10;
 			for (int i=0; i<res; ++i) {
@@ -852,27 +1046,27 @@ struct NetworkRenderer {
 				float2 b0 = sidewalk_Rb.eval(t0).pos;
 				float2 b1 = sidewalk_Rb.eval(t1).pos;
 
-				Vertex sa0g = { float3(a0,            + 0.01f), float3(0,0,1), sidewalk_tex_id };
-				Vertex sa1g = { float3(a1,            + 0.01f), float3(0,0,1), sidewalk_tex_id };
-				Vertex sa0  = { float3(a0, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
-				Vertex sa1  = { float3(a1, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
-				Vertex sb0  = { float3(b0, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
-				Vertex sb1  = { float3(b1, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				V sa0g = { float3(a0,            + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				V sa1g = { float3(a1,            + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				V sa0  = { float3(a0, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				V sa1  = { float3(a1, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				V sb0  = { float3(b0, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				V sb1  = { float3(b1, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
 				
-				Vertex sa0gA = { float3(a0,            + 0.01f), float3(0,0,1), asphalt_tex_id };
-				Vertex sa1gA = { float3(a1,            + 0.01f), float3(0,0,1), asphalt_tex_id };
+				V sa0gA = { float3(a0,            + 0.01f), float3(0,0,1), asphalt_tex_id };
+				V sa1gA = { float3(a1,            + 0.01f), float3(0,0,1), asphalt_tex_id };
 
-				mesh.push_quad(sa0, sb0, sb1, sa1);
-				mesh.push_quad(sa0g, sa0, sa1, sa1g);
-				mesh.push_tri(sa0gA, sa1gA, nodeCenter);
+				network_mesh.push_quad(sa0, sb0, sb1, sa1);
+				network_mesh.push_quad(sa0g, sa0, sa1, sa1g);
+				network_mesh.push_tri(sa0gA, sa1gA, nodeCenter);
 			}
 
-			mesh.push_tri(seg0, seg1, nodeCenter);
+			network_mesh.push_tri(seg0, seg1, nodeCenter);
 		}
 	}
 
 	void push_decal_rect (float3 center, float3 forw, float3 right, float3 norm, float4 col, int tex_id) {
-		turn_arrow_renderer.mesh.push_quad(
+		turn_arrow_mesh.push_quad(
 			{ center -forw -right, norm, float2(0,0), col, (float)tex_id },
 			{ center -forw +right, norm, float2(1,0), col, (float)tex_id },
 			{ center +forw +right, norm, float2(1,1), col, (float)tex_id },
@@ -880,10 +1074,7 @@ struct NetworkRenderer {
 		);
 	}
 	
-	void remesh (network::Network& net) {
-		mesh.clear();
-		line_renderer.mesh.clear();
-		turn_arrow_renderer.mesh.clear();
+	void remesh_network (network::Network& net) {
 		
 		for (auto& seg : net.segments) {
 			mesh_segment(*seg);
@@ -935,7 +1126,7 @@ struct NetworkRenderer {
 				float3 c = base + float3(- v.forw * width*0.5f + v.right * f1, 0);
 				float3 d = base + float3(+ v.forw * width*0.5f + v.right * f1, 0);
 
-				line_renderer.mesh.push_quad(
+				lines_mesh.push_quad(
 					{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
 					{ b, float3(0,0,1), float2(1,0), 1, (float)tex_id },
 					{ c, float3(0,0,1), float2(1,1), 1, (float)tex_id },
@@ -952,7 +1143,7 @@ struct NetworkRenderer {
 				float3 c = base + float3(- v.forw * width*0.5f + v.right * r1, 0);
 				float3 d = base + float3(+ v.forw * width*0.5f + v.right * r1, 0);
 
-				line_renderer.mesh.push_quad(
+				lines_mesh.push_quad(
 					{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
 					{ b, float3(0,0,1), float2(1,0), 1, (float)tex_id },
 					{ c, float3(0,0,1), float2(1,1), 1, (float)tex_id },
@@ -964,47 +1155,46 @@ struct NetworkRenderer {
 		for (auto& node : net.nodes) {
 			mesh_node(node.get());
 		}
-
-		vbo.upload(mesh.verticies, mesh.indices);
-		line_renderer.vbo.upload(line_renderer.mesh.verticies, line_renderer.mesh.indices);
-		turn_arrow_renderer.vbo.upload(turn_arrow_renderer.mesh.verticies, turn_arrow_renderer.mesh.indices);
 	}
+	void push_buildings (App& app) {
+		building_instances.resize(app.entities.buildings.size());
 
-	
-	Shader* shad  = g_shaders.compile("networks");
+		for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
+			auto& entity = app.entities.buildings[i];
 
-	VertexBufferI vbo = vertex_bufferI<Vertex>("NetworkRenderer.vbo");
-
-	void render (StateManager& state, Textures& texs) {
-		OGL_TRACE("NetworkRenderer");
-		ZoneScoped;
-
-		if (shad->prog) {
-			glUseProgram(shad->prog);
-
-			state.bind_textures(shad, {
-				{ "surfaces_color",  texs.surfaces_color, texs.sampler_normal },
-				{ "surfaces_normal", texs.surfaces_normal, texs.sampler_normal },
-			});
-
-			PipelineState s;
-			state.set(s);
-
-			if (mesh.indices.size() > 0) {
-				glBindVertexArray(vbo.vao);
-				glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_INT, (void*)0);
-			}
+			building_instances[i].mesh_id = building_renderer.asset2mesh_id[entity->asset];
+			building_instances[i].pos = entity->pos;
+			building_instances[i].rot = entity->rot;
+			building_instances[i].col = 1;
 		}
 
-		glBindVertexArray(0);
+		building_renderer.update_instances([&] () { return building_instances; });
+	}
 
-		line_renderer.render(state, texs, texs.lines);
-		turn_arrow_renderer.render(state, texs, texs.turn_arrows);
+	void remesh (App& app) {
+		remesh_network(app.net);
+
+		push_buildings(app);
+
+		prop_renderer.update_instances([&] () { return prop_instances; });
+		light_renderer.update_instances([&] () { return light_instances; });
+		
+		network_renderer.upload(network_mesh);
+		network_renderer.line_renderer.upload(lines_mesh);
+		network_renderer.turn_arrow_renderer.upload(turn_arrow_mesh);
 	}
 };
 
+
 struct OglRenderer : public Renderer {
-	SERIALIZE_NONE(OglRenderer)
+	SERIALIZE(OglRenderer, lighting, passes)
+	
+	virtual void to_json (nlohmann::ordered_json& j) {
+		j["ogl_renderer"] = *this;
+	}
+	virtual void from_json (nlohmann::ordered_json const& j) {
+		if (j.contains("ogl_renderer")) j.at("ogl_renderer").get_to(*this);
+	}
 	
 	virtual void imgui (App& app) {
 		if (imgui_Header("Renderer", true)) {
@@ -1103,12 +1293,18 @@ struct OglRenderer : public Renderer {
 	
 	NetworkRenderer network_renderer;
 
+	EntityRenderer<BuildingAsset> building_renderer;
+	EntityRenderer<CarAsset>      car_renderer;
+	// TODO: roll this into building renderer at least (car renderer might want different shader for wheel movement)
+	// but doing so might require some problem solving to unify textures somehow
+	// -> atlas or texture arrays for all texture sizes?
+	EntityRenderer<PropAsset>     prop_renderer;
+
+	DefferedPointLightRenderer light_renderer;
+
 	SkyboxRenderer skybox;
 	
 	LOD_Func lod;
-
-	EntityRenderer<BuildingAsset> building_renderer;
-	EntityRenderer<CarAsset> car_renderer;
 
 	Textures textures;
 
@@ -1116,6 +1312,35 @@ struct OglRenderer : public Renderer {
 		
 	}
 	
+	void upload_static_instances (App& app) {
+		Mesher mesher{ building_renderer, network_renderer, prop_renderer, light_renderer };
+		mesher.streetlight_asset = app.assets.props[0].get();
+
+		mesher.remesh(app);
+	}
+	void upload_car_instances (App& app) {
+		car_renderer.update_instances([&] () {
+			std::vector<decltype(car_renderer)::MeshInstance> instances;
+			instances.resize(app.entities.citizens.size());
+
+			for (uint32_t i=0; i<(uint32_t)app.entities.citizens.size(); ++i) {
+				auto& entity = app.entities.citizens[i];
+
+				// TODO: network code shoud ensure length(dir) == CAR_SIZE
+				float3 dir = entity->front_pos - entity->rear_pos;
+				float3 center = entity->front_pos - normalizesafe(dir) * CAR_SIZE/2;
+				float ang = angle2d((float2)dir);
+
+				instances[i].mesh_id = car_renderer.asset2mesh_id[entity->asset];
+				instances[i].pos = center;
+				instances[i].rot = ang;
+				instances[i].col = entity->col;
+			}
+
+			return instances;
+		});
+	}
+
 	virtual void begin (App& app) {
 		ZoneScoped;
 		gl_dbgdraw.gl_text_render.begin(g_dbgdraw.text); // upload text and init data structures to allow text printing
@@ -1128,50 +1353,13 @@ struct OglRenderer : public Renderer {
 		if (app.assets.assets_reloaded) {
 			building_renderer.upload_meshes(app.assets.buildings);
 			car_renderer.upload_meshes(app.assets.cars);
+			prop_renderer.upload_meshes(app.assets.props);
 		}
 
 		if (app.entities.buildings_changed) {
-			//remesh_network(app.net);
-			network_renderer.remesh(app.net);
-
-			building_renderer.update_instances([&] () {
-				std::vector<decltype(building_renderer)::MeshInstance> instances;
-				instances.resize(app.entities.buildings.size());
-
-				for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
-					auto& entity = app.entities.buildings[i];
-
-					instances[i].mesh_id = building_renderer.asset2mesh_id[entity->asset];
-					instances[i].pos = entity->pos;
-					instances[i].rot = entity->rot;
-					instances[i].col = 1;
-				}
-
-				return instances;
-			});
+			upload_static_instances(app);
 		}
-		{
-			car_renderer.update_instances([&] () {
-				std::vector<decltype(car_renderer)::MeshInstance> instances;
-				instances.resize(app.entities.citizens.size());
-
-				for (uint32_t i=0; i<(uint32_t)app.entities.citizens.size(); ++i) {
-					auto& entity = app.entities.citizens[i];
-
-					// TODO: network code shoud ensure length(dir) == CAR_SIZE
-					float3 dir = entity->front_pos - entity->rear_pos;
-					float3 center = entity->front_pos - normalizesafe(dir) * CAR_SIZE/2;
-					float ang = angle2d((float2)dir);
-
-					instances[i].mesh_id = car_renderer.asset2mesh_id[entity->asset];
-					instances[i].pos = center;
-					instances[i].rot = ang;
-					instances[i].col = entity->col;
-				}
-
-				return instances;
-			});
-		}
+		upload_car_instances(app);
 
 		{
 			OGL_TRACE("setup");
@@ -1207,8 +1395,9 @@ struct OglRenderer : public Renderer {
 		
 			terrain_renderer.render_terrain(state, textures, app.view);
 		
-			building_renderer.draw(state, textures, textures.house_diffuse);
-			car_renderer.draw(state, textures, textures.car_diffuse);
+			building_renderer.draw(state, textures, textures.house_diff);
+			car_renderer.draw(state, textures, textures.car_diff);
+			prop_renderer.draw(state, textures, textures.streetlight_diff);
 		
 			network_renderer.render(state, textures);
 		}
@@ -1221,8 +1410,9 @@ struct OglRenderer : public Renderer {
 
 			terrain_renderer.render_terrain(state, textures, app.view);
 		
-			building_renderer.draw(state, textures, textures.house_diffuse);
-			car_renderer.draw(state, textures, textures.car_diffuse);
+			building_renderer.draw(state, textures, textures.house_diff);
+			car_renderer.draw(state, textures, textures.car_diff);
+			prop_renderer.draw(state, textures, textures.streetlight_diff);
 
 			network_renderer.render(state, textures);
 
@@ -1236,7 +1426,9 @@ struct OglRenderer : public Renderer {
 
 			passes.begin_lighting_pass();
 
-			passes.fullscreen_lighting_pass(state, textures);
+			passes.fullscreen_lighting_pass(state, textures, [&] () {
+				light_renderer.draw(state);
+			});
 
 			passes.end_lighting_pass();
 		}

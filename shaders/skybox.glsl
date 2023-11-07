@@ -1,5 +1,6 @@
 #version 430
 #include "common.glsl"
+#include "gbuf.glsl"
 
 struct Vertex {
 	vec3 pos;

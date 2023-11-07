@@ -3,10 +3,9 @@
 #include "fullscreen_triangle.glsl"
 
 #ifdef _FRAGMENT
-	uniform sampler2D gbuf_depth;
-	uniform sampler2D gbuf_col;
-	uniform sampler2D gbuf_norm;
-	
+	#define GBUF_IN 1
+	#include "gbuf.glsl"
+
 	uniform sampler2D shadowmap;
 	uniform sampler2DShadow shadowmap2;
 	uniform mat4 shadowmap_mat;
@@ -52,20 +51,29 @@
 		return shadow_fac;
 	}
 	
+	void debug_window (sampler2D tex) {
+		vec2 tex_size = vec2(textureSize(tex, 0));
+		float tex_aspect = tex_size.x / tex_size.y;
+		
+		vec2 dbg_sz = vec2(0.4);
+		dbg_sz.x *= tex_aspect / view.aspect_ratio;
+		vec2 dbg_uv = (v.uv - (vec2(1.0) - dbg_sz)) / dbg_sz;
+		if (dbg_uv.x > 0.0 && dbg_uv.y > 0.0) {
+			frag_col = vec4(texture(tex, dbg_uv).rgb, 1.0);
+		}
+	}
+	
 	void main () {
-		float depth = texture(gbuf_depth, v.uv).r;
-		vec3 col    = texture(gbuf_col, v.uv).rgb;
-		vec3 normal = texture(gbuf_norm, v.uv).rgb;
+		GbufResult g;
+		bool valid = decode_gbuf(g);
 		//col = vec3(1);
 		
-		float len = length(normal);
-		if (len > 0.001) {
-			normal /= len; // normalize
-			vec3 pos = depth_to_pos_world(depth, v.uv);
+		vec3 col = g.albedo;
+		
+		if (valid) {
+			float shadow = sun_shadowmap(g.pos_world, g.norm_world);
 			
-			float shadow = sun_shadowmap(pos, normal);
-			
-			col *= sun_lighting(normal, shadow);
+			col *= sun_lighting(g.norm_world, shadow);
 			//col = apply_fog(col, pos);
 			
 			//col = overlay_grid(col, pos);
@@ -75,11 +83,7 @@
 		//frag_col = vec4(normal, 1.0);
 		//frag_col = vec4(depth,depth,depth, 1.0);
 		
-		vec2 dbg_sz = vec2(0.4);
-		dbg_sz.x /= view.aspect_ratio;
-		vec2 dbg_uv = (v.uv - (vec2(1.0) - dbg_sz)) / dbg_sz;
-		if (dbg_uv.x > 0.0 && dbg_uv.y > 0.0) {
-			frag_col = vec4(texture(shadowmap, dbg_uv).rrr, 1.0);
-		}
+		//debug_window(shadowmap);
+		//debug_window(gbuf_norm);
 	}
 #endif

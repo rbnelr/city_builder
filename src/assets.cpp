@@ -53,6 +53,20 @@ namespace assimp {
 		printf("}\n");
 	}
 
+	template <typename IDX_T>
+	void push_face_indices (aiMesh const* mesh, std::vector<IDX_T>& indices, int first_vertex) {
+		for (unsigned j=0; j<mesh->mNumFaces; ++j) {
+			auto& f = mesh->mFaces[j];
+			assert(f.mNumIndices == 3);
+
+			for (unsigned k=0; k<3; ++k) {
+				unsigned int idx = f.mIndices[k] + (unsigned int)first_vertex;
+				assert(idx <= UINT16_MAX);
+				indices.push_back( (uint16_t)idx );
+			}
+		}
+	}
+
 	void load_mesh_data (aiMesh const* mesh, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB3& aabb) {
 		int first_vertex = (int)data.vertices.size();
 		
@@ -73,20 +87,26 @@ namespace assimp {
 			aabb.add(v.pos);
 		}
 
-		for (unsigned j=0; j<mesh->mNumFaces; ++j) {
-			auto& f = mesh->mFaces[j];
-			assert(f.mNumIndices == 3);
+		push_face_indices(mesh, data.indices, first_vertex);
+	}
+	void load_mesh_data (aiMesh const* mesh, float4x4 const& transform, SimpleMesh& data) {
+		int first_vertex = (int)data.vertices.size();
+		
+		for (unsigned j=0; j<mesh->mNumVertices; ++j) {
+			data.vertices.emplace_back();
+			auto& v = data.vertices.back();
 
-			for (unsigned k=0; k<3; ++k) {
-				unsigned int idx = f.mIndices[k] + (unsigned int)first_vertex;
-				assert(idx <= UINT16_MAX);
-				data.indices.push_back( (uint16_t)idx );
-			}
+			auto& pos  = mesh->mVertices[j];
+
+			v.pos    = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
 		}
+
+		push_face_indices(mesh, data.indices, first_vertex);
 	}
 
+	template <typename... ARGS>
 	// Recursively load fbx tree, applying transformations to vertices
-	void load_join_mesh_recurse (aiScene const* scene, aiNode const* node, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB3& aabb) {
+	void load_join_mesh_recurse (aiScene const* scene, aiNode const* node, float4x4 const& transform, ARGS&... args) {
 		auto& t = node->mTransformation;
 		float4x4 mat = float4x4(t.a1,t.a2,t.a3,t.a4,  t.b1,t.b2,t.b3,t.b4, t.c1,t.c2,t.c3,t.c4,  t.d1,t.d2,t.d3,t.d4);
 		mat = transform * mat;
@@ -94,11 +114,11 @@ namespace assimp {
 		for (unsigned int i=0; i<node->mNumMeshes; ++i) {
 			unsigned int mesh_idx = node->mMeshes[i];
 			assert(mesh_idx < scene->mNumMeshes);
-			load_mesh_data(scene->mMeshes[mesh_idx], mat, data, aabb);
+			load_mesh_data(scene->mMeshes[mesh_idx], mat, args...);
 		}
 	
 		for (unsigned int i=0; i<node->mNumChildren; ++i)
-			load_join_mesh_recurse(scene, node->mChildren[i], mat, data, aabb);
+			load_join_mesh_recurse(scene, node->mChildren[i], mat, args...);
 	}
 	
 	float4x4 get_base_transform (aiScene const* scene) {
@@ -151,5 +171,33 @@ namespace assimp {
 		return out_mesh->mesh_lods.size() > 0 &&
 			out_mesh->mesh_lods[0].vertices.size() > 0 &&
 			out_mesh->mesh_lods[0].indices.size() > 0;
+	}
+	
+	bool load_simple (char const* filename, SimpleMesh* out_mesh) {
+		Assimp::Importer importer;
+
+		// Drop everything except vertex position to avoid aiProcess_JoinIdenticalVertices not producing optimal mesh
+		importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS, aiComponent_NORMALS | aiComponent_TANGENTS_AND_BITANGENTS | aiComponent_COLORS | aiComponent_TEXCOORDS |
+			aiComponent_TEXTURES | aiComponent_LIGHTS | aiComponent_CAMERAS | aiComponent_MATERIALS);
+		auto* scene = importer.ReadFile(filename, aiProcess_Triangulate|aiProcess_JoinIdenticalVertices|aiProcess_ImproveCacheLocality
+			| aiProcess_DropNormals | aiProcess_RemoveComponent);
+		if (!scene) {
+			fprintf(stderr, "Assimp error: %s\n", importer.GetErrorString());
+			return false;
+		}
+
+		print_scene(scene);
+
+		auto transform = get_base_transform(scene);
+		
+		if (!scene->mRootNode) return false;
+
+		for (unsigned int i=0; i<scene->mRootNode->mNumChildren; ++i) {
+			auto* node = scene->mRootNode->mChildren[i];
+			load_join_mesh_recurse(scene, node, transform, *out_mesh);
+		}
+
+		return out_mesh->vertices.size() > 0 &&
+		       out_mesh->indices.size() > 0;
 	}
 }

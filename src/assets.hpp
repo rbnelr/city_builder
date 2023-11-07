@@ -5,13 +5,6 @@
 #include "kisslib/collision.hpp"
 #include "engine/camera.hpp"
 
-template <typename VERT_T, typename IDX_T=uint16_t> struct AssetMesh;
-struct BasicVertex;
-
-namespace assimp {
-	bool load (char const* filename, AssetMesh<BasicVertex>* out_data);
-}
-
 // TODO: properly factor in base_size and custom lod curves into assets (especially if things like trees/rocks can be scaled)
 // -> large buildings should only lod at very large distances (assuming their details are also large)
 // -> also need to factor in fov -> calc visible resolution at x distance -> use this determine lod
@@ -50,12 +43,35 @@ struct BasicVertex {
 		ATTRIB(FLT2, BasicVertex, uv),
 	)
 };
+struct VertexPos3 {
+	float3 pos;
+
+	VERTEX_CONFIG(
+		ATTRIB(FLT3, VertexPos3, pos),
+	)
+};
+
+inline float3x4 obj_transform (float3 pos, float rotZ) {
+	float3x3 rot_mat = rotate3_Z(rotZ);
+	
+	//v.world_pos    = rot_mat * mesh_pos + instance_pos;
+	return translate(pos) * rot_mat;
+}
 
 template <typename VERT_T, typename IDX_T>
 struct Mesh {
 	std::vector<VERT_T> vertices;
 	std::vector<IDX_T> indices;
 };
+
+typedef Mesh<VertexPos3, uint16_t> SimpleMesh;
+
+template <typename VERT_T, typename IDX_T=uint16_t> struct AssetMesh;
+
+namespace assimp {
+	bool load (char const* filename, AssetMesh<BasicVertex>* out_data);
+	bool load_simple (char const* filename, SimpleMesh* out_data);
+}
 
 template <typename VERT_T, typename IDX_T>
 struct AssetMesh {
@@ -65,26 +81,12 @@ struct AssetMesh {
 	std::vector< Mesh<VERT_T, IDX_T> > mesh_lods;
 
 	AABB<float3> aabb;
-
-	// recenter because I like putting all my (dev) assets into one blender file and this is a good way to load them centered
-	void recenter_xy () {
-		float3 center = aabb.center();
-		for (auto& m : mesh_lods) {
-			for (auto& v : m.vertices) {
-				v.pos.x -= center.x;
-				v.pos.y -= center.y;
-			}
-		}
-		aabb.lo -= center;
-		aabb.hi -= center;
-	}
 	
 	// needed so we can later load from json because json lib does not handle contructing from json
 	AssetMesh () {}
 
 	AssetMesh (const char* filename) {
 		assimp::load(prints("assets/%s", filename).c_str(), this);
-		recenter_xy();
 	}
 };
 
@@ -100,9 +102,31 @@ enum class LineMarkingType {
 };
 NLOHMANN_JSON_SERIALIZE_ENUM(LineMarkingType, { { LineMarkingType::LINE, "LINE" }, { LineMarkingType::STRIPED, "STRIPED" } })
 
+struct PointLight {
+	SERIALIZE(PointLight, pos, radius, col, strength)
+
+	float3 pos = 0;
+	float  radius = 5;
+	lrgb   col = srgb(255, 246, 215);
+	float  strength = 1;
+
+	bool imgui (const char* name) {
+		if (!ImGui::TreeNode(name)) return false;
+		
+		bool changed = ImGui::DragFloat3("pos", &pos.x, 0.1f);
+		changed = ImGui::DragFloat("radius", &radius, 0.1f) || changed;
+		changed = ImGui::ColorEdit3("col", &col.x, ImGuiColorEditFlags_DisplayHSV) || changed;
+		changed = ImGui::DragFloat("strength", &strength, 0.1f) || changed;
+
+		ImGui::TreePop();
+
+		return changed;
+	}
+};
+
 struct NetworkAsset {
-	friend SERIALIZE_TO_JSON(NetworkAsset)   { SERIALIZE_TO_JSON_EXPAND(  name, filename, width, lanes, line_markings, sidewalkL, sidewalkR, speed_limit) }
-	friend SERIALIZE_FROM_JSON(NetworkAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, width, lanes, line_markings, sidewalkL, sidewalkR, speed_limit)
+	friend SERIALIZE_TO_JSON(NetworkAsset)   { SERIALIZE_TO_JSON_EXPAND(  name, filename, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit) }
+	friend SERIALIZE_FROM_JSON(NetworkAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
 		//t.mesh = { prints("%s.fbx", t.filename.c_str()).c_str() };
 
 		t.update_cached();
@@ -128,6 +152,16 @@ struct NetworkAsset {
 		float2 shift = 0;
 		float2 scale = 1;
 	};
+
+	struct Streetlight {
+		SERIALIZE(Streetlight, shift, spacing, rot, light)
+
+		float3 shift = 0;
+		float spacing = 10;
+		float rot = deg(90);
+
+		PointLight light;
+	};
 	
 	std::string name = "<unnamed>";
 	std::string filename;
@@ -143,6 +177,8 @@ struct NetworkAsset {
 
 	float sidewalkL = -6;
 	float sidewalkR = +6;
+	
+	std::vector<Streetlight> streetlights;
 
 
 	float speed_limit = 40 / KPH_PER_MS;
@@ -188,6 +224,14 @@ struct NetworkAsset {
 			bool changed = ImGui::Combo("type", (int*)&l.type, "LINE\0STRIPED", 2);
 			changed = ImGui::DragFloat2("shift", &l.shift.x, 0.1f) || changed;
 			changed = ImGui::DragFloat2("scale", &l.scale.x, 0.1f) || changed;
+			return changed;
+		}) || changed;
+
+		changed = imgui_edit_vector("streetlights", streetlights, [] (Streetlight& l) {
+			bool changed = ImGui::DragFloat3("shift", &l.shift.x, 0.1f);
+			changed = ImGui::DragFloat("spacing", &l.spacing, 0.1f) || changed;
+			changed = ImGui::SliderAngle("rot", &l.rot, 0, 360) || changed;
+			changed = l.light.imgui("light") || changed;
 			return changed;
 		}) || changed;
 
@@ -252,10 +296,21 @@ struct CarAsset {
 
 	AssetMesh<BasicVertex> mesh;
 };
+struct PropAsset {
+	friend SERIALIZE_TO_JSON(PropAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename) }
+	friend SERIALIZE_FROM_JSON(PropAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename)
+		t.mesh = { t.filename.c_str() };
+	}
+
+	std::string name = "<unnamed>";
+	std::string filename;
+
+	AssetMesh<BasicVertex> mesh;
+};
 
 struct Assets {
-	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(networks, buildings, cars) }
-	friend SERIALIZE_FROM_JSON(Assets) { SERIALIZE_FROM_JSON_EXPAND(networks, buildings, cars)
+	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(networks, buildings, cars, props) }
+	friend SERIALIZE_FROM_JSON(Assets) { SERIALIZE_FROM_JSON_EXPAND(networks, buildings, cars, props)
 		t.assets_reloaded = true;
 	}
 
@@ -268,6 +323,7 @@ struct Assets {
 	Collection<NetworkAsset>  networks;
 	Collection<BuildingAsset> buildings;
 	Collection<CarAsset>      cars;
+	Collection<PropAsset>     props;
 	
 	Assets () {
 

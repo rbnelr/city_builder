@@ -16,6 +16,9 @@ struct Renderer {
 
 	virtual void begin (App& app) = 0;
 	virtual void end (App& app) = 0;
+
+	virtual void to_json (nlohmann::ordered_json& j) = 0;
+	virtual void from_json (nlohmann::ordered_json const& j) = 0;
 };
 
 std::unique_ptr<Renderer> create_ogl_backend ();
@@ -135,9 +138,11 @@ struct App : public Engine {
 	
 	friend SERIALIZE_TO_JSON(App) {
 		SERIALIZE_TO_JSON_EXPAND(cam, assets);
+		t.renderer->to_json(j);
 	}
 	friend SERIALIZE_FROM_JSON(App) {
 		SERIALIZE_FROM_JSON_EXPAND(cam, assets);
+		t.renderer->from_json(j);
 	}
 
 	virtual void json_load () { deserialize("debug.json", this); }

@@ -144,19 +144,29 @@ struct DirectionalShadowmap {
 	float size = 512;
 	float depth_range = 700;
 
+	float bias_fac_world = 2.0f;
+	float bias_max_world = 10.0f;
+
+	float texel_size;
+	float bias_fac;
+	float bias_max;
+
 	Render_Texture shadow_tex;
 	
+	// without shadow sampler (filter depth, then test)
 	Sampler shadow_sampler = sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_BORDER, lrgba(0,0,0,1));
+	// with shadow sampler (test texels, then filter)
+	Sampler shadow_sampler2 = sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_BORDER, lrgba(0,0,0,1));
 
 	Fbo fbo;
 
-	void resize (int2 size) {
+	void resize (int2 tex_res) {
 		glActiveTexture(GL_TEXTURE0);
 
-		shadow_tex = Render_Texture("DirectionalShadowmap.depth", size, GL_DEPTH_COMPONENT16);
+		shadow_tex = Render_Texture("DirectionalShadowmap.depth", tex_res, GL_DEPTH_COMPONENT16);
 		
-		glSamplerParameteri(shadow_sampler, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-		glSamplerParameteri(shadow_sampler, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
+		glSamplerParameteri(shadow_sampler2, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+		glSamplerParameteri(shadow_sampler2, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
 
 		fbo = Fbo("DirectionalShadowmap.fbo");
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -173,6 +183,10 @@ struct DirectionalShadowmap {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
+	void calc_bias () {
+		
+	}
+
 	void imgui () {
 		if (!ImGui::TreeNode("DirectionalShadowmap")) return;
 
@@ -182,10 +196,23 @@ struct DirectionalShadowmap {
 		ImGui::DragFloat("size", &size, 0.1f, 0, 1024*16);
 		ImGui::DragFloat("depth_range", &depth_range, 0.1f, 0, 1024*16);
 
+		ImGui::DragFloat("bias_fac", &bias_fac_world, 0.1f);
+		ImGui::DragFloat("bias_max", &bias_max_world, 0.1f);
+
+		ImGui::Text("res: %.3f m\nbias_fac: %.4f m (%.5f depth)\nbias_max: %.4f m (%.5f depth)",
+			texel_size, bias_fac_world * texel_size, bias_fac, bias_max_world * texel_size, bias_max);
+
 		ImGui::TreePop();
 	}
 
 	void update () {
+		// bias at 45deg should be size of shadowmap texel in world space because with flat surface can sample at most that amount wrong
+		texel_size = size / (float)shadow_res;
+
+		bias_fac = bias_fac_world * texel_size / depth_range;
+		bias_max = bias_max_world * texel_size / depth_range;
+
+
 		if (!tex_changed) return;
 		tex_changed = false;
 
@@ -200,7 +227,9 @@ struct DirectionalShadowmap {
 		glViewport(0, 0, shadow_res, shadow_res);
 		
 		PipelineState s;
+		s.depth_clamp = true;
 		state.set(s);
+
 		glClear(GL_DEPTH_BUFFER_BIT);
 
 		//float3 center = float3(size * 0.5f, size * 0.5f, 0.0f);
@@ -288,6 +317,8 @@ struct RenderPasses {
 
 			shad_fullscreen_lighting->set_uniform("shadowmap_mat", shadowmap.view.world2clip);
 			shad_fullscreen_lighting->set_uniform("shadowmap_dir", (float3x3)shadowmap.view.cam2world * float3(0,0,-1));
+			shad_fullscreen_lighting->set_uniform("shadowmap_bias_fac", shadowmap.bias_fac);
+			shad_fullscreen_lighting->set_uniform("shadowmap_bias_max", shadowmap.bias_max);
 			
 			state.bind_textures(shad_fullscreen_lighting, {
 				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, fbo_sampler_nearest },
@@ -295,6 +326,7 @@ struct RenderPasses {
 				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, fbo_sampler_nearest },
 
 				{ "shadowmap", { GL_TEXTURE_2D, shadowmap.shadow_tex }, shadowmap.shadow_sampler },
+				{ "shadowmap2", { GL_TEXTURE_2D, shadowmap.shadow_tex }, shadowmap.shadow_sampler2 },
 				
 				{"grid_tex", texs.grid, texs.sampler_normal},
 			});

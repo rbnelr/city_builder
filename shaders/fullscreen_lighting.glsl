@@ -7,17 +7,18 @@
 	uniform sampler2D gbuf_col;
 	uniform sampler2D gbuf_norm;
 	
-	uniform sampler2DShadow shadowmap;
+	uniform sampler2D shadowmap;
+	uniform sampler2DShadow shadowmap2;
 	uniform mat4 shadowmap_mat;
 	uniform vec3 shadowmap_dir; // light dir of sun
+	uniform float shadowmap_bias_fac = 0.0005;
+	uniform float shadowmap_bias_max = 0.004;
 	
 	out vec4 frag_col;
 	
 	float sun_shadowmap (vec3 pos_world, vec3 normal) {
-		// should depend on shadowmap resolution!
-		float bias = clamp(0.0010 * (1.0 - dot(normal, -shadowmap_dir)), 0.0, 0.0010);
-		//float bias = 0.0005;
-		//frag_col = vec4(bias.xxx * 20.0, 1.0);
+		float bias = shadowmap_bias_fac * tan(acos(dot(normal, -shadowmap_dir)));
+		bias = clamp(bias, 0.0, shadowmap_bias_max);
 		
 		vec4 shadow_clip = shadowmap_mat * vec4(pos_world, 1.0);
 		vec3 shadow_ndc = shadow_clip.xyz / shadow_clip.w;
@@ -31,8 +32,23 @@
 			return 1.0;
 		
 		float compare = shadow_ndc.z + bias;
-		// Let gpu do comparisons compare > shadow texel for us and then do bilinear filtering
-		float shadow_fac = texture(shadowmap, vec3(shadow_uv, compare)).r;
+		
+		float shadow_fac = 0.0;
+		
+		// PCF
+		vec2 texelSize = 1.0 / textureSize(shadowmap, 0);
+		int sum = 0;
+		for (int x=-1; x<=1; ++x)
+		for (int y=-1; y<=1; ++y) {
+			vec2 uv = shadow_uv + vec2(x,y) * texelSize;
+			
+			float fac = texture(shadowmap2, vec3(uv, compare)).r;
+			//float fac = compare > texture(shadowmap, uv).r ? 1.0 : 0.0;
+			shadow_fac += fac;
+			sum++;
+		}
+		shadow_fac /= float(sum);
+		
 		return shadow_fac;
 	}
 	
@@ -40,6 +56,7 @@
 		float depth = texture(gbuf_depth, v.uv).r;
 		vec3 col    = texture(gbuf_col, v.uv).rgb;
 		vec3 normal = texture(gbuf_norm, v.uv).rgb;
+		//col = vec3(1);
 		
 		float len = length(normal);
 		if (len > 0.001) {
@@ -57,5 +74,12 @@
 		frag_col = vec4(col, 1.0);
 		//frag_col = vec4(normal, 1.0);
 		//frag_col = vec4(depth,depth,depth, 1.0);
+		
+		vec2 dbg_sz = vec2(0.4);
+		dbg_sz.x /= view.aspect_ratio;
+		vec2 dbg_uv = (v.uv - (vec2(1.0) - dbg_sz)) / dbg_sz;
+		if (dbg_uv.x > 0.0 && dbg_uv.y > 0.0) {
+			frag_col = vec4(texture(shadowmap, dbg_uv).rrr, 1.0);
+		}
 	}
 #endif

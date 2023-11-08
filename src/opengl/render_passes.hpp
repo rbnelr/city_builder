@@ -14,8 +14,8 @@ struct Textures {
 	Texture2D grid = load_texture<srgba8>("grid", "misc/grid2.png");
 	Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
 	
-	//Sampler sampler_heightmap = sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
-	Sampler sampler_normal = sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
+	//Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
+	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
 
 	Texture2D house_diff = load_texture<srgb8>("house_Diff", "buildings/house.png");
 	Texture2D streetlight_diff = load_texture<srgb8>("streetlight_Diff", "props/streetlight_Diff.png");
@@ -100,13 +100,18 @@ struct Gbuffer {
 	// only depth -> reconstruct position  float32 format for resonable infinite far plane (float16 only works with ~1m near plane)
 	static constexpr GLenum depth_format = GL_DEPTH_COMPONENT32F; // GL_R32F causes GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT
 	// rgb albedo (emmisive is simply very bright)
-	static constexpr GLenum col_format   = GL_RGBA16F;
-	// rgb normal  
-	static constexpr GLenum norm_format  = GL_RGB16F;
+	// might be able to afford using GL_RGB8 since it's mostly just albedo from textures
+	static constexpr GLenum col_format   = GL_RGB16F; // GL_RGB16F GL_RGB8
+	// rgb normal
+	// GL_RGB8 requires encoding normals, might be better to have camera space normals without z
+	// seems like 8 bits might be to little for normals
+	static constexpr GLenum norm_format  = GL_RGB16F; // GL_RGB16F
 
 	Render_Texture depth  = {};
 	Render_Texture col    = {};
 	Render_Texture norm   = {};
+
+	Sampler sampler = make_sampler("gbuf_sampler", FILTER_NEAREST, GL_CLAMP_TO_EDGE);
 
 	void resize (int2 size) {
 		glActiveTexture(GL_TEXTURE0);
@@ -155,9 +160,9 @@ struct DirectionalShadowmap {
 	Render_Texture shadow_tex;
 	
 	// without shadow sampler (filter depth, then test)
-	Sampler shadow_sampler = sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_BORDER, lrgba(0,0,0,1));
+	Sampler sampler = make_sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_BORDER, lrgba(0,0,0,1));
 	// with shadow sampler (test texels, then filter)
-	Sampler shadow_sampler2 = sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_BORDER, lrgba(0,0,0,1));
+	Sampler sampler2 = make_sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_BORDER, lrgba(0,0,0,1));
 
 	Fbo fbo;
 
@@ -166,8 +171,8 @@ struct DirectionalShadowmap {
 
 		shadow_tex = Render_Texture("DirectionalShadowmap.depth", tex_res, GL_DEPTH_COMPONENT16);
 		
-		glSamplerParameteri(shadow_sampler2, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-		glSamplerParameteri(shadow_sampler2, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
+		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
 
 		fbo = Fbo("DirectionalShadowmap.fbo");
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -247,6 +252,88 @@ struct DirectionalShadowmap {
 	}
 };
 
+
+struct DefferedPointLightRenderer {
+	typedef typename VertexPos3 vert_t;
+	typedef typename uint32_t   idx_t;
+
+	Shader* shad = g_shaders.compile("point_lights");
+
+	struct MeshInstance {
+		//int    type;
+		float3 pos;
+		float  radius;
+		float3 col;
+
+		VERTEX_CONFIG_INSTANCED(
+			ATTRIB(FLT3, MeshInstance, pos),
+			ATTRIB(FLT , MeshInstance, radius),
+			ATTRIB(FLT3, MeshInstance, col),
+		)
+	};
+
+	// All meshes/lods vbo (indexed) GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER
+	// All entities instance data GL_ARRAY_BUFFER
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<vert_t, MeshInstance>("point_lights");
+
+	GLsizei index_count = 0;
+	GLsizei instance_count = 0;
+
+	DefferedPointLightRenderer () {
+		SimpleMesh mesh;
+		if (!assimp::load_simple("assets/misc/ico_sphere.fbx", &mesh)) {
+			assert(false);
+		}
+
+		vbo.upload_mesh(mesh.vertices, mesh.indices);
+		index_count = (GLsizei)mesh.indices.size();
+	}
+
+	template <typename FUNC>
+	void update_instances (FUNC get_instances) {
+		ZoneScoped;
+		OGL_TRACE("update lights");
+
+		auto instances = get_instances();
+		vbo.stream_instances(instances);
+
+		instance_count = (GLsizei)instances.size();
+	}
+
+	void draw (StateManager& state, Gbuffer& gbuf) {
+		if (shad->prog) {
+			ZoneScoped;
+			OGL_TRACE("draw lights");
+
+			// additive light blending
+			PipelineState s;
+			s.depth_test = true; // draw only surfaces with are in light radius
+			s.depth_write = false;
+
+			//s.cull_face = false; // need to draw lights even when inside the light radius sphere
+
+			s.blend_enable = true; // additive light shading
+			s.blend_func.dfactor = GL_ONE;
+			s.blend_func.sfactor = GL_ONE;
+			s.blend_func.equation = GL_FUNC_ADD;
+
+			state.set(s);
+
+			glUseProgram(shad->prog);
+
+			state.bind_textures(shad, {
+				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
+				{ "gbuf_col",   { GL_TEXTURE_2D, gbuf.col   }, gbuf.sampler },
+				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, gbuf.sampler },
+			});
+
+			glBindVertexArray(vbo.vao);
+			glDrawElementsInstanced(GL_TRIANGLES, index_count, GL_UNSIGNED_SHORT, (void*)0, instance_count);
+			glBindVertexArray(0);
+		}
+	}
+};
+
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
 	SERIALIZE(RenderPasses, renderscale, shadowmap, exposure)
@@ -303,11 +390,11 @@ struct RenderPasses {
 
 	render::RenderScale renderscale;
 	
-	Sampler fbo_sampler         = sampler("fbo_sampler", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
-	Sampler fbo_sampler_nearest = sampler("fbo_sampler_nearest", FILTER_NEAREST, GL_CLAMP_TO_EDGE);
+	Sampler renderscale_sampler         = make_sampler("renderscale_sampler", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
+	Sampler renderscale_sampler_nearest = make_sampler("renderscale_sampler_nearest", FILTER_NEAREST, GL_CLAMP_TO_EDGE);
 	
-	Sampler& get_sampler () {
-		return renderscale.nearest ? fbo_sampler_nearest : fbo_sampler;
+	Sampler& get_renderscale_sampler () {
+		return renderscale.nearest ? renderscale_sampler_nearest : renderscale_sampler;
 	}
 	
 	Shader* shad_fullscreen_lighting = g_shaders.compile("fullscreen_lighting");
@@ -327,6 +414,8 @@ struct RenderPasses {
 	}
 	
 	void update (int2 window_size) {
+		ZoneScoped;
+
 		shadowmap.update();
 
 		if (renderscale.update(window_size)) {
@@ -357,9 +446,9 @@ struct RenderPasses {
 		glViewport(0, 0, renderscale.size.x, renderscale.size.y);
 	}
 
-	template <typename FUNC>
-	void fullscreen_lighting_pass (StateManager& state, Textures& texs, FUNC draw_deffered_lights) {
+	void fullscreen_lighting_pass (StateManager& state, Textures& texs, DefferedPointLightRenderer& light_renderer) {
 		if (shad_fullscreen_lighting->prog) {
+			ZoneScoped;
 			OGL_TRACE("fullscreen_lighting");
 
 			PipelineState s;
@@ -376,40 +465,43 @@ struct RenderPasses {
 			shad_fullscreen_lighting->set_uniform("shadowmap_bias_max", shadowmap.bias_max);
 			
 			state.bind_textures(shad_fullscreen_lighting, {
-				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, fbo_sampler_nearest },
-				{ "gbuf_col",   { GL_TEXTURE_2D, gbuf.col   }, fbo_sampler_nearest },
-				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, fbo_sampler_nearest },
+				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
+				{ "gbuf_col",   { GL_TEXTURE_2D, gbuf.col   }, gbuf.sampler },
+				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, gbuf.sampler },
 
-				{ "shadowmap", { GL_TEXTURE_2D, shadowmap.shadow_tex }, shadowmap.shadow_sampler },
-				{ "shadowmap2", { GL_TEXTURE_2D, shadowmap.shadow_tex }, shadowmap.shadow_sampler2 },
+				{ "shadowmap", { GL_TEXTURE_2D, shadowmap.shadow_tex }, shadowmap.sampler },
+				{ "shadowmap2", { GL_TEXTURE_2D, shadowmap.shadow_tex }, shadowmap.sampler2 },
 				
 				{"grid_tex", texs.grid, texs.sampler_normal},
 			});
 			draw_fullscreen_triangle(state);
-
-			draw_deffered_lights();
 		}
+
+		light_renderer.draw(state, gbuf);
 	}
 	void end_lighting_pass () {
+		ZoneScoped;
 		OGL_TRACE("lighting_fbo gen mipmaps");
+
 		glBindTexture(GL_TEXTURE_2D, lighting_fbo.col);
 		glGenerateMipmap(GL_TEXTURE_2D);
 		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 
 	void postprocess (StateManager& state, int2 window_size) {
+		ZoneScoped;
+		OGL_TRACE("postprocess");
+
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glViewport(0, 0, window_size.x, window_size.y);
 		
 		if (shad_postprocess->prog) {
-			OGL_TRACE("postprocess");
-				
 			glUseProgram(shad_postprocess->prog);
 				
 			shad_postprocess->set_uniform("exposure", exposure);
 
 			state.bind_textures(shad_postprocess, {
-				{ "lighting_fbo", { GL_TEXTURE_2D, lighting_fbo.col }, get_sampler() }
+				{ "lighting_fbo", { GL_TEXTURE_2D, lighting_fbo.col }, get_renderscale_sampler() }
 			});
 			draw_fullscreen_triangle(state);
 		}

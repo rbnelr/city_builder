@@ -356,13 +356,12 @@ struct TerrainRenderer {
 	}
 	void render_terrain (StateManager& state, Textures& texs, View3D& view) {
 		ZoneScoped;
+		OGL_TRACE("render_terrain");
 
 		drawn_chunks = 0;
 
 		if (draw_terrain && shad_terrain->prog) {
 
-			OGL_TRACE("render_terrain");
-				
 			PipelineState s;
 			s.depth_test = true;
 			s.blend_enable = false;
@@ -463,10 +462,10 @@ struct SkyboxRenderer {
 	// advantage: early-z avoids drawing skybox shader behind ground, might be better with scattering skybox shader
 	// shader needs to use vec4(xyz, 0.0) clip coords to draw at infinity -> need to clip at far plane with GL_DEPTH_CLAMP
 	void render_skybox_last (StateManager& state, Textures& texs) {
-		if (!shad->prog) return;
-		
+		ZoneScoped;
 		OGL_TRACE("draw_skybox");
-
+		
+		if (!shad->prog) return;
 		PipelineState s;
 		s.depth_test   = true;
 		s.depth_write  = false;
@@ -727,85 +726,6 @@ struct NetworkRenderer {
 	}
 };
 
-struct DefferedPointLightRenderer {
-	typedef typename VertexPos3 vert_t;
-	typedef typename uint32_t   idx_t;
-
-	Shader* shad = g_shaders.compile("point_lights");
-
-	struct MeshInstance {
-		//int    type;
-		float3 pos;
-		float  radius;
-		float3 col;
-			
-		VERTEX_CONFIG_INSTANCED(
-			ATTRIB(FLT3, MeshInstance, pos),
-			ATTRIB(FLT , MeshInstance, radius),
-			ATTRIB(FLT3, MeshInstance, col),
-		)
-	};
-
-	// All meshes/lods vbo (indexed) GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER
-	// All entities instance data GL_ARRAY_BUFFER
-	VertexBufferInstancedI vbo = vertex_buffer_instancedI<vert_t, MeshInstance>("point_lights");
-
-	GLsizei index_count = 0;
-	GLsizei instance_count = 0;
-	
-	DefferedPointLightRenderer () {
-		SimpleMesh mesh;
-		if (!assimp::load_simple("assets/misc/ico_sphere.fbx", &mesh)) {
-			assert(false);
-		}
-
-		vbo.upload_mesh(mesh.vertices, mesh.indices);
-		index_count = (GLsizei)mesh.indices.size();
-	}
-
-	template <typename FUNC>
-	void update_instances (FUNC get_instances) {
-		ZoneScoped;
-		OGL_TRACE("update lights");
-
-		auto instances = get_instances();
-		vbo.stream_instances(instances);
-
-		instance_count = (GLsizei)instances.size();
-	}
-
-	void draw (StateManager& state) {
-		ZoneScoped;
-		OGL_TRACE("draw lights");
-
-		if (shad->prog) {
-			OGL_TRACE("draw lights");
-
-			// additive light blending
-			PipelineState s;
-			s.depth_test = true; // draw only surfaces with are in light radius
-			s.depth_write = false;
-
-			//s.cull_face = false; // need to draw lights even when inside the light radius sphere
-			
-			s.blend_enable = true; // additive light shading
-			s.blend_func.dfactor = GL_ONE;
-			s.blend_func.sfactor = GL_ONE;
-			s.blend_func.equation = GL_FUNC_ADD;
-
-			state.set(s);
-
-			glUseProgram(shad->prog);
-
-			// reuse textures bound previously during fullscreen_lighting_pass
-			
-			glBindVertexArray(vbo.vao);
-			glDrawElementsInstanced(GL_TRIANGLES, index_count, GL_UNSIGNED_SHORT, (void*)0, instance_count);
-			glBindVertexArray(0);
-		}
-	}
-};
-
 struct Mesher {
 	EntityRenderer<BuildingAsset>& building_renderer;
 	NetworkRenderer              & network_renderer;
@@ -837,7 +757,7 @@ struct Mesher {
 			
 		i->pos = pos;
 		i->radius = radius;
-		i->col = 1;
+		i->col = col;
 	}
 	
 	PropInstance& place_prop (network::Segment& seg, float3 shift, float rot, PropAsset* prop) {
@@ -1075,6 +995,7 @@ struct Mesher {
 	}
 	
 	void remesh_network (network::Network& net) {
+		ZoneScoped;
 		
 		for (auto& seg : net.segments) {
 			mesh_segment(*seg);
@@ -1157,6 +1078,8 @@ struct Mesher {
 		}
 	}
 	void push_buildings (App& app) {
+		ZoneScoped;
+
 		building_instances.resize(app.entities.buildings.size());
 
 		for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
@@ -1172,6 +1095,8 @@ struct Mesher {
 	}
 
 	void remesh (App& app) {
+		ZoneScoped;
+
 		remesh_network(app.net);
 
 		push_buildings(app);
@@ -1319,6 +1244,8 @@ struct OglRenderer : public Renderer {
 		mesher.remesh(app);
 	}
 	void upload_car_instances (App& app) {
+		ZoneScoped;
+
 		car_renderer.update_instances([&] () {
 			std::vector<decltype(car_renderer)::MeshInstance> instances;
 			instances.resize(app.entities.citizens.size());
@@ -1351,17 +1278,22 @@ struct OglRenderer : public Renderer {
 		lighting.sun_dir = float4(app.time_of_day.sun_dir, 0.0);
 
 		if (app.assets.assets_reloaded) {
+			ZoneScopedN("assets_reloaded");
+
 			building_renderer.upload_meshes(app.assets.buildings);
 			car_renderer.upload_meshes(app.assets.cars);
 			prop_renderer.upload_meshes(app.assets.props);
 		}
 
 		if (app.entities.buildings_changed) {
+			ZoneScopedN("buildings_changed");
+
 			upload_static_instances(app);
 		}
 		upload_car_instances(app);
 
 		{
+			ZoneScopedN("setup");
 			OGL_TRACE("setup");
 
 			{
@@ -1389,9 +1321,11 @@ struct OglRenderer : public Renderer {
 
 		passes.update(app.input.window_size);
 
-		passes.begin_shadow_pass(app, state, [&] (View3D const& view) { common_ubo.set_view(view); });
 		{
+			ZoneScopedN("shadow_pass");
 			OGL_TRACE("shadow_pass");
+
+			passes.begin_shadow_pass(app, state, [&] (View3D const& view) { common_ubo.set_view(view); });
 		
 			terrain_renderer.render_terrain(state, textures, app.view);
 		
@@ -1402,11 +1336,12 @@ struct OglRenderer : public Renderer {
 			network_renderer.render(state, textures);
 		}
 
-		common_ubo.set_view(app.view);
-
-		passes.begin_geometry_pass(state);
 		{
+			ZoneScopedN("geometry_pass");
 			OGL_TRACE("geometry_pass");
+
+			common_ubo.set_view(app.view);
+			passes.begin_geometry_pass(state);
 
 			terrain_renderer.render_terrain(state, textures, app.view);
 		
@@ -1422,23 +1357,22 @@ struct OglRenderer : public Renderer {
 		}
 
 		{
+			ZoneScopedN("lighting_pass");
 			OGL_TRACE("lighting_pass");
 
 			passes.begin_lighting_pass();
 
-			passes.fullscreen_lighting_pass(state, textures, [&] () {
-				light_renderer.draw(state);
-			});
+			passes.fullscreen_lighting_pass(state, textures, light_renderer);
 
 			passes.end_lighting_pass();
 		}
 
-		// 
 		passes.postprocess(state, app.input.window_size);
 
 		gl_dbgdraw.render(state, g_dbgdraw);
 
 		{
+			ZoneScopedN("draw ui");
 			OGL_TRACE("draw ui");
 		
 			if (app.trigger_screenshot && !app.screenshot_hud) take_screenshot(app.input.window_size);

@@ -29,8 +29,8 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 	//  (ie. don't allow crossing the road middle)
 	{ // handle the two start nodes
 		// pretend start point is at center of start segment for now
-		start->node_a->_cost = start->lane_length / 0.5f / start->asset->speed_limit;
-		start->node_b->_cost = start->lane_length / 0.5f / start->asset->speed_limit;
+		start->node_a->_cost = start->_length / 0.5f / start->asset->speed_limit;
+		start->node_b->_cost = start->_length / 0.5f / start->asset->speed_limit;
 
 		start->node_a->_pred_seg = start;
 		start->node_b->_pred_seg = start;
@@ -68,7 +68,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 				//continue;
 			}
 
-			float len = lane.seg->lane_length + lane.seg->node_a->radius + lane.seg->node_b->radius;
+			float len = lane.seg->_length + lane.seg->node_a->_radius + lane.seg->node_b->_radius;
 			float cost = len / lane.seg->asset->speed_limit;
 
 			float new_cost = cur_node->_cost + cost;
@@ -259,7 +259,7 @@ void brake_for_dist (Agent* agent, float obstacle_dist) {
 void debug_node (App& app, Node* node) {
 	if (!node) return;
 
-	g_dbgdraw.wire_circle(node->pos, node->radius, lrgba(1,1,0,1));
+	g_dbgdraw.wire_circle(node->pos, node->_radius, lrgba(1,1,0,1));
 
 	//{
 	//	int i=0;
@@ -624,14 +624,14 @@ void update_node (App& app, Node* node) {
 	auto dbg_avail_space = [&] (SegLane const& lane_out, Agent* a) {
 		auto li = lane_out.clac_lane_info();
 		
-		auto pos = lerp(li.a, li.b, lane_out.agents().avail_space / lane_out.seg->lane_length);
+		auto pos = lerp(li.a, li.b, lane_out.agents().avail_space / lane_out.seg->_length);
 		g_dbgdraw.point(pos, 1, lrgba(a->cit->col,1));
 	};
 
 	//
 	for (auto& lane_out : node->out_lanes) {
 		auto& avail_space = lane_out.agents().avail_space;
-		avail_space = lane_out.seg->lane_length;
+		avail_space = lane_out.seg->_length;
 		
 		for (auto* a : lane_out.seg->agents.lanes[lane_out.lane].list.list) {
 			if (node_dbg) dbg_avail_space(lane_out, a);

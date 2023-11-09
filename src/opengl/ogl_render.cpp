@@ -767,10 +767,7 @@ struct Mesher {
 		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
 		float3 up = cross(right, forw);
 		
-		float3 a = seg.node_a->pos + forw * seg.node_a->radius;
-		//float3 b = seg.node_b->pos - forw * seg.node_b->radius;
-		
-		float3 pos = a + right * shift.x + forw * shift.y + up * shift.z;
+		float3 pos = seg.pos_a + right * shift.x + forw * shift.y + up * shift.z;
 		rot += angle2d(forw);
 
 		return push_prop(streetlight_asset, pos, rot);
@@ -790,19 +787,16 @@ struct Mesher {
 		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
 		float3 up = cross(right, forw);
 		
-		float3 a = seg.node_a->pos + forw * seg.node_a->radius;
-		float3 b = seg.node_b->pos - forw * seg.node_b->radius;
-		
 		T l0 = l;
 		T l1 = l;
 		T r0 = r;
 		T r1 = r;
 
-		l0.pos = a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-		l1.pos = b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+		l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+		l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
 
-		r0.pos = a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
-		r1.pos = b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+		r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+		r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
 
 		mesh.push_quad(l0, r0, r1, l1);
 	}
@@ -815,9 +809,6 @@ struct Mesher {
 		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
 		float3 up = cross(right, forw);
 		
-		float3 a = seg.node_a->pos + forw * seg.node_a->radius;
-		float3 b = seg.node_b->pos - forw * seg.node_b->radius;
-		
 		float uv_len = len / (scale.y*4); // *4 since 1-4 aspect ratio
 		uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
 
@@ -826,11 +817,11 @@ struct Mesher {
 		T r0 = r;
 		T r1 = r;
 
-		l0.pos = a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-		r0.pos = a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+		l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+		r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
 
-		l1.pos = b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-		r1.pos = b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+		l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+		r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
 
 		l0.uv = float2(0,0);
 		r0.uv = float2(1,0);
@@ -846,6 +837,8 @@ struct Mesher {
 	float sidewalk_tex_id = 1;
 
 	float streetlight_spacing = 10;
+	
+	float stopline_width  = 1.0f;
 
 	PropAsset* streetlight_asset = nullptr;
 
@@ -884,7 +877,7 @@ struct Mesher {
 
 		for (auto& light : seg.asset->streetlights) {
 			float y = 0;
-			while (y < seg.lane_length) {
+			while (y < seg._length) {
 				auto& prop = place_prop(seg, light.shift + float3(0,y,0), light.rot, streetlight_asset);
 
 				auto mat = obj_transform(prop.pos, prop.rot);
@@ -912,7 +905,7 @@ struct Mesher {
 			info.forw = normalizesafe(node->pos - other->pos);
 			info.right = rotate90(-info.forw);
 
-			info.pos = node->pos - info.forw * node->radius;
+			info.pos = seg->pos_for_node(node);
 
 			info.asset = seg->asset;
 
@@ -1038,14 +1031,12 @@ struct Mesher {
 			// stop lines
 			float tex_id = (float)(int)LineMarkingType::LINE;
 			if (f0 < INF) {
-				float width = 0.25f;
+				float3 base = seg->pos_b + float3(0,0, 0.02f);
 
-				float3 base = seg->node_b->pos + float3(- v.forw * seg->node_b->radius, 0.02f);
-
-				float3 a = base + float3(+ v.forw * width*0.5f + v.right * f0, 0);
-				float3 b = base + float3(- v.forw * width*0.5f + v.right * f0, 0);
-				float3 c = base + float3(- v.forw * width*0.5f + v.right * f1, 0);
-				float3 d = base + float3(+ v.forw * width*0.5f + v.right * f1, 0);
+				float3 a = base + float3(+ v.forw * stopline_width*0.5f + v.right * f0, 0);
+				float3 b = base + float3(- v.forw * stopline_width*0.5f + v.right * f0, 0);
+				float3 c = base + float3(- v.forw * stopline_width*0.5f + v.right * f1, 0);
+				float3 d = base + float3(+ v.forw * stopline_width*0.5f + v.right * f1, 0);
 
 				lines_mesh.push_quad(
 					{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
@@ -1055,14 +1046,12 @@ struct Mesher {
 				);
 			}
 			if (r0 < INF) {
-				float width = 0.5f;
+				float3 base = seg->pos_a + float3(0,0, 0.02f);
 
-				float3 base = seg->node_a->pos + float3(+ v.forw * seg->node_a->radius, 0.02f);
-
-				float3 a = base + float3(+ v.forw * width*0.5f + v.right * r0, 0);
-				float3 b = base + float3(- v.forw * width*0.5f + v.right * r0, 0);
-				float3 c = base + float3(- v.forw * width*0.5f + v.right * r1, 0);
-				float3 d = base + float3(+ v.forw * width*0.5f + v.right * r1, 0);
+				float3 a = base + float3(+ v.forw * stopline_width*0.5f + v.right * r0, 0);
+				float3 b = base + float3(- v.forw * stopline_width*0.5f + v.right * r0, 0);
+				float3 c = base + float3(- v.forw * stopline_width*0.5f + v.right * r1, 0);
+				float3 d = base + float3(+ v.forw * stopline_width*0.5f + v.right * r1, 0);
 
 				lines_mesh.push_quad(
 					{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },

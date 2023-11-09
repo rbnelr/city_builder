@@ -349,26 +349,26 @@ struct App : public Engine {
 			// create path nodes grid
 			for (int y=0; y<grid_n+1; ++y)
 			for (int x=0; x<grid_n+1; ++x) {
-				auto a = road_type(x);
-				auto b = road_type(y);
-
-				float node_r = max(a->width, b->width)*0.5f * intersection_scale;
-				
 				float3 pos = base_pos + float3((float)x,(float)y,0) * float3(spacing, 0);
-				net.nodes[y * (grid_n+1) + x] = std::make_unique<Node>(Node{pos, node_r});
+				net.nodes[y * (grid_n+1) + x] = std::make_unique<Node>(Node{pos});
 			}
 			
-			auto create_segment = [&] (NetworkAsset* layout, Node* a, Node* b) {
-				assert(a && b && a != b);
+			auto create_segment = [&] (NetworkAsset* layout, Node* node_a, Node* node_b, int pos) {
+				assert(node_a && node_b && node_a != node_b);
+
+				float3 dir = normalizesafe(node_b->pos - node_a->pos);
 
 				auto* seg = net.segments.emplace_back(std::make_unique<Segment>(Segment{
-					layout, a, b
+					layout, node_a, node_b
 				})).get();
 
-				a->segments.push_back(seg);
-				b->segments.push_back(seg);
+				node_a->segments.push_back(seg);
+				node_b->segments.push_back(seg);
 
 				seg->agents.lanes.resize(layout->lanes.size());
+
+				seg->pos_a = node_a->pos + dir * road_type(pos  )->width * 0.5f * intersection_scale;
+				seg->pos_b = node_b->pos - dir * road_type(pos+1)->width * 0.5f * intersection_scale;
 
 				seg->update_cached();
 			};
@@ -380,7 +380,7 @@ struct App : public Engine {
 
 				auto* a = get_node(x, y);
 				auto* b = get_node(x+1, y);
-				create_segment(layout, a, b);
+				create_segment(layout, a, b, x);
 			}
 			// create y paths
 			for (int y=0; y<grid_n; ++y)
@@ -390,7 +390,7 @@ struct App : public Engine {
 				if (rand.chance(connection_chance) || layout == medium_road) {
 					auto* a = get_node(x, y);
 					auto* b = get_node(x, y+1);
-					create_segment(layout, a, b);
+					create_segment(layout, a, b, y);
 				}
 			}
 

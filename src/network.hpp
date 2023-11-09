@@ -238,7 +238,7 @@ struct NodeAgents {
 
 struct Node {
 	float3 pos;
-	float radius; // offset of segments
+	float _radius; // offset of segments
 	// for editing and drawing?
 	std::vector<Segment*> segments;
 
@@ -262,7 +262,7 @@ struct Node {
 	void update_cached ();
 	
 	SelCircle get_sel_shape () {
-		return { pos, radius, lrgb(0.04f, 0.04f, 1) };
+		return { pos, _radius, lrgb(0.04f, 0.04f, 1) };
 	}
 };
 
@@ -276,7 +276,11 @@ struct Segment { // better name? Keep Path and call path Route?
 	Node* node_a;
 	Node* node_b;
 
-	float lane_length; // length of segment - node radii
+	float3 pos_a;
+	float3 pos_b;
+
+	float _length = 0;
+
 	SegAgents agents;
 
 	std::vector<Lane> lanes;
@@ -295,10 +299,14 @@ struct Segment { // better name? Keep Path and call path Route?
 		return node_b == node ? LaneDir::FORWARD : LaneDir::BACKWARD;
 	}
 
-	void update_cached () {
-		lane_length = distance(node_a->pos, node_b->pos) - (node_a->radius + node_b->radius);
+	float3 pos_for_node (Node* node) {
+		return node_a == node ? pos_a : pos_b;
+	}
 
+	void update_cached () {
 		lanes.resize(asset->lanes.size());
+
+		_length = distance(pos_a, pos_b);
 	}
 		
 	// Segment direction vectors
@@ -320,8 +328,8 @@ inline Line SegLane::clac_lane_info (float shift) const {
 	float2 seg_right  = v.right;
 	float2 lane_right = l.direction == LaneDir::FORWARD ? v.right : -v.right;
 
-	float3 a = seg->node_a->pos + float3(seg_right * l.shift + lane_right * shift + v.forw * seg->node_a->radius, 0);
-	float3 b = seg->node_b->pos + float3(seg_right * l.shift + lane_right * shift - v.forw * seg->node_b->radius, 0);
+	float3 a = seg->pos_a + float3(seg_right * l.shift + lane_right * shift, 0);
+	float3 b = seg->pos_b + float3(seg_right * l.shift + lane_right * shift, 0);
 
 	if (l.direction == LaneDir::FORWARD) return { a, b };
 	else                                 return { b, a };
@@ -445,6 +453,7 @@ inline void Node::update_cached () {
 		return ang_l < ang_r;
 	});
 
+	_radius = 0;
 	for (auto* seg : segments) {
 		LaneDir dir = this == seg->node_a ? LaneDir::FORWARD : LaneDir::BACKWARD; // 0: segment points 'away' from this node
 
@@ -454,6 +463,8 @@ inline void Node::update_cached () {
 			auto& vec = lane.direction == dir ? out_lanes : in_lanes;
 			vec.push_back(SegLane{ seg, (uint16_t)i });
 		}
+
+		_radius = max(_radius, distance(pos, seg->pos_for_node(this)));
 	}
 
 	calc_default_allowed_turns(*this);

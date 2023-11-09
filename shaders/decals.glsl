@@ -31,6 +31,7 @@ VS2FS
 	GBUF_OUT
 	void main () {
 		vec4 col = texture(turn_arrows, vec3(v.uv, v.tex_id)) * v.col;
+		//col.a = 1.0;
 		
 		frag_col = col * vec4(1,1,1,0.5);
 		frag_norm = vec4(v.norm, 0.7 * col.a);

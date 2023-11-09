@@ -307,10 +307,13 @@ struct DefferedPointLightRenderer {
 
 			// additive light blending
 			PipelineState s;
-			s.depth_test = true; // draw only surfaces with are in light radius
+			//s.depth_test = true; // draw only surfaces with are in light radius
+			s.depth_test = false; // don't depth test as backface won't be drawn
 			s.depth_write = false;
 
 			//s.cull_face = false; // need to draw lights even when inside the light radius sphere
+			s.cull_face = true;
+			s.front_face = CULL_FRONT; // draw backfaces to avoid camera in light volume problem
 
 			s.blend_enable = true; // additive light shading
 			s.blend_func.dfactor = GL_ONE;

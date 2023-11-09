@@ -673,13 +673,16 @@ struct NetworkRenderer {
 	struct Vertex {
 		float3 pos;
 		float3 norm;
-		//float2 uv;
+		float3 tang;
+		float2 uv; // only really for some parts of the mesh, like curbs
 		float tex_id;
 		//float4 col;
 
 		VERTEX_CONFIG(
 			ATTRIB(FLT3, Vertex, pos),
 			ATTRIB(FLT3, Vertex, norm),
+			ATTRIB(FLT3, Vertex, tang),
+			ATTRIB(FLT2, Vertex, uv),
 			ATTRIB(FLT , Vertex, tex_id),
 		)
 	};
@@ -706,6 +709,9 @@ struct NetworkRenderer {
 			glUseProgram(shad->prog);
 
 			state.bind_textures(shad, {
+				{ "test_color",  texs.test_color, texs.sampler_normal },
+				{ "test_normal", texs.test_normal, texs.sampler_normal },
+
 				{ "surfaces_color",  texs.surfaces_color, texs.sampler_normal },
 				{ "surfaces_normal", texs.surfaces_normal, texs.sampler_normal },
 			});
@@ -779,90 +785,124 @@ struct Mesher {
 	// for intersections: greatly depends on how intersecyions will look, but could probably do similar
 	// but if properly lodded (via chunks probably) should run fine and unlikely take too much vram
 
-	template <typename T, typename IT>
-	static void extrude (Mesh<T, IT>& mesh, network::Segment& seg, T const& l, T const& r) {
-		float3 dir = seg.node_b->pos - seg.node_a->pos;
+	// TODO: make sure to do proper indexing?
+	// OR actually load road mesh as asset and morpth it into shape
 
-		float3 forw = normalizesafe(dir);
-		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
-		float3 up = cross(right, forw);
+	// TODO: fix tangents being wrong sometimes?
+
+	PropAsset* streetlight_asset = nullptr;
+
+	float sidewalk_h = 0.15f;
+	float curbstone_w = 0.25f;
+
+	// negative numbers are for non uv mappes (worldspace) textures
+	float asphalt_tex_id  = 0;
+	float curb_tex_id     = -1;
+	float sidewalk_tex_id = 1;
+
+	float2 curb_tex_tiling = float2(2,0);
+
+	float streetlight_spacing = 10;
+	
+	float stopline_width  = 1.0f;
+
+	static constexpr float2 no_uv = 0;
+
+	float3 norm_up = float3(0,0,1);
+	float3 tang_up = float3(1,0,0);
+
+	void mesh_segment (network::Segment& seg) {
+		float width = seg.asset->width;
 		
-		T l0 = l;
-		T l1 = l;
-		T r0 = r;
-		T r1 = r;
-
-		l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-		l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-
-		r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
-		r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
-
-		mesh.push_quad(l0, r0, r1, l1);
-	}
-	template <typename T, typename IT>
-	static void extrude_line (Mesh<T, IT>& mesh, network::Segment& seg, T const& l, T const& r, float2 scale) {
 		float3 dir = seg.node_b->pos - seg.node_a->pos;
 
 		float len = length(dir);
 		float3 forw = normalizesafe(dir);
 		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
 		float3 up = cross(right, forw);
-		
-		float uv_len = len / (scale.y*4); // *4 since 1-4 aspect ratio
-		uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
 
-		T l0 = l;
-		T l1 = l;
-		T r0 = r;
-		T r1 = r;
-
-		l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-		r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
-
-		l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-		r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
-
-		l0.uv = float2(0,0);
-		r0.uv = float2(1,0);
-		l1.uv = float2(0,uv_len);
-		r1.uv = float2(1,uv_len);
-
-		mesh.push_quad(l0, r0, r1, l1);
-	}
-	
-	float sidewalk_h = 0.15f;
-
-	float asphalt_tex_id = 0;
-	float sidewalk_tex_id = 1;
-
-	float streetlight_spacing = 10;
-	
-	float stopline_width  = 1.0f;
-
-	PropAsset* streetlight_asset = nullptr;
-
-	// TODO: change to properly use indicies please!
-	void mesh_segment (network::Segment& seg) {
-		float width = seg.asset->width;
+		float3 tang = forw;
 		
 		typedef NetworkRenderer::Vertex V;
-		V sL0 = { float3(         -width*0.5f, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
-		V sL1 = { float3(seg.asset->sidewalkL, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
-		V sL2 = { float3(seg.asset->sidewalkL, 0,          0), float3(0,0,1), sidewalk_tex_id };
 		
-		V r0 = { float3(seg.asset->sidewalkL, 0, 0), float3(0,0,1), asphalt_tex_id };
-		V r1 = { float3(seg.asset->sidewalkR, 0, 0), float3(0,0,1), asphalt_tex_id };
-		
-		V sR0 = { float3(seg.asset->sidewalkR, 0,          0), float3(0,0,1), sidewalk_tex_id };
-		V sR1 = { float3(seg.asset->sidewalkR, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
-		V sR2 = { float3(         +width*0.5f, 0, sidewalk_h), float3(0,0,1), sidewalk_tex_id };
+		auto extrude = [&] (V const& l, V const& r, float2 uv_tiling=0) {
+			V l0 = l;
+			V l1 = l;
+			V r0 = r;
+			V r1 = r;
 
-		extrude(network_mesh, seg, sL0, sL1);
-		extrude(network_mesh, seg, sL1, sL2);
-		extrude(network_mesh, seg, r0, r1);
-		extrude(network_mesh, seg, sR0, sR1);
-		extrude(network_mesh, seg, sR1, sR2);
+			l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+			l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+
+			r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+			r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+
+			if (uv_tiling.x > 0) {
+				l1.uv.x += len / uv_tiling.x;
+				r1.uv.x += len / uv_tiling.x;
+			}
+			if (uv_tiling.y > 0) {
+				l1.uv.y += len / uv_tiling.y;
+				r1.uv.y += len / uv_tiling.y;
+			}
+
+			network_mesh.push_quad(l0, r0, r1, l1);
+		};
+		auto extrude_line = [&] (DecalRenderer::Vertex const& l, DecalRenderer::Vertex const& r, float2 scale) {
+			float3 dir = seg.node_b->pos - seg.node_a->pos;
+
+			float len = length(dir);
+			float3 forw = normalizesafe(dir);
+			float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
+			float3 up = cross(right, forw);
+		
+			float uv_len = len / (scale.y*4); // *4 since 1-4 aspect ratio
+			uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
+
+			DecalRenderer::Vertex l0 = l;
+			DecalRenderer::Vertex l1 = l;
+			DecalRenderer::Vertex r0 = r;
+			DecalRenderer::Vertex r1 = r;
+
+			l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+			r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+
+			l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+			r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+
+			l0.uv = float2(0,0);
+			r0.uv = float2(1,0);
+			l1.uv = float2(0,uv_len);
+			r1.uv = float2(1,uv_len);
+
+			lines_mesh.push_quad(l0, r0, r1, l1);
+		};
+		
+		float3 diag_right = (up + right) * SQRT_2/2;
+		float3 diag_left  = (up - right) * SQRT_2/2;
+
+		V sL0  = { float3(         -width*0.5f              , 0, sidewalk_h), up,         tang, no_uv, sidewalk_tex_id };
+		V sL1  = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidewalk_h), up,         tang, no_uv, sidewalk_tex_id };
+		V sL1b = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidewalk_h), up,         tang, float2(0,1), curb_tex_id };
+		V sL2  = { float3(seg.asset->sidewalkL              , 0, sidewalk_h), diag_right, tang, float2(0,0.4f), curb_tex_id };
+		V sL3  = { float3(seg.asset->sidewalkL              , 0,          0), right,      tang, float2(0,0), curb_tex_id };
+		
+		V r0   = { float3(seg.asset->sidewalkL, 0, 0), up, tang, no_uv, asphalt_tex_id };
+		V r1   = { float3(seg.asset->sidewalkR, 0, 0), up, tang, no_uv, asphalt_tex_id };
+		
+		V sR0  = { float3(seg.asset->sidewalkR              , 0,          0), -right,    tang, float2(0,0), curb_tex_id };
+		V sR1  = { float3(seg.asset->sidewalkR              , 0, sidewalk_h), diag_left, tang, float2(0,0.4f), curb_tex_id };
+		V sR2b = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidewalk_h), up,        tang, float2(0,1), curb_tex_id };
+		V sR2  = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidewalk_h), up,        tang, no_uv, sidewalk_tex_id };
+		V sR3  = { float3(         +width*0.5f              , 0, sidewalk_h), up,        tang, no_uv, sidewalk_tex_id };
+
+		extrude(sL0 , sL1 );
+		extrude(sL1b, sL2 , curb_tex_tiling);
+		extrude(sL2 , sL3 , curb_tex_tiling);
+		extrude(r0  , r1  );
+		extrude(sR0 , sR1 , curb_tex_tiling);
+		extrude(sR1 , sR2b, curb_tex_tiling);
+		extrude(sR2 , sR3 );
 		
 		for (auto& line : seg.asset->line_markings) {
 			float tex_id = (float)(int)line.type;
@@ -872,7 +912,7 @@ struct Mesher {
 			DecalRenderer::Vertex sL0 = { float3(line.shift.x - width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,0), 1, tex_id };
 			DecalRenderer::Vertex sL1 = { float3(line.shift.x + width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,1), 1, tex_id };
 			
-			extrude_line(lines_mesh, seg, sL0, sL1, line.scale);
+			extrude_line(sL0, sL1, line.scale);
 		}
 
 		for (auto& light : seg.asset->streetlights) {
@@ -959,15 +999,15 @@ struct Mesher {
 				float2 b0 = sidewalk_Rb.eval(t0).pos;
 				float2 b1 = sidewalk_Rb.eval(t1).pos;
 
-				V sa0g = { float3(a0,            + 0.01f), float3(0,0,1), sidewalk_tex_id };
-				V sa1g = { float3(a1,            + 0.01f), float3(0,0,1), sidewalk_tex_id };
-				V sa0  = { float3(a0, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
-				V sa1  = { float3(a1, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
-				V sb0  = { float3(b0, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
-				V sb1  = { float3(b1, sidewalk_h + 0.01f), float3(0,0,1), sidewalk_tex_id };
+				V sa0g = { float3(a0,            + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sa1g = { float3(a1,            + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sa0  = { float3(a0, sidewalk_h + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sa1  = { float3(a1, sidewalk_h + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sb0  = { float3(b0, sidewalk_h + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sb1  = { float3(b1, sidewalk_h + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
 				
-				V sa0gA = { float3(a0,            + 0.01f), float3(0,0,1), asphalt_tex_id };
-				V sa1gA = { float3(a1,            + 0.01f), float3(0,0,1), asphalt_tex_id };
+				V sa0gA = { float3(a0,            + 0.01f), norm_up, tang_up, no_uv, asphalt_tex_id };
+				V sa1gA = { float3(a1,            + 0.01f), norm_up, tang_up, no_uv, asphalt_tex_id };
 
 				network_mesh.push_quad(sa0, sb0, sb1, sa1);
 				network_mesh.push_quad(sa0g, sa0, sa1, sa1g);

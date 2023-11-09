@@ -50,6 +50,13 @@ add terrain clipping to roads
    -> and maybe turn SegLane into the (unique) lane* for hashing and comparisons, since it's slightly faster
   -> also lanes can be allocated directly after Segment itself to avoid vector
   
+> Make point lights turn off at night
+ -> do gradual turning off of lights, switch to a gpu driven drawing to allow lights to turn off without cpu interaction and actually stop being rendered
+ -> maybe try out tiled lighting, but not sure how to handle variable length data structure yet
+
+> Auto exposure system, with average light?
+> Do bloom at the same time, since bloom requires downsizing lit buffer as well
+  
 > Add actual tick system with interpolation
  
 > add 4 lane (main) streets

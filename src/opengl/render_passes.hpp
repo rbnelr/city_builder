@@ -36,6 +36,9 @@ struct Textures {
 		"misc/turn_arrow_LSR.png",
 	});
 
+	Texture2D test_color  = load_texture<srgba8>("test_color", "misc/curb_Diff2.png");
+	Texture2D test_normal = load_texture<srgba8>("test_color", "misc/curb_Norm.png");
+
 	Texture2DArray surfaces_color = load_texture_array<srgba8>("surfaces_color", {
 		//"misc/street/Asphalt_001_COLOR.jpg",
 		//"misc/street/Asphalt_002_COLOR.jpg",

@@ -25,6 +25,7 @@ struct Textures {
 		"misc/line.png",
 		"misc/stripe.png",
 	});
+	Texture2D cracks = load_texture<srgb8>("cracks", "misc/cracks.png"); // TODO: support single channel
 
 	Texture2DArray turn_arrows = load_texture_array<srgba8>("lane_arrows", {
 		"misc/turn_arrow_R.png",

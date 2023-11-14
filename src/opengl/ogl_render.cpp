@@ -144,7 +144,8 @@ struct DecalRenderer {
 			glUseProgram(shad->prog);
 
 			state.bind_textures(shad, {
-				{ "tex", tex, texs.sampler_normal }
+				{ "tex", tex, texs.sampler_normal },
+				{ "cracks", texs.cracks, texs.sampler_normal },
 			});
 
 			PipelineState s;

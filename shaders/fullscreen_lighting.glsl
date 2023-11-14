@@ -84,6 +84,7 @@
 		//frag_col = vec4(depth,depth,depth, 1.0);
 		
 		//debug_window(shadowmap);
+		//debug_window(gbuf_depth);
 		//debug_window(gbuf_norm);
 	}
 #endif

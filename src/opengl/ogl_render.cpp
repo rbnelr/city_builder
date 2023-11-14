@@ -365,6 +365,7 @@ struct TerrainRenderer {
 			PipelineState s;
 			s.depth_test = true;
 			s.blend_enable = false;
+			s.cull_face = false; // for shadow rendering and just becaue it won't hurt
 			state.set(s);
 
 			glUseProgram(shad_terrain->prog);

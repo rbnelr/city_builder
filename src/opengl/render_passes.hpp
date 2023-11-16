@@ -143,6 +143,7 @@ struct Gbuffer {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 };
+
 struct DirectionalShadowmap {
 	SERIALIZE(DirectionalShadowmap, shadow_res, size, depth_range, bias_fac_world, bias_max_world)
 
@@ -256,6 +257,84 @@ struct DirectionalShadowmap {
 	}
 };
 
+struct DecalRenderer {
+	Shader* shad  = g_shaders.compile("decals");
+
+	struct Vertex {
+		float3 pos;
+
+		VERTEX_CONFIG(
+			ATTRIB(FLT3, Vertex, pos),
+		)
+	};
+	struct Instance {
+		float3 pos;
+		float3 size;
+		float  rot;
+		float4 col;
+		float  tex_id;
+
+		VERTEX_CONFIG(
+			ATTRIB(FLT3, Instance, pos),
+			ATTRIB(FLT3, Instance, size),
+			ATTRIB(FLT3, Instance, rot),
+			ATTRIB(FLT4, Instance, col),
+			ATTRIB(FLT,  Instance, tex_id),
+		)
+	};
+	
+	// TODO: instance this
+	// TODO: make box shaped decals with falloff?
+
+	// Decals that simply blend over gbuf color and normal channel
+	
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<Vertex, Instance>("DecalRenderer.vbo");
+
+	DecalRenderer () {
+		using namespace render::shapes;
+		vbo.upload_mesh(CUBE_CENTERED_VERTICES, ARRLEN(CUBE_CENTERED_VERTICES), CUBE_INDICES, ARRLEN(CUBE_INDICES));
+	}
+	
+	GLsizei instance_count = 0;
+
+	void upload (std::vector<Instance>& instances) {
+		vbo.stream_instances(instances);
+		instance_count = (GLsizei)instances.size();
+	}
+	
+	void render (StateManager& state, Gbuffer& gbuf, Textures& texs, Texture2DArray& tex) {
+		ZoneScoped;
+		OGL_TRACE("DecalRenderer");
+
+		if (shad->prog) {
+			glUseProgram(shad->prog);
+
+			state.bind_textures(shad, {
+				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
+
+				{ "turn_arrows", tex, texs.sampler_normal },
+				{ "cracks", texs.cracks, texs.sampler_normal },
+			});
+
+			PipelineState s;
+			s.depth_test = false; // don't depth test or backface won't be drawn
+			s.depth_write = false;
+
+			s.cull_face = true;
+			s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
+
+			s.blend_enable = true;
+			state.set(s);
+
+			if (instance_count > 0) {
+				glBindVertexArray(vbo.vao);
+				glDrawElementsInstanced(GL_TRIANGLES, ARRLEN(render::shapes::CUBE_INDICES), GL_UNSIGNED_SHORT, (void*)0, instance_count);
+			}
+		}
+
+		glBindVertexArray(0);
+	}
+};
 
 struct DefferedPointLightRenderer {
 	typedef typename VertexPos3 vert_t;
@@ -269,7 +348,7 @@ struct DefferedPointLightRenderer {
 		float  radius;
 		float3 col;
 
-		VERTEX_CONFIG_INSTANCED(
+		VERTEX_CONFIG(
 			ATTRIB(FLT3, MeshInstance, pos),
 			ATTRIB(FLT , MeshInstance, radius),
 			ATTRIB(FLT3, MeshInstance, col),

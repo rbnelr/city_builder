@@ -103,66 +103,6 @@ struct TriRenderer {
 		glBindVertexArray(0);
 	}
 };
-struct DecalRenderer {
-	Shader* shad  = g_shaders.compile("decals");
-
-	struct Vertex {
-		float3 pos;
-		float3 norm;
-		float2 uv;
-		float4 col;
-		float  tex_id;
-
-		VERTEX_CONFIG(
-			ATTRIB(FLT3, Vertex, pos),
-			ATTRIB(FLT3, Vertex, norm),
-			ATTRIB(FLT2, Vertex, uv),
-			ATTRIB(FLT4, Vertex, col),
-			ATTRIB(FLT, Vertex, tex_id),
-		)
-	};
-	
-	// TODO: instance this
-	// TODO: make box shaped decals with falloff?
-
-	// Decals that simply blend over gbuf color and normal channel
-	
-	VertexBufferI vbo = vertex_bufferI<Vertex>("DecalRenderer.vbo");
-	
-	GLsizei indices_count = 0;
-
-	void upload (Mesh<Vertex, uint32_t>& mesh) {
-		vbo.upload(mesh.verticies, mesh.indices);
-		indices_count = (GLsizei)mesh.indices.size();
-	}
-	
-	void render (StateManager& state, Textures& texs, Texture2DArray& tex) {
-		ZoneScoped;
-		OGL_TRACE("DecalRenderer");
-
-		if (shad->prog) {
-			glUseProgram(shad->prog);
-
-			state.bind_textures(shad, {
-				{ "tex", tex, texs.sampler_normal },
-				{ "cracks", texs.cracks, texs.sampler_normal },
-			});
-
-			PipelineState s;
-			s.depth_test   = true;
-			s.depth_write  = false;
-			s.blend_enable = true;
-			state.set(s);
-
-			if (indices_count > 0) {
-				glBindVertexArray(vbo.vao);
-				glDrawElements(GL_TRIANGLES, indices_count, GL_UNSIGNED_INT, (void*)0);
-			}
-		}
-
-		glBindVertexArray(0);
-	}
-};
 
 struct TerrainRenderer {
 	static constexpr int MAP_SZ = 16*1024;
@@ -506,7 +446,7 @@ struct EntityRenderer {
 		float  rot;
 		float3 col; // Just for debug?
 			
-		VERTEX_CONFIG_INSTANCED(
+		VERTEX_CONFIG(
 			ATTRIB(INT , MeshInstance, mesh_id),
 			ATTRIB(FLT3, MeshInstance, pos),
 			ATTRIB(FLT , MeshInstance, rot),
@@ -702,9 +642,9 @@ struct NetworkRenderer {
 		vbo.upload(mesh.verticies, mesh.indices);
 		indices_count = (GLsizei)mesh.indices.size();
 	}
-
+	
 	void render (StateManager& state, Textures& texs) {
-		OGL_TRACE("NetworkRenderer");
+		OGL_TRACE("network");
 		ZoneScoped;
 
 		if (shad->prog) {
@@ -728,9 +668,13 @@ struct NetworkRenderer {
 		}
 
 		glBindVertexArray(0);
+	}
+	void render_decals (StateManager& state, Gbuffer& gbuf, Textures& texs) {
+		OGL_TRACE("network decals");
+		ZoneScoped;
 
-		line_renderer.render(state, texs, texs.lines);
-		turn_arrow_renderer.render(state, texs, texs.turn_arrows);
+		line_renderer.render(state, gbuf, texs, texs.lines);
+		turn_arrow_renderer.render(state, gbuf, texs, texs.turn_arrows);
 	}
 };
 
@@ -747,8 +691,8 @@ struct Mesher {
 	std::vector<DefferedPointLightRenderer::MeshInstance>    light_instances;
 	
 	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
-	Mesh<DecalRenderer::Vertex, uint32_t> turn_arrow_mesh;
-	Mesh<DecalRenderer::Vertex, uint32_t> lines_mesh;
+	std::vector<DecalRenderer::Instance> turn_arrows;
+	std::vector<DecalRenderer::Instance> lines;
 
 	PropInstance& push_prop (PropAsset* asset, float3 pos, float rot) {
 		auto* i = push_back(prop_instances, 1);
@@ -861,23 +805,23 @@ struct Mesher {
 			float uv_len = len / (scale.y*4); // *4 since 1-4 aspect ratio
 			uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
 
-			DecalRenderer::Vertex l0 = l;
-			DecalRenderer::Vertex l1 = l;
-			DecalRenderer::Vertex r0 = r;
-			DecalRenderer::Vertex r1 = r;
+			//DecalRenderer::Vertex l0 = l;
+			//DecalRenderer::Vertex l1 = l;
+			//DecalRenderer::Vertex r0 = r;
+			//DecalRenderer::Vertex r1 = r;
+			//
+			//l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+			//r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+			//
+			//l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+			//r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+			//
+			//l0.uv = float2(0,0);
+			//r0.uv = float2(1,0);
+			//l1.uv = float2(0,uv_len);
+			//r1.uv = float2(1,uv_len);
 
-			l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-			r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
-
-			l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-			r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
-
-			l0.uv = float2(0,0);
-			r0.uv = float2(1,0);
-			l1.uv = float2(0,uv_len);
-			r1.uv = float2(1,uv_len);
-
-			lines_mesh.push_quad(l0, r0, r1, l1);
+			//lines_mesh.push_quad(l0, r0, r1, l1);
 		};
 		
 		float3 diag_right = (up + right) * SQRT_2/2;
@@ -911,10 +855,10 @@ struct Mesher {
 			
 			float width = line.scale.x;
 
-			DecalRenderer::Vertex sL0 = { float3(line.shift.x - width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,0), 1, tex_id };
-			DecalRenderer::Vertex sL1 = { float3(line.shift.x + width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,1), 1, tex_id };
-			
-			extrude_line(sL0, sL1, line.scale);
+			//DecalRenderer::Instance sL0 = { float3(line.shift.x - width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,0), 1, tex_id };
+			//DecalRenderer::Instance sL1 = { float3(line.shift.x + width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,1), 1, tex_id };
+			//
+			//extrude_line(sL0, sL1, line.scale);
 		}
 
 		for (auto& light : seg.asset->streetlights) {
@@ -1020,15 +964,6 @@ struct Mesher {
 		}
 	}
 
-	void push_decal_rect (float3 center, float3 forw, float3 right, float3 norm, float4 col, int tex_id) {
-		turn_arrow_mesh.push_quad(
-			{ center -forw -right, norm, float2(0,0), col, (float)tex_id },
-			{ center -forw +right, norm, float2(1,0), col, (float)tex_id },
-			{ center +forw +right, norm, float2(1,1), col, (float)tex_id },
-			{ center +forw -right, norm, float2(0,1), col, (float)tex_id }
-		);
-	}
-	
 	void remesh_network (network::Network& net) {
 		ZoneScoped;
 		
@@ -1046,17 +981,23 @@ struct Mesher {
 				auto li = seg_lane.clac_lane_info();
 				// TODO: this will be a bezier
 				float3 forw = normalizesafe(li.b - li.a);
-				float3 right = float3(rotate90(-forw), 0);
+				//float3 right = float3(rotate90(-forw), 0);
+				float ang = angle2d((float2)forw) - deg(90);
 
 				{ // push turn arrow
 					float2 size = float2(1, 1.5f) * seg->asset->lanes[i].width;
 
 					float3 pos = li.b;
 					pos -= forw * size.y*0.5f;
-					pos.z += 0.02f;
 
 					int decal_id = (int)lane.allowed_turns - 1;
-					push_decal_rect(pos, forw*size.y*0.5f, right*size.x*0.5f, float3(0,0,1), 1, decal_id);
+					DecalRenderer::Instance arrow;
+					arrow.pos = pos;
+					arrow.size = float3(size, 1);
+					arrow.rot = ang;
+					arrow.col = 1;
+					arrow.tex_id = (float)decal_id;
+					turn_arrows.push_back(arrow);
 				}
 
 				auto& lane_asset = seg->asset->lanes[i];
@@ -1070,38 +1011,38 @@ struct Mesher {
 				}
 			}
 
-			// stop lines
-			float tex_id = (float)(int)LineMarkingType::LINE;
-			if (f0 < INF) {
-				float3 base = seg->pos_b + float3(0,0, 0.02f);
-
-				float3 a = base + float3(+ v.forw * stopline_width*0.5f + v.right * f0, 0);
-				float3 b = base + float3(- v.forw * stopline_width*0.5f + v.right * f0, 0);
-				float3 c = base + float3(- v.forw * stopline_width*0.5f + v.right * f1, 0);
-				float3 d = base + float3(+ v.forw * stopline_width*0.5f + v.right * f1, 0);
-
-				lines_mesh.push_quad(
-					{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
-					{ b, float3(0,0,1), float2(1,0), 1, (float)tex_id },
-					{ c, float3(0,0,1), float2(1,1), 1, (float)tex_id },
-					{ d, float3(0,0,1), float2(0,1), 1, (float)tex_id }
-				);
-			}
-			if (r0 < INF) {
-				float3 base = seg->pos_a + float3(0,0, 0.02f);
-
-				float3 a = base + float3(+ v.forw * stopline_width*0.5f + v.right * r0, 0);
-				float3 b = base + float3(- v.forw * stopline_width*0.5f + v.right * r0, 0);
-				float3 c = base + float3(- v.forw * stopline_width*0.5f + v.right * r1, 0);
-				float3 d = base + float3(+ v.forw * stopline_width*0.5f + v.right * r1, 0);
-
-				lines_mesh.push_quad(
-					{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
-					{ b, float3(0,0,1), float2(1,0), 1, (float)tex_id },
-					{ c, float3(0,0,1), float2(1,1), 1, (float)tex_id },
-					{ d, float3(0,0,1), float2(0,1), 1, (float)tex_id }
-				);
-			}
+			//// stop lines
+			//float tex_id = (float)(int)LineMarkingType::LINE;
+			//if (f0 < INF) {
+			//	float3 base = seg->pos_b + float3(0,0, 0.02f);
+			//
+			//	float3 a = base + float3(+ v.forw * stopline_width*0.5f + v.right * f0, 0);
+			//	float3 b = base + float3(- v.forw * stopline_width*0.5f + v.right * f0, 0);
+			//	float3 c = base + float3(- v.forw * stopline_width*0.5f + v.right * f1, 0);
+			//	float3 d = base + float3(+ v.forw * stopline_width*0.5f + v.right * f1, 0);
+			//
+			//	lines_mesh.push_quad(
+			//		{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
+			//		{ b, float3(0,0,1), float2(1,0), 1, (float)tex_id },
+			//		{ c, float3(0,0,1), float2(1,1), 1, (float)tex_id },
+			//		{ d, float3(0,0,1), float2(0,1), 1, (float)tex_id }
+			//	);
+			//}
+			//if (r0 < INF) {
+			//	float3 base = seg->pos_a + float3(0,0, 0.02f);
+			//
+			//	float3 a = base + float3(+ v.forw * stopline_width*0.5f + v.right * r0, 0);
+			//	float3 b = base + float3(- v.forw * stopline_width*0.5f + v.right * r0, 0);
+			//	float3 c = base + float3(- v.forw * stopline_width*0.5f + v.right * r1, 0);
+			//	float3 d = base + float3(+ v.forw * stopline_width*0.5f + v.right * r1, 0);
+			//
+			//	lines_mesh.push_quad(
+			//		{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
+			//		{ b, float3(0,0,1), float2(1,0), 1, (float)tex_id },
+			//		{ c, float3(0,0,1), float2(1,1), 1, (float)tex_id },
+			//		{ d, float3(0,0,1), float2(0,1), 1, (float)tex_id }
+			//	);
+			//}
 		}
 
 		for (auto& node : net.nodes) {
@@ -1136,8 +1077,8 @@ struct Mesher {
 		light_renderer.update_instances([&] () { return light_instances; });
 		
 		network_renderer.upload(network_mesh);
-		network_renderer.line_renderer.upload(lines_mesh);
-		network_renderer.turn_arrow_renderer.upload(turn_arrow_mesh);
+		//network_renderer.line_renderer.upload(lines_mesh);
+		network_renderer.turn_arrow_renderer.upload(turn_arrows);
 	}
 };
 
@@ -1360,11 +1301,11 @@ struct OglRenderer : public Renderer {
 		
 			terrain_renderer.render_terrain(state, textures, app.view);
 		
+			network_renderer.render(state, textures);
+
 			building_renderer.draw(state, textures, textures.house_diff);
 			car_renderer.draw(state, textures, textures.car_diff);
 			prop_renderer.draw(state, textures, textures.streetlight_diff);
-		
-			network_renderer.render(state, textures);
 		}
 
 		{
@@ -1375,12 +1316,13 @@ struct OglRenderer : public Renderer {
 			passes.begin_geometry_pass(state);
 
 			terrain_renderer.render_terrain(state, textures, app.view);
+
+			network_renderer.render(state, textures);
+			network_renderer.render_decals(state, passes.gbuf, textures);
 		
 			building_renderer.draw(state, textures, textures.house_diff);
 			car_renderer.draw(state, textures, textures.car_diff);
 			prop_renderer.draw(state, textures, textures.streetlight_diff);
-
-			network_renderer.render(state, textures);
 
 			// TODO: draw during lighting pass?
 			//  how to draw it without depth buffer? -> could use gbuf_normal == vec3(0) as draw condition?

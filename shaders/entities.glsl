@@ -21,13 +21,7 @@ layout(location = 5) in float instance_rot;
 layout(location = 6) in vec3  instance_col;
 
 void main () {
-	float s = sin(instance_rot);
-	float c = cos(instance_rot);
-	mat3 rot_mat = mat3( // Column major for some insane reason!
-		 c,  s,  0,
-		-s,  c,  0,
-		 0,  0,  1
-	);
+	mat3 rot_mat = instance_rot_mat(instance_rot);
 	
 	v.world_pos    = rot_mat * mesh_pos + instance_pos;
 	v.world_normal = rot_mat * mesh_normal;

@@ -72,6 +72,16 @@ layout(std140, binding = 0) uniform Common {
 
 //#include "dbg_indirect_draw.glsl"
 
+mat3 instance_rot_mat (float rot) {
+	float s = sin(rot);
+	float c = cos(rot);
+	mat3 rot_mat = mat3( // Column major for some insane reason!
+		 c,  s,  0,
+		-s,  c,  0,
+		 0,  0,  1
+	);
+	return rot_mat;
+}
 
 uniform sampler2D clouds;
 

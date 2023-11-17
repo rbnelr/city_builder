@@ -269,17 +269,19 @@ struct DecalRenderer {
 	};
 	struct Instance {
 		float3 pos;
-		float3 size;
 		float  rot;
-		float4 col;
+		float3 size;
 		float  tex_id;
+		float2 uv_scale;
+		float4 col;
 
 		VERTEX_CONFIG(
 			ATTRIB(FLT3, Instance, pos),
+			ATTRIB(FLT,  Instance, rot),
 			ATTRIB(FLT3, Instance, size),
-			ATTRIB(FLT3, Instance, rot),
-			ATTRIB(FLT4, Instance, col),
 			ATTRIB(FLT,  Instance, tex_id),
+			ATTRIB(FLT2, Instance, uv_scale),
+			ATTRIB(FLT4, Instance, col),
 		)
 	};
 	
@@ -312,7 +314,7 @@ struct DecalRenderer {
 			state.bind_textures(shad, {
 				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
 
-				{ "turn_arrows", tex, texs.sampler_normal },
+				{ "tex", tex, texs.sampler_normal },
 				{ "cracks", texs.cracks, texs.sampler_normal },
 			});
 

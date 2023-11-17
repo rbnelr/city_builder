@@ -1,22 +1,25 @@
 #version 430
 #include "common.glsl"
 
+// TODO: use no interpoliaton? would that even be any faster or better?
 struct Vertex {
 	vec3 pos;
 	mat3 world2decal;
 	
-	vec4 col;
 	float tex_id;
+	vec2 uv_scale;
+	vec4 col;
 };
 VS2FS
 
 #ifdef _VERTEX
 	layout(location = 0) in vec3  mesh_pos;
 	layout(location = 1) in vec3  instance_pos;
-	layout(location = 2) in vec3  instance_size;
-	layout(location = 3) in float instance_rot;
-	layout(location = 4) in vec4  instance_col;
-	layout(location = 5) in float instance_tex_id;
+	layout(location = 2) in float instance_rot;
+	layout(location = 3) in vec3  instance_size;
+	layout(location = 4) in float instance_tex_id;
+	layout(location = 5) in vec2  instance_uv_scale;
+	layout(location = 6) in vec4  instance_col;
 	
 	void main () {
 		mat3 rot_mat = instance_rot_mat(instance_rot);
@@ -34,15 +37,16 @@ VS2FS
 		mat[2] = rot_mat * vec3(0,0, inv_size.z);
 		v.world2decal = transpose(mat);
 		
-		v.col = instance_col;
 		v.tex_id = instance_tex_id;
+		v.uv_scale = instance_uv_scale;
+		v.col = instance_col;
 	}
 #endif
 #ifdef _FRAGMENT
 	#define GBUF_IN 1
 	#include "gbuf.glsl"
 	
-	uniform sampler2DArray turn_arrows;
+	uniform sampler2DArray tex;
 	uniform sampler2D cracks;
 	
 	GBUF_OUT
@@ -57,8 +61,9 @@ VS2FS
 		
 		vec3 norm = vec3(v.world2decal[0].z, v.world2decal[1].z, v.world2decal[2].z);
 		vec2 uv = xyz.xy + vec2(0.5);
+		uv *= v.uv_scale;
 		
-		vec4 col = texture(turn_arrows, vec3(uv, v.tex_id)) * v.col;
+		vec4 col = texture(tex, vec3(uv, v.tex_id)) * v.col;
 		////col.a = 1.0;
 		
 		float alpha = col.a;

@@ -762,7 +762,6 @@ struct Mesher {
 		
 		float3 dir = seg.node_b->pos - seg.node_a->pos;
 
-		float len = length(dir);
 		float3 forw = normalizesafe(dir);
 		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
 		float3 up = cross(right, forw);
@@ -784,44 +783,15 @@ struct Mesher {
 			r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
 
 			if (uv_tiling.x > 0) {
-				l1.uv.x += len / uv_tiling.x;
-				r1.uv.x += len / uv_tiling.x;
+				l1.uv.x += seg._length / uv_tiling.x;
+				r1.uv.x += seg._length / uv_tiling.x;
 			}
 			if (uv_tiling.y > 0) {
-				l1.uv.y += len / uv_tiling.y;
-				r1.uv.y += len / uv_tiling.y;
+				l1.uv.y += seg._length / uv_tiling.y;
+				r1.uv.y += seg._length / uv_tiling.y;
 			}
 
 			network_mesh.push_quad(l0, r0, r1, l1);
-		};
-		auto extrude_line = [&] (DecalRenderer::Vertex const& l, DecalRenderer::Vertex const& r, float2 scale) {
-			float3 dir = seg.node_b->pos - seg.node_a->pos;
-
-			float len = length(dir);
-			float3 forw = normalizesafe(dir);
-			float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
-			float3 up = cross(right, forw);
-		
-			float uv_len = len / (scale.y*4); // *4 since 1-4 aspect ratio
-			uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
-
-			//DecalRenderer::Vertex l0 = l;
-			//DecalRenderer::Vertex l1 = l;
-			//DecalRenderer::Vertex r0 = r;
-			//DecalRenderer::Vertex r1 = r;
-			//
-			//l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-			//r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
-			//
-			//l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-			//r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
-			//
-			//l0.uv = float2(0,0);
-			//r0.uv = float2(1,0);
-			//l1.uv = float2(0,uv_len);
-			//r1.uv = float2(1,uv_len);
-
-			//lines_mesh.push_quad(l0, r0, r1, l1);
 		};
 		
 		float3 diag_right = (up + right) * SQRT_2/2;
@@ -855,10 +825,17 @@ struct Mesher {
 			
 			float width = line.scale.x;
 
-			//DecalRenderer::Instance sL0 = { float3(line.shift.x - width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,0), 1, tex_id };
-			//DecalRenderer::Instance sL1 = { float3(line.shift.x + width*0.5f, 0, 0.01f), float3(0,0,1), float2(0,1), 1, tex_id };
-			//
-			//extrude_line(sL0, sL1, line.scale);
+			float uv_len = seg._length / (line.scale.y*4); // *4 since 1-4 aspect ratio
+			uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
+
+			DecalRenderer::Instance decal;
+			decal.pos = (seg.pos_a + seg.pos_b)*0.5f + float3(right * line.shift.x, 0);
+			decal.rot = angle2d(forw) - deg(90);
+			decal.size = float3(width, seg._length, 1);
+			decal.tex_id = (float)tex_id;
+			decal.uv_scale = float2(1, uv_len);
+			decal.col = 1;
+			lines.push_back(decal);
 		}
 
 		for (auto& light : seg.asset->streetlights) {
@@ -991,13 +968,15 @@ struct Mesher {
 					pos -= forw * size.y*0.5f;
 
 					int decal_id = (int)lane.allowed_turns - 1;
-					DecalRenderer::Instance arrow;
-					arrow.pos = pos;
-					arrow.size = float3(size, 1);
-					arrow.rot = ang;
-					arrow.col = 1;
-					arrow.tex_id = (float)decal_id;
-					turn_arrows.push_back(arrow);
+
+					DecalRenderer::Instance decal;
+					decal.pos = pos;
+					decal.rot = ang;
+					decal.size = float3(size, 1);
+					decal.tex_id = (float)decal_id;
+					decal.uv_scale = 1;
+					decal.col = 1;
+					turn_arrows.push_back(decal);
 				}
 
 				auto& lane_asset = seg->asset->lanes[i];
@@ -1011,38 +990,28 @@ struct Mesher {
 				}
 			}
 
-			//// stop lines
-			//float tex_id = (float)(int)LineMarkingType::LINE;
-			//if (f0 < INF) {
-			//	float3 base = seg->pos_b + float3(0,0, 0.02f);
-			//
-			//	float3 a = base + float3(+ v.forw * stopline_width*0.5f + v.right * f0, 0);
-			//	float3 b = base + float3(- v.forw * stopline_width*0.5f + v.right * f0, 0);
-			//	float3 c = base + float3(- v.forw * stopline_width*0.5f + v.right * f1, 0);
-			//	float3 d = base + float3(+ v.forw * stopline_width*0.5f + v.right * f1, 0);
-			//
-			//	lines_mesh.push_quad(
-			//		{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
-			//		{ b, float3(0,0,1), float2(1,0), 1, (float)tex_id },
-			//		{ c, float3(0,0,1), float2(1,1), 1, (float)tex_id },
-			//		{ d, float3(0,0,1), float2(0,1), 1, (float)tex_id }
-			//	);
-			//}
-			//if (r0 < INF) {
-			//	float3 base = seg->pos_a + float3(0,0, 0.02f);
-			//
-			//	float3 a = base + float3(+ v.forw * stopline_width*0.5f + v.right * r0, 0);
-			//	float3 b = base + float3(- v.forw * stopline_width*0.5f + v.right * r0, 0);
-			//	float3 c = base + float3(- v.forw * stopline_width*0.5f + v.right * r1, 0);
-			//	float3 d = base + float3(+ v.forw * stopline_width*0.5f + v.right * r1, 0);
-			//
-			//	lines_mesh.push_quad(
-			//		{ a, float3(0,0,1), float2(0,0), 1, (float)tex_id },
-			//		{ b, float3(0,0,1), float2(1,0), 1, (float)tex_id },
-			//		{ c, float3(0,0,1), float2(1,1), 1, (float)tex_id },
-			//		{ d, float3(0,0,1), float2(0,1), 1, (float)tex_id }
-			//	);
-			//}
+			// stop lines
+			float tex_id = (float)(int)LineMarkingType::LINE;
+			if (f0 < INF) {
+				DecalRenderer::Instance decal;
+				decal.pos = seg->pos_b + float3(v.right * ((f1+f0)*0.5f), 0);
+				decal.rot = angle2d(v.right) - deg(90);
+				decal.size = float3(stopline_width, f1-f0, 1);
+				decal.tex_id = (float)tex_id;
+				decal.uv_scale = 1;
+				decal.col = 1;
+				lines.push_back(decal);
+			}
+			if (r0 < INF) {
+				DecalRenderer::Instance decal;
+				decal.pos = seg->pos_a + float3(v.right * ((r1+r0)*0.5f), 0);
+				decal.rot = angle2d(v.right) - deg(90);
+				decal.size = float3(stopline_width, r1-r0, 1);
+				decal.tex_id = (float)tex_id;
+				decal.uv_scale = 1;
+				decal.col = 1;
+				lines.push_back(decal);
+			}
 		}
 
 		for (auto& node : net.nodes) {
@@ -1077,7 +1046,7 @@ struct Mesher {
 		light_renderer.update_instances([&] () { return light_instances; });
 		
 		network_renderer.upload(network_mesh);
-		//network_renderer.line_renderer.upload(lines_mesh);
+		network_renderer.line_renderer.upload(lines);
 		network_renderer.turn_arrow_renderer.upload(turn_arrows);
 	}
 };
@@ -1293,6 +1262,14 @@ struct OglRenderer : public Renderer {
 
 		passes.update(app.input.window_size);
 
+		auto update_view_resolution = [&] (int2 res) {
+			
+			app.view.viewport_size = (float2)res;
+			app.view.inv_viewport_size = 1.0f / app.view.viewport_size;
+
+			common_ubo.set_view(app.view);
+		};
+
 		{
 			ZoneScopedN("shadow_pass");
 			OGL_TRACE("shadow_pass");
@@ -1307,12 +1284,13 @@ struct OglRenderer : public Renderer {
 			car_renderer.draw(state, textures, textures.car_diff);
 			prop_renderer.draw(state, textures, textures.streetlight_diff);
 		}
+		
+		update_view_resolution(passes.renderscale.size);
 
 		{
 			ZoneScopedN("geometry_pass");
 			OGL_TRACE("geometry_pass");
-
-			common_ubo.set_view(app.view);
+			
 			passes.begin_geometry_pass(state);
 
 			terrain_renderer.render_terrain(state, textures, app.view);
@@ -1332,13 +1310,15 @@ struct OglRenderer : public Renderer {
 		{
 			ZoneScopedN("lighting_pass");
 			OGL_TRACE("lighting_pass");
-
+			
 			passes.begin_lighting_pass();
 
 			passes.fullscreen_lighting_pass(state, textures, light_renderer);
 
 			passes.end_lighting_pass();
 		}
+		
+		update_view_resolution(app.input.window_size);
 
 		passes.postprocess(state, app.input.window_size);
 

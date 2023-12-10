@@ -204,6 +204,8 @@ struct NodeAgent {
 	float rear_k;
 
 	bool  blocked;
+	bool  right_before_left_blocked;
+	float wait_time;
 
 	CachedConnection conn;
 	

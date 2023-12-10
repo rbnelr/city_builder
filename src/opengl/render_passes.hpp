@@ -144,66 +144,82 @@ struct Gbuffer {
 	}
 };
 
-struct DirectionalShadowmap {
-	SERIALIZE(DirectionalShadowmap, shadow_res, size, depth_range, bias_fac_world, bias_max_world)
+struct DirectionalCascadedShadowmap {
+	SERIALIZE(DirectionalCascadedShadowmap, shadow_res, cascades, cascade_factor, size, depth_range, bias_fac_world, bias_max_world)
 
-	// No cascades for now
-
+	// (square) pixel resultion of each shadowmap cascade
 	int shadow_res = 2048;
-	bool tex_changed = true;
+	// number of cascades
+	int cascades = 4;
 
+	float cascade_factor = 3.0f;
+
+	// worldspace size of first cascade (width and height, this determines shadow resolution on surfaces)
 	float size = 512;
+	// worldspace length of cascade (what range the depth gets mapped to, this determines depth artefacts)
 	float depth_range = 700;
 
+	// shadow bias parameters
 	float bias_fac_world = 2.0f;
 	float bias_max_world = 10.0f;
 
+	// computed values for shader
 	float texel_size;
 	float bias_fac;
 	float bias_max;
 
-	Render_Texture shadow_tex;
+	class Textures {
+		GLuint tex = 0;
+	public:
+		MOVE_ONLY_CLASS_MEMBER(Textures, tex);
 	
-	// without shadow sampler (filter depth, then test)
-	Sampler sampler = make_sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_BORDER, lrgba(0,0,0,1));
-	// with shadow sampler (test texels, then filter)
-	Sampler sampler2 = make_sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_BORDER, lrgba(0,0,0,1));
+		Textures () {} // not allocated
+		Textures (std::string_view label, int2 size, int count, GLenum format) {
+			glGenTextures(1, &tex);
 
-	Fbo fbo;
+			glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
+			OGL_DBG_LABEL(GL_TEXTURE, tex, label);
 
-	void resize (int2 tex_res) {
-		glActiveTexture(GL_TEXTURE0);
+			glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, format, size.x, size.y, count);
+			glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BASE_LEVEL, 0);
+			glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, 0);
+			glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
-		shadow_tex = Render_Texture("DirectionalShadowmap.depth", tex_res, GL_DEPTH_COMPONENT16);
-		
-		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
-
-		fbo = Fbo("DirectionalShadowmap.fbo");
-		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadow_tex, 0);
-
-		glDrawBuffers(0, nullptr);
-
-		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-		if (status != GL_FRAMEBUFFER_COMPLETE) {
-			fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
+			glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+		}
+		~Textures () {
+			if (tex) glDeleteTextures(1, &tex);
 		}
 
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	}
+		operator GLuint () const { return tex; }
+	};
 
-	void calc_bias () {
-		
-	}
+	Textures shadow_tex;
+	
+	// without shadow sampler (filter depth, then test)
+	Sampler sampler = make_sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_EDGE);
+	// with shadow sampler (test texels, then filter)
+	Sampler sampler2 = make_sampler("DirectionalShadowmap.sampler", FILTER_BILINEAR, GL_CLAMP_TO_EDGE);
+
+	// TODO: might be able to use layered FBOs? what's the advantage?
+	std::vector<Fbo> fbos;
+	
+	// needed later during lighting
+	View3D view_casc0;
+
+	bool tex_changed = true;
 
 	void imgui () {
 		if (!ImGui::TreeNode("DirectionalShadowmap")) return;
 
 		tex_changed = ImGui::InputInt("shadow_res", &shadow_res) || tex_changed;
+		tex_changed = ImGui::InputInt("cascades", &cascades) || tex_changed;
 		shadow_res = clamp(shadow_res, 1, 1024*16);
+		cascades = clamp(cascades, 1, 16);
 		
+		ImGui::DragFloat("cascade_factor", &cascade_factor, 0.1f, 1, 8);
+
 		ImGui::DragFloat("size", &size, 0.1f, 0, 1024*16);
 		ImGui::DragFloat("depth_range", &depth_range, 0.1f, 0, 1024*16);
 
@@ -214,6 +230,33 @@ struct DirectionalShadowmap {
 			texel_size, bias_fac_world * texel_size, bias_fac, bias_max_world * texel_size, bias_max);
 
 		ImGui::TreePop();
+	}
+
+	void resize (int2 tex_res) {
+		glActiveTexture(GL_TEXTURE0);
+
+		shadow_tex = Textures("DirectionalShadowmap.depth", tex_res, cascades, GL_DEPTH_COMPONENT16);
+		
+		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
+
+		fbos.resize(cascades);
+		
+		for (int i=0; i<cascades; ++i) {
+			fbos[i] = Fbo("DirectionalShadowmap.fbo");
+			glBindFramebuffer(GL_FRAMEBUFFER, fbos[i]);
+
+			glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, shadow_tex, 0, i);
+
+			glDrawBuffers(0, nullptr);
+
+			GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+			if (status != GL_FRAMEBUFFER_COMPLETE) {
+				fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
+			}
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
 	void update () {
@@ -230,30 +273,41 @@ struct DirectionalShadowmap {
 		resize(int2(shadow_res,shadow_res));
 	}
 
-	View3D view;
-
 	template <typename FUNC>
-	void begin_draw (App& app, StateManager& state, FUNC set_view) {
-		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-		glViewport(0, 0, shadow_res, shadow_res);
+	void draw_cascades (App& app, StateManager& state, FUNC draw_scene) {
 		
-		PipelineState s;
-		s.depth_clamp = true;
-		state.set(s);
+		float casc_size = size;
+		float casc_depth_range = depth_range;
 
-		glClear(GL_DEPTH_BUFFER_BIT);
+		for (int i=0; i<cascades; ++i) {
+			auto& cascade_fbo = fbos[i];
 
-		//float3 center = float3(size * 0.5f, size * 0.5f, 0.0f);
-		float3 center = app.view.cam_pos;
-		center.z = 0; // force shadowmap center to world plane to avoid depth range running out
+			ZoneScopedN("draw cascade");
+			OGL_TRACE("draw cascade");
+
+			glBindFramebuffer(GL_FRAMEBUFFER, cascade_fbo);
+			glViewport(0, 0, shadow_res, shadow_res);
 		
-		float3x4 world2cam = app.time_of_day.world2sun * translate(-center);
-		float3x4 cam2world = translate(center) * app.time_of_day.sun2world;
+			glClear(GL_DEPTH_BUFFER_BIT);
 
-		view = ortho_view(size, size, -depth_range*0.5f, +depth_range*0.5f,
-			world2cam, cam2world, (float)shadow_res);
+			//float3 center = float3(size * 0.5f, size * 0.5f, 0.0f);
+			float3 center = app.view.cam_pos;
+			center.z = 0; // force shadowmap center to world plane to avoid depth range running out
 		
-		set_view(view);
+			float3x4 world2cam = app.time_of_day.world2sun * translate(-center);
+			float3x4 cam2world = translate(center) * app.time_of_day.sun2world;
+
+			View3D view = ortho_view(casc_size, casc_size, -casc_depth_range*0.5f, +casc_depth_range*0.5f,
+				world2cam, cam2world, (float)shadow_res);
+			
+			if (i == 0)
+				view_casc0 = view;
+
+			casc_size *= cascade_factor;
+			casc_depth_range *= cascade_factor;
+
+			draw_scene(view);
+		}
 	}
 };
 
@@ -474,7 +528,7 @@ struct RenderPasses {
 	};
 	LightingFbo lighting_fbo;
 	
-	DirectionalShadowmap shadowmap;
+	DirectionalCascadedShadowmap shadowmap;
 
 	render::RenderScale renderscale;
 	
@@ -512,11 +566,6 @@ struct RenderPasses {
 		}
 	}
 
-	template <typename FUNC>
-	void begin_shadow_pass (App& app, StateManager& state,FUNC set_view) {
-		shadowmap.begin_draw(app, state, set_view);
-	}
-	
 	void begin_geometry_pass (StateManager& state) {
 		glBindFramebuffer(GL_FRAMEBUFFER, gbuf.fbo);
 		glViewport(0, 0, renderscale.size.x, renderscale.size.y);
@@ -547,18 +596,19 @@ struct RenderPasses {
 			
 			glUseProgram(shad_fullscreen_lighting->prog);
 
-			shad_fullscreen_lighting->set_uniform("shadowmap_mat", shadowmap.view.world2clip);
-			shad_fullscreen_lighting->set_uniform("shadowmap_dir", (float3x3)shadowmap.view.cam2world * float3(0,0,-1));
+			shad_fullscreen_lighting->set_uniform("shadowmap_mat", shadowmap.view_casc0.world2clip);
+			shad_fullscreen_lighting->set_uniform("shadowmap_dir", (float3x3)shadowmap.view_casc0.cam2world * float3(0,0,-1));
 			shad_fullscreen_lighting->set_uniform("shadowmap_bias_fac", shadowmap.bias_fac);
 			shad_fullscreen_lighting->set_uniform("shadowmap_bias_max", shadowmap.bias_max);
+			shad_fullscreen_lighting->set_uniform("shadowmap_cascade_factor", shadowmap.cascade_factor);
 			
 			state.bind_textures(shad_fullscreen_lighting, {
 				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
 				{ "gbuf_col",   { GL_TEXTURE_2D, gbuf.col   }, gbuf.sampler },
 				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, gbuf.sampler },
 
-				{ "shadowmap", { GL_TEXTURE_2D, shadowmap.shadow_tex }, shadowmap.sampler },
-				{ "shadowmap2", { GL_TEXTURE_2D, shadowmap.shadow_tex }, shadowmap.sampler2 },
+				{ "shadowmap", { GL_TEXTURE_2D_ARRAY, shadowmap.shadow_tex }, shadowmap.sampler },
+				{ "shadowmap2", { GL_TEXTURE_2D_ARRAY, shadowmap.shadow_tex }, shadowmap.sampler2 },
 				
 				{"grid_tex", texs.grid, texs.sampler_normal},
 			});

@@ -295,7 +295,7 @@ struct TerrainRenderer {
 		chunk_vertices = vert_count;
 		chunk_indices  = idx_count;
 	}
-	void render_terrain (StateManager& state, Textures& texs, View3D& view) {
+	void render_terrain (StateManager& state, Textures& texs, View3D& view, bool shadow_pass=false) {
 		ZoneScoped;
 		OGL_TRACE("render_terrain");
 
@@ -304,9 +304,17 @@ struct TerrainRenderer {
 		if (draw_terrain && shad_terrain->prog) {
 
 			PipelineState s;
-			s.depth_test = true;
-			s.blend_enable = false;
-			s.cull_face = false; // for shadow rendering and just becaue it won't hurt
+			if (!shadow_pass) {
+				s.depth_test = true;
+				s.blend_enable = false;
+				s.cull_face = false;
+			}
+			else {
+				s.depth_test = true;
+				s.blend_enable = false;
+				s.cull_face = false; // for shadow rendering and just becaue it won't hurt
+				s.depth_clamp = true;
+			}
 			state.set(s);
 
 			glUseProgram(shad_terrain->prog);
@@ -554,7 +562,7 @@ struct EntityRenderer {
 		entities = (uint32_t)instances.size();
 	}
 
-	void draw (StateManager& state, Textures& texs, Texture2D& tex) {
+	void draw (StateManager& state, Textures& texs, Texture2D& tex, bool shadow_pass=false) {
 		ZoneScoped;
 		OGL_TRACE("draw entities");
 
@@ -588,8 +596,15 @@ struct EntityRenderer {
 			OGL_TRACE("draw indirect");
 
 			PipelineState s;
-			s.depth_test = true;
-			s.blend_enable = false;
+			if (!shadow_pass) {
+				s.depth_test = true;
+				s.blend_enable = false;
+			}
+			else {
+				s.depth_test = true;
+				s.blend_enable = false;
+				s.depth_clamp = true;
+			}
 			state.set(s);
 
 			glUseProgram(shad->prog);
@@ -643,7 +658,7 @@ struct NetworkRenderer {
 		indices_count = (GLsizei)mesh.indices.size();
 	}
 	
-	void render (StateManager& state, Textures& texs) {
+	void render (StateManager& state, Textures& texs, bool shadow_pass=false) {
 		OGL_TRACE("network");
 		ZoneScoped;
 
@@ -659,6 +674,14 @@ struct NetworkRenderer {
 			});
 
 			PipelineState s;
+			if (!shadow_pass) {
+				// default
+			}
+			else {
+				s.depth_test = true;
+				s.blend_enable = false;
+				s.depth_clamp = true;
+			}
 			state.set(s);
 
 			if (indices_count > 0) {
@@ -1274,15 +1297,17 @@ struct OglRenderer : public Renderer {
 			ZoneScopedN("shadow_pass");
 			OGL_TRACE("shadow_pass");
 
-			passes.begin_shadow_pass(app, state, [&] (View3D const& view) { common_ubo.set_view(view); });
+			passes.shadowmap.draw_cascades(app, state, [&] (View3D const& view) {
+				common_ubo.set_view(view);
+				
+				terrain_renderer.render_terrain(state, textures, app.view, true);
 		
-			terrain_renderer.render_terrain(state, textures, app.view);
-		
-			network_renderer.render(state, textures);
+				network_renderer.render(state, textures, true);
 
-			building_renderer.draw(state, textures, textures.house_diff);
-			car_renderer.draw(state, textures, textures.car_diff);
-			prop_renderer.draw(state, textures, textures.streetlight_diff);
+				building_renderer.draw(state, textures, textures.house_diff, true);
+				car_renderer.draw(state, textures, textures.car_diff, true);
+				prop_renderer.draw(state, textures, textures.streetlight_diff, true);
+			});
 		}
 		
 		update_view_resolution(passes.renderscale.size);

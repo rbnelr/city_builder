@@ -275,7 +275,7 @@ void debug_node (App& app, Node* node) {
 		for (auto& agent : node->agents.test.list) {
 			g_dbgdraw.wire_circle(agent.agent->cit->center(), CAR_SIZE*0.5f, lrgba(1,0,0.5f,1));
 	
-			g_dbgdraw.text.draw_text(prints("%d%s", i++, agent.right_before_left_blocked ? " B":""),
+			g_dbgdraw.text.draw_text(prints("%d%s", i++, agent.blocked ? " B":""),
 				30, 1, g_dbgdraw.text.map_text(agent.agent->cit->center(), app.view));
 		}
 	}
@@ -584,8 +584,8 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 	brake_for_dist(a.agent, dist);
 	dbg_brake_for_agent(app, a.agent, dist, b.agent);
 
-	if (b.blocked)
-		a.blocked = true; // so swapping can let other go first if we are effectively blocked
+	//if (b.blocked)
+	//	a.blocked = true; // so swapping can let other go first if we are effectively blocked
 
 	NodeAgent* left_agent = get_left_agent(a, b);
 	left_agent->right_before_left_blocked = true;
@@ -622,9 +622,11 @@ bool swap_cars (Node* node, NodeAgent& a, NodeAgent& b) {
 	auto clac_penalty = [&] (NodeAgent& agent) {
 		float penalty = 0;
 		//if (a.right_before_left_blocked && agent.front_k < 0) penalty += 10;
+		if (agent.blocked) penalty += agent.front_k < 0 ? 20 : 10;
 		
+		// eta to leave intersection
 		float eta = (agent.conn.bez_len - agent.front_k) / (agent.agent->speed + 1.0f);
-		penalty += clamp(map(eta, 1.0f, 6.0f), 0.0f, 1.0f) * 10;
+		penalty += clamp(map(eta, 1.0f, 6.0f), 0.0f, 1.0f) * 5;
 
 		penalty -= agent.wait_time;
 		
@@ -633,9 +635,11 @@ bool swap_cars (Node* node, NodeAgent& a, NodeAgent& b) {
 	
 	float a_penalty = clac_penalty(a);
 	float b_penalty = clac_penalty(b);
-	bool swap_heur = a_penalty - b_penalty > 2;
+	//bool swap_heur = a_penalty - b_penalty > 2;
+	bool swap_heur = a_penalty > b_penalty;
 	
-	return swap_blocked || swap_heur;
+	//return swap_blocked || swap_heur;
+	return swap_heur;
 }
 
 void update_node (App& app, Node* node, float dt) {
@@ -778,14 +782,14 @@ void update_node (App& app, Node* node, float dt) {
 			printf("");
 		}
 		
-		// swap with car that has prio 1 higher according to heuristic
-		if (i < count-1) {
-			auto& b = node->agents.test.list[i+1];
-
-			if (swap_cars(node, a, b)) {
-				std::swap(a, b);
-			}
-		}
+		//// swap with car that has prio 1 higher according to heuristic
+		//if (i < count-1) {
+		//	auto& b = node->agents.test.list[i+1];
+		//
+		//	if (swap_cars(node, a, b)) {
+		//		std::swap(a, b);
+		//	}
+		//}
 
 		// loop over all previous cars (higher prio to yield for)
 		for (int j=0; j<i; ++j) {
@@ -813,6 +817,19 @@ void update_node (App& app, Node* node, float dt) {
 		
 			brake_for_dist(a.agent, dist);
 			dbg_brake_for_agent(app, a.agent, dist, b);
+		}
+	}
+
+	for (int i=0; i<count; ++i) {
+		auto& b = node->agents.test.list[i];
+	
+		// swap with car that has prio 1 higher according to heuristic
+		if (i > 0) {
+			auto& a = node->agents.test.list[i-1];
+	
+			if (swap_cars(node, a, b)) {
+				std::swap(a, b);
+			}
 		}
 	}
 }

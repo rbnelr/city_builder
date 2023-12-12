@@ -226,6 +226,15 @@
 			}
 		]
 	},
+	"time_of_day": {
+		"sun_azim": 0.8726646304130554,
+		"sun_elev": 0.24434609711170197,
+		"day_t": 0.6000000238418579,
+		"day_speed": 0.01666666753590107,
+		"day_pause": true
+	},
+	"sim_paused": false,
+	"sim_speed": 2.0,
 	"ogl_renderer": {
 		"lighting": {
 			"sun_col": [
@@ -253,6 +262,8 @@
 			},
 			"shadowmap": {
 				"shadow_res": 2048,
+				"cascades": 4,
+				"cascade_factor": 3.0,
 				"size": 128.0,
 				"depth_range": 200.0,
 				"bias_fac_world": 2.0,

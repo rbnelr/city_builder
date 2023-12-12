@@ -590,8 +590,10 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 	NodeAgent* left_agent = get_left_agent(a, b);
 	left_agent->right_before_left_blocked = true;
 }
-bool swap_cars (Node* node, NodeAgent& a, NodeAgent& b) {
+bool swap_cars (Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int b_idx) {
 	assert(a.agent != b.agent);
+
+	bool swap_valid = true;
 
 	auto conf = query_conflict(node, a.conn, b.conn);
 	if (conf) {
@@ -613,33 +615,76 @@ bool swap_cars (Node* node, NodeAgent& a, NodeAgent& b) {
 		// if a_entered: a cant yield for b (because b would clip through a)
 		// if diverge: cant swap unless either exited
 
-		if ((!a_exited && !b_exited) && a_entered || diverge)
-			return false;
+		if (a_exited || b_exited) swap_valid = true;
+		else if (a_entered)       swap_valid = false;
+		else if (diverge)         swap_valid = false;
+		else                      swap_valid = true;
 	}
-
-	bool swap_blocked = a.blocked && !b.blocked;
 	
 	auto clac_penalty = [&] (NodeAgent& agent) {
 		float penalty = 0;
+
+		// penalty for time to reach confict point if swapping with conflicting car
+		if (conf) {
+			float k0 = (agent == a ? conf.a_t0 : conf.b_t0) * agent.conn.bez_len;
+
+			float conf_eta = (k0 - agent.front_k) / (agent.agent->speed + 1.0f);
+			
+			penalty += clamp(map(conf_eta, 1.0f, 6.0f), 0.0f, 1.0f) * 20;
+		}
+
 		//if (a.right_before_left_blocked && agent.front_k < 0) penalty += 10;
-		if (agent.blocked) penalty += agent.front_k < 0 ? 20 : 10;
+
+		// large penalty for being blocked by 
+		//if (agent.blocked) penalty += agent.front_k < 0 ? 20 : 10;
 		
 		// eta to leave intersection
-		float eta = (agent.conn.bez_len - agent.front_k) / (agent.agent->speed + 1.0f);
-		penalty += clamp(map(eta, 1.0f, 6.0f), 0.0f, 1.0f) * 5;
+		float exit_eta = (agent.conn.bez_len - agent.front_k) / (agent.agent->speed + 1.0f);
+		penalty += clamp(map(exit_eta, 1.0f, 6.0f), 0.0f, 1.0f) * 10;
 
+		// priority for progress through intersection
+		// don't want distance from intersection to be a penalty, just to let cars in the intersection leave easier
+		if (agent.front_k > 0) {
+			float progress_ratio = agent.front_k / agent.conn.bez_len;
+			penalty -= progress_ratio * 30;
+		}
+
+
+		// unbounded wait time priority, waiting cars will eventually be let through
 		penalty -= agent.wait_time;
 		
 		return penalty;
 	};
 	
+	bool do_swap = false;
 	float a_penalty = clac_penalty(a);
 	float b_penalty = clac_penalty(b);
-	//bool swap_heur = a_penalty - b_penalty > 2;
-	bool swap_heur = a_penalty > b_penalty;
-	
-	//return swap_blocked || swap_heur;
-	return swap_heur;
+
+	if (swap_valid) {
+		if (a.blocked == b.blocked) {
+			// sort by heuristic
+			do_swap = a_penalty - b_penalty > 2;
+			//do_swap = a_penalty > b_penalty;
+		}
+		else {
+			// sort blocked last (stable sort because only between blocked/non-blocked)
+			do_swap = a.blocked;
+		}
+	}
+
+	if (dbg) {
+		if (b_idx == 1) {
+			ImGui::Text("Cars swap:");
+			ImGui::TextColored(lrgba(a.agent->cit->col, 1), "#%02d", b_idx-1);
+		}
+
+		ImGui::Text("%7.3f%s", a_penalty, do_swap ? " S":"");
+		ImGui::Text("%7.3f", b_penalty);
+
+		ImGui::TextColored(lrgba(b.agent->cit->col, 1), "#%02d", b_idx);
+	}
+
+	return do_swap;
 }
 
 void update_node (App& app, Node* node, float dt) {
@@ -820,16 +865,13 @@ void update_node (App& app, Node* node, float dt) {
 		}
 	}
 
-	for (int i=0; i<count; ++i) {
+	for (int i=1; i<count; ++i) {
+		auto& a = node->agents.test.list[i-1];
 		auto& b = node->agents.test.list[i];
 	
 		// swap with car that has prio 1 higher according to heuristic
-		if (i > 0) {
-			auto& a = node->agents.test.list[i-1];
-	
-			if (swap_cars(node, a, b)) {
-				std::swap(a, b);
-			}
+		if (swap_cars(node, a, b, node_dbg, i) && dt > 0) { // HACK: dt>0 for debugging
+			std::swap(a, b);
 		}
 	}
 }
@@ -949,7 +991,7 @@ void Network::simulate (App& app) {
 
 	pathing_count = 0;
 
-	float dt = app.input.dt * app.sim_speed;
+	float dt = app.sim_paused ? 0 : app.input.dt * app.sim_speed;
 
 	auto do_pathfind = [&] (Citizen* cit) {
 		auto* cur_target = app.entities.buildings[ app.test_rand.uniformi(0, (int)app.entities.buildings.size()) ].get();

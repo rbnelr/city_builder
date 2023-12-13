@@ -50,9 +50,6 @@ add terrain clipping to roads
   
 > Add actual tick system with interpolation
  
-> add 4 lane (main) streets
- -> could be complicated with how lanes have to be handled during pathfinding
- 
 > traffic lights for large intersections?
 
 > make cars slow in curves

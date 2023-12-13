@@ -542,7 +542,8 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 
 	if (!conf)
 		return;
-
+	
+	// TODO: calc this in query_conflict?
 	float a_k0 = conf.a_t0 * a.conn.bez_len;
 	float a_k1 = conf.a_t1 * a.conn.bez_len;
 	float b_k0 = conf.b_t0 * b.conn.bez_len;
@@ -566,7 +567,7 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 	if (a_exited || b_exited)
 		return;
 
-	float stop_k = a_k0;
+	float stop_k;
 		
 	// if same conn: follow car
 	// if diverge:   follow car
@@ -577,9 +578,30 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 			
 		// need to follow car, approx correct stop_k by mapping b rear from b's collision zone to a's zone
 		stop_k = lerp(a_k0, a_k1, map(b.rear_k, b_k0, b_k1));
+		stop_k -= SAFETY_DIST;
 	}
-		
-	stop_k -= SAFETY_DIST;
+	else {
+		// TODO: calc this in query_conflict?
+		float a_eta = (a_k0 - a.front_k) / (a.agent->speed + 1.0f);
+		float b_eta = (b_k0 - b.front_k) / (b.agent->speed + 1.0f);
+
+		// max .5m past stop line
+		bool behind_stop_line = a.front_k < 0.5f;
+		// wait before conflict if we reach it fast and yielded-for car arrives in similar time to us
+		// otherwise wait at stop line
+		bool need_wait = b_eta / a_eta > 2.0f || a_eta > 7.0f;
+
+		if (behind_stop_line && need_wait) {
+			// stop at stop line
+			stop_k = 0;
+		}
+		else {
+			// stop before conflict
+			stop_k = a_k0;
+			stop_k -= SAFETY_DIST;
+		}
+	}
+	
 	float dist = stop_k - a.front_k; // wait before conflict by default
 
 	brake_for_dist(a.agent, dist);

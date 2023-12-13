@@ -589,7 +589,7 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 		bool behind_stop_line = a.front_k < 0.5f;
 		// wait before conflict if we reach it fast and yielded-for car arrives in similar time to us
 		// otherwise wait at stop line
-		bool need_wait = b_eta / a_eta > 2.0f || a_eta > 7.0f;
+		bool need_wait = b_eta / a_eta > 3.0f || a_eta > 10.0f;
 
 		if (behind_stop_line && need_wait) {
 			// stop at stop line
@@ -650,7 +650,9 @@ bool swap_cars (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int 
 		else                      swap_valid = true;
 		
 		// detemine right before left
-		if (!same && !diverge && !a_entered) {
+		bool can_yeild_rBl = !same && !diverge && !a_entered;
+		bool same_yield_level = a.conn.conn.a.yield == b.conn.conn.a.yield;
+		if (same_yield_level && can_yeild_rBl) {
 			left_agent = get_left_agent(a, b);
 		}
 	}
@@ -672,6 +674,9 @@ bool swap_cars (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int 
 		if (&agent == left_agent) {
 			penalty += heur.right_before_left_penal;
 		}
+
+		if (agent.conn.conn.a.yield)
+			penalty += heur.yield_lane_penal;
 		
 		// eta to leave intersection
 		float exit_eta = (agent.conn.bez_len - agent.front_k) / (agent.agent->speed + 1.0f);
@@ -683,7 +688,6 @@ bool swap_cars (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int 
 			float progress_ratio = agent.front_k / agent.conn.bez_len;
 			penalty -= progress_ratio * heur.progress_boost;
 		}
-
 
 		// unbounded wait time priority, waiting cars will eventually be let through
 		penalty -= agent.wait_time * heur.wait_boost_fac;
@@ -764,7 +768,9 @@ void update_node (App& app, Node* node, float dt) {
 			a.node_idx = agent->idx+1;
 			a.wait_time = 0;
 
-			a.conn.conn = { agent->state.cur_lane, agent->state.next_lane };
+			auto in_lane = node->get_in_lane(agent->state.cur_lane.seg, agent->state.cur_lane.lane);
+
+			a.conn.conn = { in_lane, OutLane{ agent->state.next_lane } };
 			auto bez = calc_curve(a.conn.conn.a.clac_lane_info(), a.conn.conn.b.clac_lane_info());
 			a.conn.bez_len = bez.approx_len(COLLISION_STEPS);
 			

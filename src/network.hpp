@@ -44,6 +44,7 @@ inline Bezier3 calc_curve (Line const& l0, Line const& l1) {
 	return { l0.b, float3(point, l0.a.z), l1.a };
 }
 
+// TODO: overhaul this! We need to track lanes per segment so we can actually just turn this into a pointer
 struct SegLane {
 	Segment* seg = nullptr;
 	uint16_t lane = (uint16_t)-1;
@@ -63,8 +64,17 @@ struct SegLane {
 };
 VALUE_HASHER(SegLane, t.seg, t.lane);
 
+// extend the structs because otherwise I go crazy with nested structs and some contains searches break
+struct InLane : public SegLane {
+	bool yield;
+};
+struct OutLane : public SegLane {
+	
+};
+
 struct Connection {
-	SegLane a, b;
+	InLane a;
+	OutLane b;
 	
 	// arbitrary order so we can treat b->a as a->b for Conflict cache
 	bool operator< (Connection const& other) const {
@@ -247,6 +257,7 @@ struct Node {
 	float _radius;
 
 	// for editing and drawing?
+	// Sorted CCW in update_cached() for good measure
 	std::vector<Segment*> segments;
 
 	// for Dijkstra, TODO: remove this from this data structure! indices instead of pointers needed to be able to have seperate node lists?
@@ -260,14 +271,6 @@ struct Node {
 	NodeAgents agents;
 	
 	// TODO: can we get this info without needing so much memory
-
-	// extend the structs because otherwise I go crazy with nested structs and some contains searches break
-	struct InLane : public SegLane {
-		bool yield;
-	};
-	struct OutLane : public SegLane {
-		
-	};
 
 	std::vector<InLane> in_lanes;
 	std::vector<OutLane> out_lanes;
@@ -408,13 +411,15 @@ struct NetworkSettings {
 	float car_rear_drag_ratio = 0.4f;
 
 	struct IntersectionHeuristics {
-		SERIALIZE(IntersectionHeuristics, wait_boost_fac, progress_boost, exit_eta_penal, right_before_left_penal, conflict_eta_penal);
+		SERIALIZE(IntersectionHeuristics, wait_boost_fac, progress_boost, exit_eta_penal,
+			right_before_left_penal, conflict_eta_penal, yield_lane_penal);
 		
 		float wait_boost_fac          = 1;
 		float progress_boost          = 30;
 		float exit_eta_penal          = 10;
 		float right_before_left_penal = 15;
 		float conflict_eta_penal      = 20;
+		float yield_lane_penal        = 50;
 	};
 	IntersectionHeuristics intersec_heur;
 	
@@ -432,6 +437,7 @@ struct NetworkSettings {
 			ImGui::DragFloat("exit_eta_penal",          &intersec_heur.exit_eta_penal         , 0.1f);
 			ImGui::DragFloat("right_before_left_penal", &intersec_heur.right_before_left_penal, 0.1f);
 			ImGui::DragFloat("conflict_eta_penal",      &intersec_heur.conflict_eta_penal     , 0.1f);
+			ImGui::DragFloat("yield_lane_penal",        &intersec_heur.yield_lane_penal       , 0.1f);
 
 			ImGui::TreePop();
 		}
@@ -508,11 +514,13 @@ inline int calc_node_class (Node& node) {
 		max_seg_class = max(max_seg_class, seg->asset->road_class);
 	return max_seg_class;
 }
-inline bool default_lane_yield (int node_class, Segment& seg) {
+
+inline int default_lane_yield (int node_class, Segment& seg) {
 	return seg.asset->road_class < node_class;
 }
 
 inline void Node::update_cached () {
+	// Sort CCW(?) segments for good measure
 	auto get_seg_angle = [] (Node* node, Segment* a) {
 		Node* other = a->get_other_node(node);
 		float2 dir = other->pos - node->pos;

@@ -26,15 +26,7 @@ TODO:
 add terrain clipping to roads
   
 > can do priority road as heuristic as well
- -> add shark teeth markings
 
- -> heuristic is just a number per car that determines when cars are swapped
- 
- -> do we even need to swap/sort? can we simply have waiting (arrival) time as the primary heuristic (prio number), iterate pairs and yield lower prio cars
-   -> probably not, since i'm not sure how to ensure prio stays higher for cars behind other cars
-   -> during pair iteration always yield car behind and ignore prio?
-   -> or clamp prio to be higher than car in front? -> could lead to blocked cars not being yielded for, which is probably good
- 
  Turn SegLane pointers into lane pointers, where lane contains info about agents, reserved space, maybe cached bezier?
   -> how do I access the segment then?
   -> maybe just keep SegLane but make accessing lane directly more convinient

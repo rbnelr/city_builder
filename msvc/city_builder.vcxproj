@@ -276,6 +276,7 @@
     <ClInclude Include="..\src\engine\text_render.hpp" />
     <ClInclude Include="..\src\engine\engine.hpp" />
     <ClInclude Include="..\src\game_camera.hpp" />
+    <ClInclude Include="..\src\opengl\bindless_textures.hpp" />
     <ClInclude Include="..\src\opengl\gl_dbgdraw.hpp" />
     <ClCompile Include="..\src\opengl\ogl_render.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>

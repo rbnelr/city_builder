@@ -234,6 +234,9 @@
     <ClInclude Include="..\src\engine\dear_imgui\imgui.h">
       <Filter>engine\imgui</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\opengl\bindless_textures.hpp">
+      <Filter>opengl</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\shaders\common.glsl">

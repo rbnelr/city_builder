@@ -1,11 +1,11 @@
 #version 430
 #include "common.glsl"
 
-struct Vertex {
+VS2FS Vertex {
 	vec2 uv;
-	vec4 text_col;
-};
-VS2FS
+	
+	flat vec4 text_col;
+} v;
 
 #ifdef _VERTEX
 	// quad mesh

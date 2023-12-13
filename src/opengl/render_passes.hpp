@@ -1,6 +1,7 @@
 #pragma once
 #include "opengl.hpp"
 #include "agnostic_render.hpp"
+#include "bindless_textures.hpp"
 
 namespace ogl {
 	
@@ -9,6 +10,24 @@ struct Textures {
 	// -> find out if there is a modern system for single drawcall many textures (of differing sizes)
 	// because it would be wierd that you can go all out with indirect instanced drawing, yet have to adjust your textures
 	// just to be able to use them with one texture array
+
+	BindlessTextureManager bindless_textures;
+
+	Textures () {
+		// TODO: don't hardcode these, rather put them into assets and have used assets trigger load of their textures
+
+		bindless_textures.load_texture<srgba8>("misc/line.png"          );
+		bindless_textures.load_texture<srgba8>("misc/stripe.png"        );
+		bindless_textures.load_texture<srgba8>("misc/shark_teeth.png"   );
+		
+		bindless_textures.load_texture<srgba8>("misc/turn_arrow_R.png"	);
+		bindless_textures.load_texture<srgba8>("misc/turn_arrow_S.png"	);
+		bindless_textures.load_texture<srgba8>("misc/turn_arrow_SR.png"	);
+		bindless_textures.load_texture<srgba8>("misc/turn_arrow_L.png"	);
+		bindless_textures.load_texture<srgba8>("misc/turn_arrow_LR.png"	);
+		bindless_textures.load_texture<srgba8>("misc/turn_arrow_LS.png"	);
+		bindless_textures.load_texture<srgba8>("misc/turn_arrow_LSR.png");
+	}
 
 	//Texture2D clouds = load_texture<srgba8>("clouds", "textures/clouds.png");
 	Texture2D grid = load_texture<srgba8>("grid", "misc/grid2.png");
@@ -24,6 +43,7 @@ struct Textures {
 	Texture2DArray lines = load_texture_array<srgba8>("lane_arrows", {
 		"misc/line.png",
 		"misc/stripe.png",
+		//"misc/shark_teeth.png",
 	});
 	Texture2D cracks = load_texture<srgb8>("cracks", "misc/cracks.png"); // TODO: support single channel
 
@@ -325,7 +345,7 @@ struct DecalRenderer {
 		float3 pos;
 		float  rot;
 		float3 size;
-		float  tex_id;
+		int    tex_id;
 		float2 uv_scale;
 		float4 col;
 
@@ -333,7 +353,7 @@ struct DecalRenderer {
 			ATTRIB(FLT3, Instance, pos),
 			ATTRIB(FLT,  Instance, rot),
 			ATTRIB(FLT3, Instance, size),
-			ATTRIB(FLT,  Instance, tex_id),
+			ATTRIB(INT,  Instance, tex_id),
 			ATTRIB(FLT2, Instance, uv_scale),
 			ATTRIB(FLT4, Instance, col),
 		)
@@ -358,7 +378,7 @@ struct DecalRenderer {
 		instance_count = (GLsizei)instances.size();
 	}
 	
-	void render (StateManager& state, Gbuffer& gbuf, Textures& texs, Texture2DArray& tex) {
+	void render (StateManager& state, Gbuffer& gbuf, Textures& texs) {
 		ZoneScoped;
 		OGL_TRACE("DecalRenderer");
 
@@ -368,7 +388,6 @@ struct DecalRenderer {
 			state.bind_textures(shad, {
 				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
 
-				{ "tex", tex, texs.sampler_normal },
 				{ "cracks", texs.cracks, texs.sampler_normal },
 			});
 

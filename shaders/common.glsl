@@ -1,8 +1,10 @@
+#extension GL_ARB_gpu_shader5 : enable
+#extension GL_ARB_gpu_shader_int64 : enable
 
 #if defined(_VERTEX)
-	#define VS2FS out Vertex v;
+	#define VS2FS out
 #elif defined(_FRAGMENT)
-	#define VS2FS in Vertex v;
+	#define VS2FS in
 #endif
 
 float map (float x, float a, float b) {
@@ -69,6 +71,15 @@ layout(std140, binding = 0) uniform Common {
 	View3D view;
 	Lighting lighting;
 };
+
+// Bindless textures
+layout(std430, binding = 1) buffer BindlessTextures {
+	uint64_t handles[];
+} bindless_LUT;
+
+sampler2D bindless_tex (int tex_id) {
+	return sampler2D(bindless_LUT.handles[tex_id]);
+}
 
 //#include "dbg_indirect_draw.glsl"
 

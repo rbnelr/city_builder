@@ -1,13 +1,12 @@
 #version 430
 #include "common.glsl"
 
-struct Vertex {
+VS2FS Vertex {
 	// center of point light, NOT the fragment that was rendered, since that only covers those pixels possibly affected by the light!
-	vec3  light_pos;
-	float light_radius;
-	vec3  light_col;
-};
-VS2FS
+	flat vec3  light_pos;
+	flat float light_radius;
+	flat vec3  light_col;
+} v;
 
 #ifdef _VERTEX
 

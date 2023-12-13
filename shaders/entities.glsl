@@ -2,13 +2,13 @@
 #include "common.glsl"
 #include "gbuf.glsl"
 
-struct Vertex {
+VS2FS Vertex {
 	vec3 world_pos;
 	vec3 world_normal;
 	vec2 uv;
-	vec3 col;
-};
-VS2FS
+	
+	flat vec3 col;
+} v;
 
 #ifdef _VERTEX
 

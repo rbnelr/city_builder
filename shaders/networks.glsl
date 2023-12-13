@@ -2,14 +2,15 @@
 #include "common.glsl"
 #include "gbuf.glsl"
 
-struct Vertex {
+// TODO: use instancing
+
+VS2FS Vertex {
 	vec3 pos;
 	vec3 norm;
 	vec3 tang;
 	vec2 uv;
-	float tex_id;
-};
-VS2FS
+	float tex_id; // flat? technically only actually flat with instancing
+} v;
 
 #ifdef _VERTEX
 	layout(location = 0) in vec3  pos;

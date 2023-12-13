@@ -1,8 +1,7 @@
 
-struct Vertex {
+VS2FS Vertex {
 	vec2 uv;
-};
-VS2FS
+} v;
 
 #ifdef _VERTEX
 	layout(location = 0) out vec2 vs_uv;

@@ -2,12 +2,11 @@
 #include "common.glsl"
 #include "gbuf.glsl"
 
-struct Vertex {
+VS2FS Vertex {
 	vec3 pos;
 	vec2 uv;
 	vec3 normal;
-};
-VS2FS
+} v;
 
 #ifdef _VERTEX
 	layout(location = 0) in vec2  attr_pos;

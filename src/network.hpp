@@ -238,8 +238,14 @@ struct NodeAgents {
 };
 
 struct Node {
+	// node center
 	float3 pos;
-	float _radius; // offset of segments
+
+	// currently 'fake', it's simply the max offset of any connected segment to node center
+	// NOTE: node center also does not really mean anything anymore now that segment ends can be positioned arbitrarily
+	// TODO: should probably have node center (for editing) be some kind of bounding circle of all segment points
+	float _radius;
+
 	// for editing and drawing?
 	std::vector<Segment*> segments;
 

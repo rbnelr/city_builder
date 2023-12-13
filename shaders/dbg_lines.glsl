@@ -1,10 +1,9 @@
 #version 430
 #include "common.glsl"
 
-struct Vertex {
+VS2FS Vertex {
 	vec4 col;
-};
-VS2FS
+} v;
 
 #ifdef _VERTEX
 	layout(location = 0) in vec3  pos;

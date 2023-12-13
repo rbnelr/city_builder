@@ -1,23 +1,21 @@
 #version 430
 #include "common.glsl"
 
-// TODO: use no interpoliaton? would that even be any faster or better?
-struct Vertex {
-	vec3 pos;
-	mat3 world2decal;
+VS2FS Vertex {
+	flat vec3 pos;
+	flat mat3 world2decal;
 	
-	float tex_id;
-	vec2 uv_scale;
-	vec4 col;
-};
-VS2FS
+	flat int  tex_id;
+	flat vec2 uv_scale;
+	flat vec4 col;
+} v;
 
 #ifdef _VERTEX
 	layout(location = 0) in vec3  mesh_pos;
 	layout(location = 1) in vec3  instance_pos;
 	layout(location = 2) in float instance_rot;
 	layout(location = 3) in vec3  instance_size;
-	layout(location = 4) in float instance_tex_id;
+	layout(location = 4) in int   instance_tex_id;
 	layout(location = 5) in vec2  instance_uv_scale;
 	layout(location = 6) in vec4  instance_col;
 	
@@ -63,7 +61,7 @@ VS2FS
 		vec2 uv = xyz.xy + vec2(0.5);
 		uv *= v.uv_scale;
 		
-		vec4 col = texture(tex, vec3(uv, v.tex_id)) * v.col;
+		vec4 col = texture(bindless_tex(v.tex_id), uv) * v.col;
 		////col.a = 1.0;
 		
 		float alpha = col.a;

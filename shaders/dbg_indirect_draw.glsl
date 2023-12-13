@@ -37,7 +37,7 @@ struct IndirectLines {
 //	IndirectWireInstace vertices[_INDIRECT_BUFSZ];
 //};
 
-layout(std430, binding = 1) restrict buffer IndirectBuffer {
+layout(std430, binding = 2) restrict buffer IndirectBuffer {
 	bool update;
 	
 	IndirectLines         lines;

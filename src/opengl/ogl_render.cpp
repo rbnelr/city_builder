@@ -644,8 +644,7 @@ struct NetworkRenderer {
 		)
 	};
 
-	DecalRenderer line_renderer;
-	DecalRenderer turn_arrow_renderer;
+	DecalRenderer decal_renderer;
 
 	Shader* shad  = g_shaders.compile("networks");
 
@@ -696,8 +695,7 @@ struct NetworkRenderer {
 		OGL_TRACE("network decals");
 		ZoneScoped;
 
-		line_renderer.render(state, gbuf, texs, texs.lines);
-		turn_arrow_renderer.render(state, gbuf, texs, texs.turn_arrows);
+		decal_renderer.render(state, gbuf, texs);
 	}
 };
 
@@ -706,6 +704,7 @@ struct Mesher {
 	NetworkRenderer              & network_renderer;
 	EntityRenderer<PropAsset>    & prop_renderer;
 	DefferedPointLightRenderer   & light_renderer;
+	Textures                     & textures;
 	
 	typedef EntityRenderer<PropAsset>::MeshInstance PropInstance;
 
@@ -714,8 +713,7 @@ struct Mesher {
 	std::vector<DefferedPointLightRenderer::MeshInstance>    light_instances;
 	
 	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
-	std::vector<DecalRenderer::Instance> turn_arrows;
-	std::vector<DecalRenderer::Instance> lines;
+	std::vector<DecalRenderer::Instance> decals;
 
 	PropInstance& push_prop (PropAsset* asset, float3 pos, float rot) {
 		auto* i = push_back(prop_instances, 1);
@@ -844,7 +842,9 @@ struct Mesher {
 		extrude(sR2 , sR3 );
 		
 		for (auto& line : seg.asset->line_markings) {
-			float tex_id = (float)(int)line.type;
+			int tex_id = textures.bindless_textures.get_tex_id(
+				line.type == LineMarkingType::LINE ? "misc/line.png" : "misc/stripe.png"
+			);
 			
 			float width = line.scale.x;
 
@@ -855,10 +855,10 @@ struct Mesher {
 			decal.pos = (seg.pos_a + seg.pos_b)*0.5f + float3(right * line.shift.x, 0);
 			decal.rot = angle2d(forw) - deg(90);
 			decal.size = float3(width, seg._length, 1);
-			decal.tex_id = (float)tex_id;
+			decal.tex_id = tex_id;
 			decal.uv_scale = float2(1, uv_len);
 			decal.col = 1;
-			lines.push_back(decal);
+			decals.push_back(decal);
 		}
 
 		for (auto& light : seg.asset->streetlights) {
@@ -988,18 +988,28 @@ struct Mesher {
 					float2 size = float2(1, 1.5f) * seg->asset->lanes[i].width;
 
 					float3 pos = li.b;
-					pos -= forw * size.y*0.5f;
+					pos -= forw * size.y*0.75f;
 
-					int decal_id = (int)lane.allowed_turns - 1;
+					static constexpr const char* arrow_filenames[] = {
+						"misc/turn_arrow_R.png"  ,
+						"misc/turn_arrow_S.png"  ,
+						"misc/turn_arrow_SR.png" ,
+						"misc/turn_arrow_L.png"  ,
+						"misc/turn_arrow_LR.png" ,
+						"misc/turn_arrow_LS.png" ,
+						"misc/turn_arrow_LSR.png",
+					};
+					auto filename = arrow_filenames[(int)lane.allowed_turns - 1];
+					int tex_id = textures.bindless_textures.get_tex_id(filename);
 
 					DecalRenderer::Instance decal;
 					decal.pos = pos;
 					decal.rot = ang;
 					decal.size = float3(size, 1);
-					decal.tex_id = (float)decal_id;
+					decal.tex_id = tex_id;
 					decal.uv_scale = 1;
 					decal.col = 1;
-					turn_arrows.push_back(decal);
+					decals.push_back(decal);
 				}
 
 				auto& lane_asset = seg->asset->lanes[i];
@@ -1013,27 +1023,30 @@ struct Mesher {
 				}
 			}
 
-			// stop lines
-			float tex_id = (float)(int)LineMarkingType::LINE;
-			if (f0 < INF) {
-				DecalRenderer::Instance decal;
-				decal.pos = seg->pos_b + float3(v.right * ((f1+f0)*0.5f), 0);
-				decal.rot = angle2d(v.right) - deg(90);
-				decal.size = float3(stopline_width, f1-f0, 1);
-				decal.tex_id = (float)tex_id;
-				decal.uv_scale = 1;
-				decal.col = 1;
-				lines.push_back(decal);
-			}
-			if (r0 < INF) {
-				DecalRenderer::Instance decal;
-				decal.pos = seg->pos_a + float3(v.right * ((r1+r0)*0.5f), 0);
-				decal.rot = angle2d(v.right) - deg(90);
-				decal.size = float3(stopline_width, r1-r0, 1);
-				decal.tex_id = (float)tex_id;
-				decal.uv_scale = 1;
-				decal.col = 1;
-				lines.push_back(decal);
+			{ // stop lines
+				auto stop_line = [&] (float3 base_pos, float l, float r, int dir, bool type) {
+					int tex_id = textures.bindless_textures.get_tex_id(type ? "misc/shark_teeth.png" : "misc/line.png");
+					
+					float width = type ? stopline_width*1.5f : stopline_width;
+					float length = r - l;
+					
+					float uv_len = length / (width*2); // 2 since texture has 1-2 aspect ratio
+					uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
+
+					DecalRenderer::Instance decal;
+					decal.pos = base_pos + float3(v.right * ((r+l)*0.5f), 0);
+					decal.rot = angle2d(v.right) + deg(90) * (dir == 0 ? -1 : +1);
+					decal.size = float3(width, length, 1);
+					decal.tex_id = tex_id;
+					decal.uv_scale = float2(1, uv_len);
+					decal.col = 1;
+					decals.push_back(decal);
+				};
+
+				bool yield = true;
+
+				if (f0 < INF) stop_line(seg->pos_b, f0, f1, 0, yield);
+				if (r0 < INF) stop_line(seg->pos_a, r0, r1, 1, yield);
 			}
 		}
 
@@ -1069,11 +1082,13 @@ struct Mesher {
 		light_renderer.update_instances([&] () { return light_instances; });
 		
 		network_renderer.upload(network_mesh);
-		network_renderer.line_renderer.upload(lines);
-		network_renderer.turn_arrow_renderer.upload(turn_arrows);
+		network_renderer.decal_renderer.upload(decals);
 	}
 };
 
+static constexpr int COMMON_UBO_BINDING = 0;
+static constexpr int BINDLESS_TEX_SSBO_BINDING = 1;
+//static constexpr int DBGDRAW_INDIRECT_VBO = 2;
 
 struct OglRenderer : public Renderer {
 	SERIALIZE(OglRenderer, lighting, passes)
@@ -1145,8 +1160,6 @@ struct OglRenderer : public Renderer {
 	};
 
 	struct CommonUniforms {
-		static constexpr int UBO_BINDING = 0;
-
 		Ubo ubo = {"common_ubo"};
 
 		struct Common {
@@ -1157,7 +1170,7 @@ struct OglRenderer : public Renderer {
 		void begin () {
 			glBindBuffer(GL_UNIFORM_BUFFER, ubo);
 			glBufferData(GL_UNIFORM_BUFFER, sizeof(Common), nullptr, GL_STREAM_DRAW);
-			glBindBufferBase(GL_UNIFORM_BUFFER, UBO_BINDING, ubo);
+			glBindBufferBase(GL_UNIFORM_BUFFER, COMMON_UBO_BINDING, ubo);
 			glBindBuffer(GL_UNIFORM_BUFFER, 0);
 		}
 		void upload (size_t offset, size_t size, void const* data) {
@@ -1172,7 +1185,25 @@ struct OglRenderer : public Renderer {
 			upload(offsetof(Common, view), sizeof(view), &view);
 		}
 	};
+	struct BindlessTexLUT {
+
+		Ssbo ssbo = {"bindless_ssbo"};
+
+		void update (BindlessTextureManager& bindless) {
+			std::vector<GLuint64> data;
+			data.resize(bindless.loaded_textures.size());
+			for (int i=0; i<(int)data.size(); ++i)
+				data[i] = bindless.loaded_textures[i].tex.handle;
+
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint64_t)*data.size(), nullptr, GL_STREAM_DRAW);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint64_t)*data.size(), data.data(), GL_STREAM_DRAW);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDLESS_TEX_SSBO_BINDING, ssbo);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+		}
+	};
 	CommonUniforms common_ubo;
+	BindlessTexLUT bindless_tex_lut;
 	
 	RenderPasses passes;
 
@@ -1202,7 +1233,7 @@ struct OglRenderer : public Renderer {
 	}
 	
 	void upload_static_instances (App& app) {
-		Mesher mesher{ building_renderer, network_renderer, prop_renderer, light_renderer };
+		Mesher mesher{ building_renderer, network_renderer, prop_renderer, light_renderer, textures };
 		mesher.streetlight_asset = app.assets.props[0].get();
 
 		mesher.remesh(app);
@@ -1276,8 +1307,9 @@ struct OglRenderer : public Renderer {
 			{
 				common_ubo.begin();
 				common_ubo.set_lighting(lighting);
+				bindless_tex_lut.update(textures.bindless_textures);
 
-				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, gl_dbgdraw.indirect_vbo);
+				//glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, gl_dbgdraw.indirect_vbo);
 
 				gl_dbgdraw.update(app.input);
 			}

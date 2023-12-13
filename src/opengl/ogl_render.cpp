@@ -632,7 +632,7 @@ struct NetworkRenderer {
 		float3 norm;
 		float3 tang;
 		float2 uv; // only really for some parts of the mesh, like curbs
-		float tex_id;
+		int    tex_id;
 		//float4 col;
 
 		VERTEX_CONFIG(
@@ -640,7 +640,7 @@ struct NetworkRenderer {
 			ATTRIB(FLT3, Vertex, norm),
 			ATTRIB(FLT3, Vertex, tang),
 			ATTRIB(FLT2, Vertex, uv),
-			ATTRIB(FLT , Vertex, tex_id),
+			ATTRIB(INT , Vertex, tex_id),
 		)
 	};
 
@@ -665,11 +665,7 @@ struct NetworkRenderer {
 			glUseProgram(shad->prog);
 
 			state.bind_textures(shad, {
-				{ "test_color",  texs.test_color, texs.sampler_normal },
-				{ "test_normal", texs.test_normal, texs.sampler_normal },
 
-				{ "surfaces_color",  texs.surfaces_color, texs.sampler_normal },
-				{ "surfaces_normal", texs.surfaces_normal, texs.sampler_normal },
 			});
 
 			PipelineState s;
@@ -763,9 +759,9 @@ struct Mesher {
 	float curbstone_w = 0.25f;
 
 	// negative numbers are for non uv mappes (worldspace) textures
-	float asphalt_tex_id  = 0;
-	float curb_tex_id     = -1;
-	float sidewalk_tex_id = 1;
+	int asphalt_tex_id;
+	int curb_tex_id;
+	int sidewalk_tex_id;
 
 	float2 curb_tex_tiling = float2(2,0);
 
@@ -931,9 +927,9 @@ struct Mesher {
 			float2 segR = si.pos + si.right * si.asset->sidewalkR;
 
 			typedef NetworkRenderer::Vertex V;
-			V nodeCenter = { node->pos + float3(0, 0, 0.01f), float3(0,0,1), asphalt_tex_id };
-			V seg0 = { float3(segL, 0.01f), float3(0,0,1), asphalt_tex_id };
-			V seg1 = { float3(segR, 0.01f), float3(0,0,1), asphalt_tex_id };
+			V nodeCenter = { node->pos + float3(0, 0, 0.01f), norm_up, tang_up, no_uv, asphalt_tex_id };
+			V seg0       = { float3(segL, 0.01f), norm_up, tang_up, no_uv, asphalt_tex_id };
+			V seg1       = { float3(segR, 0.01f), norm_up, tang_up, no_uv, asphalt_tex_id };
 
 			int res = 10;
 			for (int i=0; i<res; ++i) {
@@ -988,16 +984,7 @@ struct Mesher {
 					float3 pos = li.b;
 					pos -= forw * size.y*0.75f;
 
-					static constexpr const char* arrow_filenames[] = {
-						"misc/turn_arrow_R.png"  ,
-						"misc/turn_arrow_S.png"  ,
-						"misc/turn_arrow_SR.png" ,
-						"misc/turn_arrow_L.png"  ,
-						"misc/turn_arrow_LR.png" ,
-						"misc/turn_arrow_LS.png" ,
-						"misc/turn_arrow_LSR.png",
-					};
-					auto filename = arrow_filenames[(int)lane.allowed_turns - 1];
+					auto filename = textures.turn_arrows[(int)lane.allowed_turns - 1];
 					int tex_id = textures.bindless_textures.get_tex_id(filename);
 
 					DecalRenderer::Instance decal;
@@ -1072,6 +1059,12 @@ struct Mesher {
 
 	void remesh (App& app) {
 		ZoneScoped;
+		
+		// get diffuse texture id (normal is +1)
+		// negative means worldspace uv mapped
+		asphalt_tex_id  = -textures.bindless_textures.get_tex_id(textures.asphalt.diffuse);
+		sidewalk_tex_id = -textures.bindless_textures.get_tex_id(textures.pavement.diffuse);
+		curb_tex_id     = textures.bindless_textures.get_tex_id(textures.curb.diffuse);
 
 		remesh_network(app.net);
 

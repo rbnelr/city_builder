@@ -13,67 +13,66 @@ struct Textures {
 
 	BindlessTextureManager bindless_textures;
 
+	struct DiffNorm {
+		const char* diffuse;
+		const char* normal;
+	};
+
+	const char* turn_arrows[7] = {
+		"misc/turn_arrow_R.png"  ,
+		"misc/turn_arrow_S.png"  ,
+		"misc/turn_arrow_SR.png" ,
+		"misc/turn_arrow_L.png"  ,
+		"misc/turn_arrow_LR.png" ,
+		"misc/turn_arrow_LS.png" ,
+		"misc/turn_arrow_LSR.png",
+	};
+
+	DiffNorm asphalt  = { "misc/street/pebbled_asphalt_albedo.png",   "misc/street/pebbled_asphalt_Normal-ogl.png" };
+	DiffNorm pavement = { "misc/street/Flooring_Stone_001_COLOR.png", "misc/street/Flooring_Stone_001_NRM.png" };
+	DiffNorm curb     = { "misc/curb_Diff2.png",                      "misc/curb_Norm.png" };
+	
+	template <typename T>
+	void load (const char* filename) {
+		bindless_textures.load_texture<T>(filename);
+	}
+	
+	template <typename T>
+	void load (DiffNorm& df) {
+		bindless_textures.load_texture<T>(df.diffuse);
+		bindless_textures.load_texture<T>(df.normal);
+	}
+
 	Textures () {
 		// TODO: don't hardcode these, rather put them into assets and have used assets trigger load of their textures
 
-		bindless_textures.load_texture<srgba8>("misc/line.png"          );
-		bindless_textures.load_texture<srgba8>("misc/stripe.png"        );
-		bindless_textures.load_texture<srgba8>("misc/shark_teeth.png"   );
+		load<srgba8>("misc/line.png"          );
+		load<srgba8>("misc/stripe.png"        );
+		load<srgba8>("misc/shark_teeth.png"   );
 		
-		bindless_textures.load_texture<srgba8>("misc/turn_arrow_R.png"	);
-		bindless_textures.load_texture<srgba8>("misc/turn_arrow_S.png"	);
-		bindless_textures.load_texture<srgba8>("misc/turn_arrow_SR.png"	);
-		bindless_textures.load_texture<srgba8>("misc/turn_arrow_L.png"	);
-		bindless_textures.load_texture<srgba8>("misc/turn_arrow_LR.png"	);
-		bindless_textures.load_texture<srgba8>("misc/turn_arrow_LS.png"	);
-		bindless_textures.load_texture<srgba8>("misc/turn_arrow_LSR.png");
+		for (auto& fn : turn_arrows)
+			load<srgba8>(fn);
+		
+		load<srgb8>(asphalt);
+		load<srgb8>(pavement);
+		load<srgb8>(curb);
+
+		//bindless_textures.load_texture<srgba8>("misc/turn_arrow_LSR.png");
 	}
+
+	//Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
+	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
+
 
 	//Texture2D clouds = load_texture<srgba8>("clouds", "textures/clouds.png");
 	Texture2D grid = load_texture<srgba8>("grid", "misc/grid2.png");
 	Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
 	
-	//Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
-	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
-
 	Texture2D house_diff = load_texture<srgb8>("house_Diff", "buildings/house.png");
 	Texture2D streetlight_diff = load_texture<srgb8>("streetlight_Diff", "props/streetlight_Diff.png");
 	Texture2D car_diff = load_texture<srgb8>("car_Diffe", "cars/car.png");
 	
-	Texture2DArray lines = load_texture_array<srgba8>("lane_arrows", {
-		"misc/line.png",
-		"misc/stripe.png",
-		//"misc/shark_teeth.png",
-	});
 	Texture2D cracks = load_texture<srgb8>("cracks", "misc/cracks.png"); // TODO: support single channel
-
-	Texture2DArray turn_arrows = load_texture_array<srgba8>("lane_arrows", {
-		"misc/turn_arrow_R.png",
-		"misc/turn_arrow_S.png",
-		"misc/turn_arrow_SR.png",
-		"misc/turn_arrow_L.png",
-		"misc/turn_arrow_LR.png",
-		"misc/turn_arrow_LS.png",
-		"misc/turn_arrow_LSR.png",
-	});
-
-	Texture2D test_color  = load_texture<srgba8>("test_color", "misc/curb_Diff2.png");
-	Texture2D test_normal = load_texture<srgba8>("test_color", "misc/curb_Norm.png");
-
-	Texture2DArray surfaces_color = load_texture_array<srgba8>("surfaces_color", {
-		//"misc/street/Asphalt_001_COLOR.jpg",
-		//"misc/street/Asphalt_002_COLOR.jpg",
-		//"misc/street/Asphalt_004_COLOR.jpg",
-		"misc/street/pebbled_asphalt_albedo.png",
-		"misc/street/Flooring_Stone_001_COLOR.png",
-	});
-	Texture2DArray surfaces_normal = load_texture_array<srgba8>("surfaces_normal", {
-		//"misc/street/Asphalt_001_NORM.jpg",
-		//"misc/street/Asphalt_002_NORM.jpg",
-		//"misc/street/Asphalt_004_NORM.jpg",
-		"misc/street/pebbled_asphalt_Normal-ogl.png",
-		"misc/street/Flooring_Stone_001_NRM.png",
-	});
 
 	template <typename T>
 	static Texture2D load_texture (std::string_view gl_label, const char* filepath) {
@@ -83,39 +82,6 @@ struct Textures {
 		return tex;
 	}
 
-	template <typename T>
-	static Texture2DArray load_texture_array (std::string_view gl_label, std::vector<const char*> filepaths) {
-		Texture2DArray tex = {gl_label};
-
-		int count = (int)filepaths.size();
-		int i = 0;
-		int2 size;
-
-		glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
-
-		for (auto path : filepaths) {
-			Image<T> img;
-			if (!Image<T>::load_from_file(prints("assets/%s", path).c_str(), &img)) {
-				fprintf(stderr, "Error! Could not load texture \"%s\"", path);
-				assert(false);
-				continue;
-			}
-
-			if (i == 0) {
-				size = img.size;
-				glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_SRGB8_ALPHA8, size.x, size.y, count, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-			}
-			assert(img.size == size);
-
-			glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0,0,i, size.x, size.y, 1, GL_RGBA, GL_UNSIGNED_BYTE, img.pixels);
-			i++;
-		}
-			
-		glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
-
-		glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-		return tex;
-	}
 };
 
 struct Gbuffer {

@@ -68,12 +68,15 @@ struct BindlessTextureManager {
 	}
 
 	BindlessTextureManager () {
+		ZoneScoped;
+
 		// load default texture as id 0
 		load_texture<srgb8>("misc/default.png");
 	}
 
 	template <typename T>
 	void load_texture (const char* filepath) {
+		ZoneScoped;
 
 		auto str = std::string(filepath);
 
@@ -101,15 +104,18 @@ struct BindlessTextureManager {
 		t.tex.texture = {filepath};
 		auto form = FORMATS[(int)t.type];
 
-		glBindTexture(GL_TEXTURE_2D, t.tex.texture);
-		glTexStorage2D(GL_TEXTURE_2D, t.mips, form.internal_format, t.size.x, t.size.y);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0,0, t.size.x, t.size.y, form.format, form.type, img.pixels);
-		glGenerateMipmap(GL_TEXTURE_2D);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		{
+			ZoneScopedN("upload");
+			
+			glBindTexture(GL_TEXTURE_2D, t.tex.texture);
+			glTexStorage2D(GL_TEXTURE_2D, t.mips, form.internal_format, t.size.x, t.size.y);
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0,0, t.size.x, t.size.y, form.format, form.type, img.pixels);
+			glGenerateMipmap(GL_TEXTURE_2D);
+			glBindTexture(GL_TEXTURE_2D, 0);
 
-		t.tex.handle = glGetTextureSamplerHandleARB(t.tex.texture, sampler_normal);
-		glMakeTextureHandleResidentARB(t.tex.handle);
-
+			t.tex.handle = glGetTextureSamplerHandleARB(t.tex.texture, sampler_normal);
+			glMakeTextureHandleResidentARB(t.tex.handle);
+		}
 	}
 
 };

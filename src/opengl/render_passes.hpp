@@ -34,16 +34,22 @@ struct Textures {
 	
 	template <typename T>
 	void load (const char* filename) {
+		ZoneScoped;
+
 		bindless_textures.load_texture<T>(filename);
 	}
 	
 	template <typename T>
 	void load (DiffNorm& df) {
+		ZoneScoped;
+
 		bindless_textures.load_texture<T>(df.diffuse);
 		bindless_textures.load_texture<T>(df.normal);
 	}
 
 	Textures () {
+		ZoneScoped;
+
 		// TODO: don't hardcode these, rather put them into assets and have used assets trigger load of their textures
 
 		load<srgba8>("misc/line.png"          );
@@ -76,6 +82,8 @@ struct Textures {
 
 	template <typename T>
 	static Texture2D load_texture (std::string_view gl_label, const char* filepath) {
+		ZoneScoped;
+
 		Texture2D tex = {gl_label};
 		if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str()))
 			assert(false);

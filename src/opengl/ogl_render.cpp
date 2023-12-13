@@ -972,8 +972,6 @@ struct Mesher {
 
 			auto v = seg->clac_seg_vecs();
 			
-			float f0=+INF, f1=-INF, r0=+INF, r1=-INF; // first and last forward and reverse lane shifts
-
 			for (int i=0; i<(int)seg->lanes.size(); ++i) {
 				auto& lane = seg->lanes[i];
 				network::SegLane seg_lane = { seg.get(), (uint16_t)i };
@@ -1011,19 +1009,7 @@ struct Mesher {
 					decal.col = 1;
 					decals.push_back(decal);
 				}
-
-				auto& lane_asset = seg->asset->lanes[i];
-				if (lane_asset.direction == LaneDir::FORWARD) {
-					f0 = min(f0, lane_asset.shift - lane_asset.width*0.5f);
-					f1 = max(f1, lane_asset.shift + lane_asset.width*0.5f);
-				}
-				else {
-					r0 = min(r0, lane_asset.shift - lane_asset.width*0.5f);
-					r1 = max(r1, lane_asset.shift + lane_asset.width*0.5f);
-				}
-			}
-
-			{ // stop lines
+				
 				auto stop_line = [&] (float3 base_pos, float l, float r, int dir, bool type) {
 					int tex_id = textures.bindless_textures.get_tex_id(type ? "misc/shark_teeth.png" : "misc/line.png");
 					
@@ -1043,10 +1029,23 @@ struct Mesher {
 					decals.push_back(decal);
 				};
 
-				bool yield = true;
 
-				if (f0 < INF) stop_line(seg->pos_b, f0, f1, 0, yield);
-				if (r0 < INF) stop_line(seg->pos_a, r0, r1, 1, yield);
+				auto& lane_asset = seg->asset->lanes[i];
+				auto in_node = seg->get_node_in_dir(lane_asset.direction);
+				auto& in_lane = in_node->get_in_lane(seg.get(), (uint16_t)i);
+
+				if (lane_asset.direction == LaneDir::FORWARD) {
+					float l = lane_asset.shift - lane_asset.width*0.5f;
+					float r = lane_asset.shift + lane_asset.width*0.5f;
+
+					stop_line(seg->pos_b, l, r, 0, in_lane.yield);
+				}
+				else {
+					float l = lane_asset.shift - lane_asset.width*0.5f;
+					float r = lane_asset.shift + lane_asset.width*0.5f;
+
+					stop_line(seg->pos_a, l, r, 1, in_lane.yield);
+				}
 			}
 		}
 

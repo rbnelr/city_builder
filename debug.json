@@ -20,6 +20,7 @@
 			{
 				"name": "small road",
 				"filename": "",
+				"road_class": 0,
 				"width": 9.0,
 				"lanes": [
 					{
@@ -78,6 +79,7 @@
 			{
 				"name": "medium road",
 				"filename": "",
+				"road_class": 1,
 				"width": 18.0,
 				"lanes": [
 					{
@@ -228,7 +230,7 @@
 	},
 	"net": {
 		"settings": {
-			"car_accel": 7.0,
+			"car_accel": 5.0,
 			"car_rear_drag_ratio": 0.4000000059604645,
 			"intersec_heur": {
 				"wait_boost_fac": 1.0,

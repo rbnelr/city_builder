@@ -125,8 +125,8 @@ struct PointLight {
 };
 
 struct NetworkAsset {
-	friend SERIALIZE_TO_JSON(NetworkAsset)   { SERIALIZE_TO_JSON_EXPAND(  name, filename, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit) }
-	friend SERIALIZE_FROM_JSON(NetworkAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
+	friend SERIALIZE_TO_JSON(NetworkAsset)   { SERIALIZE_TO_JSON_EXPAND(  name, filename, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit) }
+	friend SERIALIZE_FROM_JSON(NetworkAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
 		//t.mesh = { prints("%s.fbx", t.filename.c_str()).c_str() };
 
 		t.update_cached();
@@ -165,6 +165,8 @@ struct NetworkAsset {
 	
 	std::string name = "<unnamed>";
 	std::string filename;
+
+	int road_class = 0;
 
 	float width = 16;
 

@@ -260,11 +260,26 @@ struct Node {
 	NodeAgents agents;
 	
 	// TODO: can we get this info without needing so much memory
-	std::vector<SegLane> in_lanes;
-	std::vector<SegLane> out_lanes;
+
+	// extend the structs because otherwise I go crazy with nested structs and some contains searches break
+	struct InLane : public SegLane {
+		bool yield;
+	};
+	struct OutLane : public SegLane {
+		
+	};
+
+	std::vector<InLane> in_lanes;
+	std::vector<OutLane> out_lanes;
 	
 	// NOTE: this allows U-turns
 	int num_conns () { return (int)in_lanes.size() * (int)out_lanes.size(); }
+	
+	InLane& get_in_lane (Segment* seg, uint16_t lane) {
+		int idx = indexof(in_lanes, SegLane{ seg, lane });
+		assert(idx >= 0);
+		return in_lanes[idx];
+	}
 	
 	void update_cached ();
 	
@@ -304,6 +319,10 @@ struct Segment { // better name? Keep Path and call path Route?
 	}
 	LaneDir get_dir_to_node (Node* node) {
 		return node_b == node ? LaneDir::FORWARD : LaneDir::BACKWARD;
+	}
+	
+	Node* get_node_in_dir (LaneDir dir) {
+		return dir == LaneDir::FORWARD ? node_b : node_a;
 	}
 
 	float3 pos_for_node (Node* node) {
@@ -483,6 +502,16 @@ inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, AllowedTurns
 	return (classify_turn(node, in, out) & allowed) != 0;
 }
 
+inline int calc_node_class (Node& node) {
+	int max_seg_class = 0;
+	for (auto& seg : node.segments)
+		max_seg_class = max(max_seg_class, seg->asset->road_class);
+	return max_seg_class;
+}
+inline bool default_lane_yield (int node_class, Segment& seg) {
+	return seg.asset->road_class < node_class;
+}
+
 inline void Node::update_cached () {
 	auto get_seg_angle = [] (Node* node, Segment* a) {
 		Node* other = a->get_other_node(node);
@@ -495,6 +524,8 @@ inline void Node::update_cached () {
 		return ang_l < ang_r;
 	});
 
+	int node_class = calc_node_class(*this);
+
 	_radius = 0;
 	for (auto* seg : segments) {
 		LaneDir dir = this == seg->node_a ? LaneDir::FORWARD : LaneDir::BACKWARD; // 0: segment points 'away' from this node
@@ -502,8 +533,13 @@ inline void Node::update_cached () {
 		for (int i=0; i<(int)seg->asset->lanes.size(); ++i) {
 			auto& lane = seg->asset->lanes[i];
 
-			auto& vec = lane.direction == dir ? out_lanes : in_lanes;
-			vec.push_back(SegLane{ seg, (uint16_t)i });
+			if (lane.direction == dir) {
+				out_lanes.push_back(OutLane{ seg, (uint16_t)i });
+			}
+			else {
+				bool yield = default_lane_yield(node_class, *seg);
+				in_lanes.push_back(InLane{ seg, (uint16_t)i, yield });
+			}
 		}
 
 		_radius = max(_radius, distance(pos, seg->pos_for_node(this)));

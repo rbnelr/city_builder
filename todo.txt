@@ -24,18 +24,9 @@ TODO:
    but ideally one where we can slightly simulate the sun being behind the clouds 
 
 add terrain clipping to roads
- 
-> add heuristic for stopped penalty
- 
-> add heuristic for prioritizing long waiting cars
-   wait time > thres && wait time > other wait time * 2  or similar
- 
-> add heuristic for right before left
- -> how to avoid randomness when all for lanes have arriving cars?
-  -> if all get same right before left penalty then will cancel out!
- -> only apply before entering intersection (ziplock by first come first serve inside)
- 
+  
 > can do priority road as heuristic as well
+ -> add shark teeth markings
 
  -> heuristic is just a number per car that determines when cars are swapped
  

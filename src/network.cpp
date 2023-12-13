@@ -533,6 +533,7 @@ NodeAgent* get_left_agent (NodeAgent& a, NodeAgent& b) {
 	return d > 0 ? &a : &b;
 }
 void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg) {
+	// WARNING: a and b are kinda the wrong way around, b is on the left, ie. yielded for
 	assert(a.agent != b.agent);
 	
 	auto conf = query_conflict(node, a.conn, b.conn);
@@ -584,16 +585,19 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 	brake_for_dist(a.agent, dist);
 	dbg_brake_for_agent(app, a.agent, dist, b.agent);
 
-	//if (b.blocked)
-	//	a.blocked = true; // so swapping can let other go first if we are effectively blocked
+	// need to be careful because need to block cars that are behind other blocked cars or intersection can deadlock
+	// but can't just block anyone who crosses path with blocked or we also deadlock
+	// This seems to work
+	if (b.blocked && (same || diverge) && !a_exited)
+		a.blocked = true; // so swapping can let other go first if we are effectively blocked
 
-	NodeAgent* left_agent = get_left_agent(a, b);
-	left_agent->right_before_left_blocked = true;
 }
-bool swap_cars (Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int b_idx) {
+bool swap_cars (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int b_idx) {
 	assert(a.agent != b.agent);
 
 	bool swap_valid = true;
+
+	NodeAgent* left_agent = nullptr;
 
 	auto conf = query_conflict(node, a.conn, b.conn);
 	if (conf) {
@@ -609,6 +613,9 @@ bool swap_cars (Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int b_idx) {
 		bool b_exited  = b.rear_k  >= b_k1;
 		
 		bool diverge = a.conn.conn.a == b.conn.conn.a; // same start point
+		bool merge   = a.conn.conn.b == b.conn.conn.b; // same end point
+		//bool crossing = !merge && !diverge; // normal crossing
+		bool same = merge && diverge; // identical path
 
 		// currently: b yielding for a  after swap: a yielding for b
 		// if either exited, can swap (swap makes no difference)
@@ -619,46 +626,52 @@ bool swap_cars (Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int b_idx) {
 		else if (a_entered)       swap_valid = false;
 		else if (diverge)         swap_valid = false;
 		else                      swap_valid = true;
+		
+		// detemine right before left
+		if (!same && !diverge && !a_entered) {
+			left_agent = get_left_agent(a, b);
+		}
 	}
 	
-	auto clac_penalty = [&] (NodeAgent& agent) {
+	auto clac_penalty = [&] (NodeAgent& agent, float conf_t0) {
+		auto& heur = app.net.settings.intersec_heur;
+
 		float penalty = 0;
 
 		// penalty for time to reach confict point if swapping with conflicting car
 		if (conf) {
-			float k0 = (agent == a ? conf.a_t0 : conf.b_t0) * agent.conn.bez_len;
+			float k0 = conf_t0 * agent.conn.bez_len;
 
 			float conf_eta = (k0 - agent.front_k) / (agent.agent->speed + 1.0f);
 			
-			penalty += clamp(map(conf_eta, 1.0f, 6.0f), 0.0f, 1.0f) * 20;
+			penalty += clamp(map(conf_eta, 1.0f, 6.0f), 0.0f, 1.0f) * heur.conflict_eta_penal;
 		}
 
-		//if (a.right_before_left_blocked && agent.front_k < 0) penalty += 10;
-
-		// large penalty for being blocked by 
-		//if (agent.blocked) penalty += agent.front_k < 0 ? 20 : 10;
+		if (&agent == left_agent) {
+			penalty += heur.right_before_left_penal;
+		}
 		
 		// eta to leave intersection
 		float exit_eta = (agent.conn.bez_len - agent.front_k) / (agent.agent->speed + 1.0f);
-		penalty += clamp(map(exit_eta, 1.0f, 6.0f), 0.0f, 1.0f) * 10;
+		penalty += clamp(map(exit_eta, 1.0f, 6.0f), 0.0f, 1.0f) * heur.exit_eta_penal;
 
 		// priority for progress through intersection
 		// don't want distance from intersection to be a penalty, just to let cars in the intersection leave easier
 		if (agent.front_k > 0) {
 			float progress_ratio = agent.front_k / agent.conn.bez_len;
-			penalty -= progress_ratio * 30;
+			penalty -= progress_ratio * heur.progress_boost;
 		}
 
 
 		// unbounded wait time priority, waiting cars will eventually be let through
-		penalty -= agent.wait_time;
+		penalty -= agent.wait_time * heur.wait_boost_fac;
 		
 		return penalty;
 	};
 	
 	bool do_swap = false;
-	float a_penalty = clac_penalty(a);
-	float b_penalty = clac_penalty(b);
+	float a_penalty = clac_penalty(a, conf.a_t0);
+	float b_penalty = clac_penalty(b, conf.b_t0);
 
 	if (swap_valid) {
 		if (a.blocked == b.blocked) {
@@ -779,7 +792,6 @@ void update_node (App& app, Node* node, float dt) {
 		update_ks(a);
 		
 		a.blocked = false;
-		a.right_before_left_blocked = false;
 		a.wait_time += dt;
 
 		if (a.agent->idx > a.node_idx) {
@@ -870,7 +882,7 @@ void update_node (App& app, Node* node, float dt) {
 		auto& b = node->agents.test.list[i];
 	
 		// swap with car that has prio 1 higher according to heuristic
-		if (swap_cars(node, a, b, node_dbg, i) && dt > 0) { // HACK: dt>0 for debugging
+		if (swap_cars(app, node, a, b, node_dbg, i) && dt > 0) { // HACK: dt>0 for debugging
 			std::swap(a, b);
 		}
 	}
@@ -927,7 +939,7 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	// car speed change
 	float target_speed = speed_limit * agent->brake;
 	if (target_speed >= agent->speed) {
-		float accel = calc_car_accel(app.net.car_accel, speed_limit, agent->speed);
+		float accel = calc_car_accel(app.net.settings.car_accel, speed_limit, agent->speed);
 		agent->speed += accel * dt;
 		agent->speed = min(agent->speed, target_speed);
 	}
@@ -972,7 +984,7 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	float2 forw = normalizesafe(old_front - old_rear);
 	//float forw_amount = dot(new_front - old_front, forw);
 
-	float2 ref_point = old_rear + CAR_SIZE*app.net.rear_test * forw; // Kinda works to avoid goofy car rear movement?
+	float2 ref_point = old_rear + CAR_SIZE*app.net.settings.car_rear_drag_ratio * forw; // Kinda works to avoid goofy car rear movement?
 
 	float2 new_rear = new_front - normalizesafe(new_front - ref_point) * CAR_SIZE;
 

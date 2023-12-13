@@ -137,11 +137,11 @@ struct App : public Engine {
 	virtual ~App () {}
 	
 	friend SERIALIZE_TO_JSON(App) {
-		SERIALIZE_TO_JSON_EXPAND(cam, assets, time_of_day, sim_paused, sim_speed);
+		SERIALIZE_TO_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed);
 		t.renderer->to_json(j);
 	}
 	friend SERIALIZE_FROM_JSON(App) {
-		SERIALIZE_FROM_JSON_EXPAND(cam, assets, time_of_day, sim_paused, sim_speed);
+		SERIALIZE_FROM_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed);
 		t.renderer->from_json(j);
 	}
 

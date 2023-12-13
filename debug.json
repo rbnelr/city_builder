@@ -1,11 +1,11 @@
 {
 	"cam": {
 		"orbit_pos": [
-			401.5572204589844,
-			400.32244873046875,
+			403.95697021484375,
+			396.14495849609375,
 			0.0
 		],
-		"zoom_target": -5.25,
+		"zoom_target": -6.25,
 		"rot_aer": [
 			-3.135989189147949,
 			-0.8775399923324585,
@@ -225,6 +225,19 @@
 				"filename": "props/streetlight.fbx"
 			}
 		]
+	},
+	"net": {
+		"settings": {
+			"car_accel": 7.0,
+			"car_rear_drag_ratio": 0.4000000059604645,
+			"intersec_heur": {
+				"wait_boost_fac": 1.0,
+				"progress_boost": 30.0,
+				"exit_eta_penal": 10.0,
+				"right_before_left_penal": 25.0,
+				"conflict_eta_penal": 20.0
+			}
+		}
 	},
 	"time_of_day": {
 		"sun_azim": 0.8726646304130554,

@@ -204,7 +204,6 @@ struct NodeAgent {
 	float rear_k;
 
 	bool  blocked;
-	bool  right_before_left_blocked;
 	float wait_time;
 
 	CachedConnection conn;
@@ -376,22 +375,57 @@ struct Metrics {
 	}
 };
 
-struct Network {
-	std::vector<std::unique_ptr<Node>> nodes;
-	std::vector<std::unique_ptr<Segment>> segments;
+struct NetworkSettings {
+	SERIALIZE(NetworkSettings, car_accel, car_rear_drag_ratio, intersec_heur);
 	
 	float car_accel = 5;
 
-	float rear_test = 0.4f;
+	float car_rear_drag_ratio = 0.4f;
 
-	Metrics metrics;
-
+	struct IntersectionHeuristics {
+		SERIALIZE(IntersectionHeuristics, wait_boost_fac, progress_boost, exit_eta_penal, right_before_left_penal, conflict_eta_penal);
+		
+		float wait_boost_fac          = 1;
+		float progress_boost          = 30;
+		float exit_eta_penal          = 10;
+		float right_before_left_penal = 15;
+		float conflict_eta_penal      = 20;
+	};
+	IntersectionHeuristics intersec_heur;
+	
 	void imgui () {
+		if (!ImGui::TreeNodeEx("Network Settings", ImGuiTreeNodeFlags_DefaultOpen)) return;
+		
 		ImGui::SliderFloat("car_accel (m/s^2)", &car_accel, 0, 20);
 
-		ImGui::SliderFloat("rear_test", &rear_test, 0, 1);
+		ImGui::SliderFloat("car_rear_drag_ratio", &car_rear_drag_ratio, 0, 1);
 
+		if (ImGui::TreeNode("Intersection Heuristics")) {
+
+			ImGui::DragFloat("wait_boost_fac",          &intersec_heur.wait_boost_fac         , 0.1f);
+			ImGui::DragFloat("progress_boost",          &intersec_heur.progress_boost         , 0.1f);
+			ImGui::DragFloat("exit_eta_penal",          &intersec_heur.exit_eta_penal         , 0.1f);
+			ImGui::DragFloat("right_before_left_penal", &intersec_heur.right_before_left_penal, 0.1f);
+			ImGui::DragFloat("conflict_eta_penal",      &intersec_heur.conflict_eta_penal     , 0.1f);
+
+			ImGui::TreePop();
+		}
+
+		ImGui::TreePop();
+	}
+};
+struct Network {
+	SERIALIZE(Network, settings);
+
+	std::vector<std::unique_ptr<Node>> nodes;
+	std::vector<std::unique_ptr<Segment>> segments;
+
+	Metrics metrics;
+	NetworkSettings settings;
+
+	void imgui () {
 		metrics.imgui();
+		settings.imgui();
 	}
 
 	bool pathfind (Segment* start, Segment* target, Agent* path);

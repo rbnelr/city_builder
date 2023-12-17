@@ -576,3 +576,142 @@ struct Hashmap : public std::unordered_map<KEY_T, VAL_T, HASHER> {
 		return *ptr;
 	}
 };
+
+template <typename T, typename COMPARER, typename GET_IDX>
+struct MinHeapFunc {
+	std::vector<T>& items;
+	
+	COMPARER less;
+	GET_IDX get_idx;
+
+	static int left_child_idx (int idx) {
+		return ((idx+1) << 1) - 1;
+	}
+	static int parent_idx (int idx) {
+		return ((idx+1) >> 1) - 1;
+	}
+
+	void verify_heap () {
+		int count = (int)items.size();
+
+		for (int i=0; i<(int)items.size(); ++i) {
+			int left_child = left_child_idx(i);
+			int right_child = left_child + 1;
+
+			// equality breaks parent < child assert, check !child < parent instead
+			if (left_child  < count) assert(!less(items[left_child ], items[i]));
+			if (right_child < count) assert(!less(items[right_child], items[i]));
+
+			assert(get_idx(items[i]) == i);
+		}
+	}
+	void verify_heap2 () {
+		int count = (int)items.size();
+
+		for (int i=0; i<(int)items.size(); ++i) {
+			assert(get_idx(items[i]) == i);
+		}
+	}
+
+	void bubble_up (int idx) {
+		int count = (int)items.size();
+		assert(idx >= 0 && idx < count);
+		//verify_heap2();
+
+		for (;;) {
+			int parent = parent_idx(idx);
+			if (parent < 0)
+				break;
+
+			// if child < parent swap to keep min heap property
+			// note: avoid child <= parent for slight speed up and to avoid fifo behavior in edge cases (prio queue)
+			if (!less(items[idx], items[parent]))
+				break;
+			
+			std::swap(items[idx], items[parent]);
+
+			get_idx(items[idx]) = idx;
+			get_idx(items[parent]) = parent;
+
+			idx = parent;
+
+			//verify_heap2();
+		}
+
+		//verify_heap();
+	}
+	void bubble_down (int idx) {
+		int count = (int)items.size();
+		assert(idx >= 0 && idx < count);
+
+		//verify_heap2();
+
+		for (;;) {
+			int left_child  = left_child_idx(idx);
+			int right_child = left_child+1;
+
+			if (left_child >= count)
+				break; // no children -> idx is leaf
+			
+			int least = left_child;
+			// find least child if right exists else take left
+			if (right_child < count)
+				least = less(items[left_child], items[right_child]) ? left_child : right_child;
+
+			// if child < parent swap to keep min heap property
+			if (!less(items[least], items[idx]))
+				break;
+			
+			std::swap(items[least], items[idx]);
+
+			get_idx(items[least]) = least;
+			get_idx(items[idx]) = idx;
+
+			idx = least;
+
+			//verify_heap2();
+		}
+
+		//verify_heap();
+	}
+
+	void push (T item) {
+		//verify_heap();
+
+		int new_i = (int)items.size();
+		items.push_back(std::move(item));
+
+		get_idx(items[new_i]) = new_i;
+
+		bubble_up(new_i);
+	}
+	T pop () {
+		//verify_heap();
+
+		assert(items.size() > 0);
+		// get first item
+		T res = std::move(items[0]);
+
+		bool has_remain = items.size() > 1;
+		
+		// swap in last item
+		if (has_remain) {
+			items[0] = std::move(items[items.size()-1]);
+			get_idx(items[0]) = 0;
+		}
+		get_idx(res) = -1;
+
+		// shrink vec
+		items.pop_back();
+
+		if (has_remain)
+			bubble_down(0);
+
+		return res;
+	}
+	
+	// decrease 
+	void decreased_at (int idx) {
+		bubble_up(idx);
+	}
+};

@@ -137,11 +137,13 @@ struct App : public Engine {
 	virtual ~App () {}
 	
 	friend SERIALIZE_TO_JSON(App) {
-		SERIALIZE_TO_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed);
+		SERIALIZE_TO_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed,
+			_grid_n, _citizens_n);
 		t.renderer->to_json(j);
 	}
 	friend SERIALIZE_FROM_JSON(App) {
-		SERIALIZE_FROM_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed);
+		SERIALIZE_FROM_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed,
+			_grid_n, _citizens_n);
 		t.renderer->from_json(j);
 	}
 
@@ -296,27 +298,28 @@ struct App : public Engine {
 		}
 	}
 
+	
+	int _grid_n = 10;
+	int _citizens_n = 600;
+
+	float _intersection_radius = 0.0f;
+
+	float _connection_chance = 0.7f;
+
 	void spawn () {
 		using namespace network;
 
-		static int grid_n = 10;
-		static int citizens_n = 600;
-
-		static float intersection_scale = 1.0f;
-
-		static float connection_chance = 0.7f;
-
-		bool buildings = ImGui::SliderInt("grid_n", &grid_n, 1, 1000)
+		bool buildings = ImGui::SliderInt("grid_n", &_grid_n, 1, 1000)
 			|| assets.assets_reloaded;
 		buildings = ImGui::Button("Respawn buildings") || buildings;
 
-		bool citizens  = ImGui::SliderInt("citizens_n",  &citizens_n,  0, 1000)
+		bool citizens  = ImGui::SliderInt("citizens_n",  &_citizens_n,  0, 1000)
 			|| assets.assets_reloaded || buildings;
 		citizens = ImGui::Button("Respawn Citizens") || citizens;
 
-		ImGui::SliderFloat("intersection_scale", &intersection_scale, 0.1f, 4);
+		ImGui::SliderFloat("intersection_radius", &_intersection_radius, 0, 30);
 
-		ImGui::SliderFloat("connection_chance", &connection_chance, 0, 1);
+		ImGui::SliderFloat("connection_chance", &_connection_chance, 0, 1);
 
 		if (buildings) {
 			ZoneScopedN("spawn buildings");
@@ -333,10 +336,10 @@ struct App : public Engine {
 			auto* house0 = assets.buildings[0].get();
 			auto* house1 = assets.buildings[1].get();
 
-			net.nodes.resize((grid_n+1)*(grid_n+1));
+			net.nodes.resize((_grid_n+1)*(_grid_n+1));
 			
 			auto get_node = [&] (int x, int y) -> Node* {
-				return net.nodes[y * (grid_n+1) + x].get();
+				return net.nodes[y * (_grid_n+1) + x].get();
 			};
 			
 			auto* small_road  = assets.networks[0].get();
@@ -349,10 +352,10 @@ struct App : public Engine {
 			};
 
 			// create path nodes grid
-			for (int y=0; y<grid_n+1; ++y)
-			for (int x=0; x<grid_n+1; ++x) {
+			for (int y=0; y<_grid_n+1; ++y)
+			for (int x=0; x<_grid_n+1; ++x) {
 				float3 pos = base_pos + float3((float)x,(float)y,0) * float3(spacing, 0);
-				net.nodes[y * (grid_n+1) + x] = std::make_unique<Node>(Node{pos});
+				net.nodes[y * (_grid_n+1) + x] = std::make_unique<Node>(Node{pos});
 			}
 			
 			auto create_segment = [&] (NetworkAsset* layout, Node* node_a, Node* node_b, int pos) {
@@ -369,15 +372,15 @@ struct App : public Engine {
 
 				seg->agents.lanes.resize(layout->lanes.size());
 
-				seg->pos_a = node_a->pos + dir * road_type(pos  )->width * 0.5f * intersection_scale;
-				seg->pos_b = node_b->pos - dir * road_type(pos+1)->width * 0.5f * intersection_scale;
+				seg->pos_a = node_a->pos + dir * (road_type(pos  )->width * 0.5f + _intersection_radius);
+				seg->pos_b = node_b->pos - dir * (road_type(pos+1)->width * 0.5f + _intersection_radius);
 
 				seg->update_cached();
 			};
 
 			// create x paths
-			for (int y=0; y<grid_n+1; ++y)
-			for (int x=0; x<grid_n; ++x) {
+			for (int y=0; y<_grid_n+1; ++y)
+			for (int x=0; x<_grid_n; ++x) {
 				auto layout = road_type(y);
 
 				auto* a = get_node(x, y);
@@ -385,11 +388,11 @@ struct App : public Engine {
 				create_segment(layout, a, b, x);
 			}
 			// create y paths
-			for (int y=0; y<grid_n; ++y)
-			for (int x=0; x<grid_n+1; ++x) {
+			for (int y=0; y<_grid_n; ++y)
+			for (int x=0; x<_grid_n+1; ++x) {
 				auto layout = road_type(x);
 
-				if (rand.chance(connection_chance) || layout == medium_road) {
+				if (rand.chance(_connection_chance) || layout == medium_road) {
 					auto* a = get_node(x, y);
 					auto* b = get_node(x, y+1);
 					create_segment(layout, a, b, y);
@@ -400,8 +403,8 @@ struct App : public Engine {
 				node->update_cached(); // update seg connections
 			}
 
-			for (int y=0; y<grid_n+1; ++y)
-			for (int x=0; x<grid_n; ++x) {
+			for (int y=0; y<_grid_n+1; ++y)
+			for (int x=0; x<_grid_n; ++x) {
 				Random rand(hash(int2(x,y))); // position-based rand
 				auto* asset = rand.uniformi(0, 2) ? house0 : house1;
 
@@ -454,7 +457,7 @@ struct App : public Engine {
 			}
 
 			entities.citizens.clear();
-			entities.citizens.resize(citizens_n);
+			entities.citizens.resize(_citizens_n);
 
 			Random rand(0);
 			test_rand = Random(0);
@@ -462,7 +465,7 @@ struct App : public Engine {
 			auto* car_asset = assets.cars[0].get();
 
 			if (entities.buildings.size() > 0) {
-				for (int i=0; i<citizens_n; ++i) {
+				for (int i=0; i<_citizens_n; ++i) {
 					auto* building = entities.buildings[rand.uniformi(0, (int)entities.buildings.size())].get();
 					entities.citizens[i] = std::make_unique<Citizen>(Citizen{rand, building});
 					entities.citizens[i]->asset = car_asset;

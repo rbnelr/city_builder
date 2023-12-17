@@ -1,14 +1,14 @@
 {
 	"cam": {
 		"orbit_pos": [
-			396.39453125,
-			400.3500671386719,
+			1005.7135620117188,
+			1005.4283447265625,
 			0.0
 		],
 		"zoom_target": -6.25,
 		"rot_aer": [
-			0.018161773681640625,
-			-0.9403831958770752,
+			-1.2887341976165771,
+			-0.8440423011779785,
 			0.0
 		],
 		"vfov": 0.8726646304130554,
@@ -230,7 +230,7 @@
 	},
 	"net": {
 		"settings": {
-			"car_accel": 7.0,
+			"car_accel": 5.0,
 			"car_rear_drag_ratio": 0.4000000059604645,
 			"intersec_heur": {
 				"wait_boost_fac": 1.0,
@@ -250,7 +250,9 @@
 		"day_pause": true
 	},
 	"sim_paused": false,
-	"sim_speed": 2.0,
+	"sim_speed": 20.0,
+	"_grid_n": 40,
+	"_citizens_n": 2000,
 	"ogl_renderer": {
 		"lighting": {
 			"sun_col": [

@@ -5,22 +5,46 @@
 namespace network {
 
 bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
+	ZoneScoped;
 	// use dijstra
 
+	struct Queued {
+		Node* node;
+		float cost;
+	};
+
+	
+#define DIJK_OPT 1
+#if DIJK_OPT
+	std::vector<Queued> test;
+	test.reserve(512);
+
+	auto less = [] (Queued const& l, Queued const& r) -> bool {
+		return l.cost < r.cost;
+	};
+	auto get_idx = [] (Queued& l) -> int& {
+		return l.node->_q_idx;
+	};
+	MinHeapFunc<Queued, decltype(less), decltype(get_idx)> min_heap = {
+		test, less, get_idx
+	};
+#else
 	struct Comparer {
-		bool operator () (Node* l, Node* r) {
+		bool operator () (Queued const& l, Queued const& r) {
 			// true: l < r
 			// but since priority_queue only lets us get
 			// max element rather than min flip everything around
-			return l->_cost > r->_cost;
+			return l.cost > r.cost;
 		}
 	};
-	std::priority_queue<Node*, std::vector<Node*>, Comparer> unvisited;
-		
+	std::priority_queue<Queued, std::vector<Queued>, Comparer> unvisited;
+#endif
+
 	// queue all nodes
 	for (auto& node : nodes) {
 		node->_cost = INF;
 		node->_visited = false;
+		node->_q_idx = -1;
 		node->_pred = nullptr;
 		node->_pred_seg = nullptr;
 	}
@@ -36,16 +60,42 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 		start->node_b->_pred_seg = start;
 	}
 
-	unvisited.push(start->node_a);
-	unvisited.push(start->node_b);
+#if DIJK_OPT
+	min_heap.push({ start->node_a, start->node_a->_cost });
+	min_heap.push({ start->node_b, start->node_b->_cost });
+#else
+	unvisited.push({ start->node_a, start->node_a->_cost });
+	unvisited.push({ start->node_b, start->node_b->_cost });
+#endif
 
+	_dijk_iter = 0;
+	_dijk_iter_dupl = 0;
+	_dijk_iter_lanes = 0;
+	
+#if DIJK_OPT
+	while (!min_heap.items.empty()) {
+#else
 	while (!unvisited.empty()) {
+#endif
+		_dijk_iter_dupl++;
+		
+	#if DIJK_OPT
 		// visit node with min cost
-		Node* cur_node = unvisited.top();
+		auto tst = min_heap.pop();
+		Node* cur_node = tst.node;
+
+		assert(!cur_node->_visited);
+	#else
+		// visit node with min cost
+		auto _cur_node = unvisited.top();
+		Node* cur_node = _cur_node.node;
 		unvisited.pop();
-			
+
 		if (cur_node->_visited) continue;
+	#endif
 		cur_node->_visited = true;
+
+		_dijk_iter++;
 
 		// early out optimization
 		if (target->node_a->_visited && target->node_b->_visited)
@@ -70,18 +120,32 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 
 			float len = lane.seg->_length + lane.seg->node_a->_radius + lane.seg->node_b->_radius;
 			float cost = len / lane.seg->asset->speed_limit;
+			assert(cost > 0);
 
 			float new_cost = cur_node->_cost + cost;
-			if (new_cost < other_node->_cost) {
+			if (new_cost < other_node->_cost && !other_node->_visited) {
 				other_node->_pred      = cur_node;
 				other_node->_pred_seg  = lane.seg;
 				other_node->_cost      = new_cost;
+				//assert(!other_node->_visited); // dijstra with positive costs should prevent this
 
-				unvisited.push(other_node); // push updated neighbour (duplicate)
+			#if DIJK_OPT
+				if (other_node->_q_idx < 0) {
+					min_heap.push({ other_node, other_node->_cost });
+					assert(other_node->_q_idx >= 0);
+				}
+				else {
+					min_heap.decreased_at(other_node->_q_idx);
+				}
+			#else
+				unvisited.push({ other_node, other_node->_cost }); // push updated neighbour (duplicate)
+			#endif
 			}
+
+			_dijk_iter_lanes++;
 		}
 	}
-
+	
 	//// make path out of dijkstra graph
 	if (target->node_a->_pred == nullptr && target->node_b->_pred == nullptr)
 		return false; // no path found
@@ -593,7 +657,7 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 
 		if (behind_stop_line && need_wait) {
 			// stop at stop line
-			stop_k = 0;
+			stop_k = -0.1f; // try to stop slight behind line to avoid (technically) standing in intersection?
 		}
 		else {
 			// stop before conflict
@@ -984,6 +1048,7 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	if (agent->bez_t >= agent->state.end_t) {
 		agent->idx++;
 		agent->bez_t = agent->state.next_start_t;
+		assert(agent->bez_t >= 0 && agent->bez_t < 1);
 
 		if (agent->state.cur_agents)  agent->state.cur_agents ->remove(agent);
 		if (agent->state.next_agents) agent->state.next_agents->add(agent);
@@ -1018,7 +1083,7 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 
 	agent->cit->front_pos = float3(new_front, agent->state.pos_z);
 	agent->cit->rear_pos  = float3(new_rear,  agent->state.pos_z);
-};
+}
 
 void Metrics::update (Var& var, App& app) {
 	avg_flow = var.total_flow / (float)app.entities.citizens.size();
@@ -1109,6 +1174,13 @@ void Network::simulate (App& app) {
 	float min, max;
 	float avg = pathings_avg.calc_avg(&min, &max);
 	ImGui::Text("pathing_count: avg %3.1f min: %3.1f max: %3.1f", avg, min, max);
+	
+
+	ImGui::Text("nodes: %05d segments: %05d citizens: %05d",
+		(int)nodes.size(), (int)segments.size(), (int)app.entities.citizens.size());
+	
+	ImGui::Text("last dijkstra: iter: %05d iter_dupl: %05d iter_lanes: %05d", _dijk_iter, _dijk_iter_dupl, _dijk_iter_lanes);
+
 }
 
 } // namespace network

@@ -264,6 +264,7 @@ struct Node {
 	// else always need to map pointers to other pointers or indices
 	float    _cost;
 	bool     _visited;
+	int      _q_idx;
 
 	Node*    _pred;
 	Segment* _pred_seg;
@@ -453,6 +454,10 @@ struct Network {
 
 	Metrics metrics;
 	NetworkSettings settings;
+	
+	int _dijk_iter = 0;
+	int _dijk_iter_dupl = 0;
+	int _dijk_iter_lanes = 0;
 
 	void imgui () {
 		metrics.imgui();

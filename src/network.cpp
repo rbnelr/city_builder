@@ -337,7 +337,7 @@ void debug_node (App& app, Node* node) {
 	{
 		int i=0;
 		for (auto& agent : node->agents.test.list) {
-			g_dbgdraw.wire_circle(agent.agent->cit->center(), CAR_SIZE*0.5f, lrgba(1,0,0.5f,1));
+			g_dbgdraw.wire_circle(agent.agent->cit->center(), agent.agent->car_len()*0.5f, lrgba(1,0,0.5f,1));
 	
 			g_dbgdraw.text.draw_text(prints("%d%s", i++, agent.blocked ? " B":""),
 				30, 1, g_dbgdraw.text.map_text(agent.agent->cit->center(), app.view));
@@ -581,7 +581,7 @@ void update_segment (App& app, Segment* seg) {
 			Agent* cur  = lane.list.list[i];
 			
 			// approx seperation using cur car bez_speed
-			float dist = (prev->bez_t - cur->bez_t) * cur->bez_speed - (CAR_SIZE + 1);
+			float dist = (prev->bez_t - cur->bez_t) * cur->bez_speed - (prev->car_len() + 1);
 
 			brake_for_dist(cur, dist);
 			dbg_brake_for_agent(app, cur, dist, prev);
@@ -811,7 +811,7 @@ void update_node (App& app, Node* node, float dt) {
 		for (auto* a : lane_out.seg->agents.lanes[lane_out.lane].list.list) {
 			if (node_dbg) dbg_avail_space(lane_out, a);
 
-			avail_space -= CAR_SIZE + SAFETY_DIST;
+			avail_space -= a->car_len() + SAFETY_DIST;
 		}
 	}
 	
@@ -850,7 +850,8 @@ void update_node (App& app, Node* node, float dt) {
 		if (a.agent->idx == a.node_idx+1) {
 			// in outgoing lane
 			float dist = a.agent->bez_t * a.agent->bez_speed;
-			if (dist > CAR_SIZE)
+			
+			if (dist > a.agent->car_len())
 				return true;
 		}
 		return false;
@@ -875,7 +876,7 @@ void update_node (App& app, Node* node, float dt) {
 			a.front_k = a.agent->bez_t * a.agent->bez_speed + a.conn.bez_len;
 		}
 		
-		a.rear_k = a.front_k - CAR_SIZE;
+		a.rear_k = a.front_k - a.agent->car_len();
 	};
 	
 	
@@ -894,7 +895,7 @@ void update_node (App& app, Node* node, float dt) {
 		// TODO: still reserve space even if none is avail if already on node?
 
 		auto& avail_space = a.conn.conn.b.agents().avail_space;
-		if (avail_space < CAR_SIZE) {
+		if (avail_space < a.agent->car_len()) {
 			float dist = -a.front_k; // end of ingoing lane
 			
 			brake_for_dist(a.agent, dist);
@@ -904,7 +905,7 @@ void update_node (App& app, Node* node, float dt) {
 		}
 		else {
 			if (node_dbg) dbg_avail_space(a.conn.conn.b, a.agent);
-			avail_space -= CAR_SIZE + SAFETY_DIST;
+			avail_space -= a.agent->car_len() + SAFETY_DIST;
 		}
 	}
 
@@ -959,7 +960,7 @@ void update_node (App& app, Node* node, float dt) {
 			float a_front_k = a.front_k - a.conn.bez_len; // relative to after node
 
 			auto* b = target_lane.back();
-			float b_rear_k = b->bez_t * b->bez_speed - CAR_SIZE;
+			float b_rear_k = b->bez_t * b->bez_speed - b->car_len();
 
 			float dist = b_rear_k - a_front_k;
 			dist -= SAFETY_DIST;
@@ -1021,6 +1022,10 @@ float get_cur_speed_limit (Agent* agent) {
 	}
 }
 
+float network::Agent::car_len () {
+	return cit->car_len();
+}
+
 void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	if (app.sim_paused)
 		return;
@@ -1077,9 +1082,10 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	float2 forw = normalizesafe(old_front - old_rear);
 	//float forw_amount = dot(new_front - old_front, forw);
 
-	float2 ref_point = old_rear + CAR_SIZE*app.net.settings.car_rear_drag_ratio * forw; // Kinda works to avoid goofy car rear movement?
+	float car_len = agent->car_len();
+	float2 ref_point = old_rear + car_len*app.net.settings.car_rear_drag_ratio * forw; // Kinda works to avoid goofy car rear movement?
 
-	float2 new_rear = new_front - normalizesafe(new_front - ref_point) * CAR_SIZE;
+	float2 new_rear = new_front - normalizesafe(new_front - ref_point) * car_len;
 
 	agent->cit->front_pos = float3(new_front, agent->state.pos_z);
 	agent->cit->rear_pos  = float3(new_rear,  agent->state.pos_z);

@@ -217,6 +217,14 @@
 		],
 		"cars": [
 			{
+				"name": "normal",
+				"filename": "cars/normal.fbx"
+			},
+			{
+				"name": "smart",
+				"filename": "cars/smart.fbx"
+			},
+			{
 				"name": "kei0",
 				"filename": "cars/kei0.fbx"
 			}

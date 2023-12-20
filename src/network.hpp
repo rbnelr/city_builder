@@ -199,6 +199,8 @@ struct Agent {
 	float brake;
 
 	AgentState state;
+
+	float car_len ();
 };
 
 struct NodeAgent {
@@ -217,7 +219,7 @@ struct NodeAgent {
 	float wait_time;
 
 	CachedConnection conn;
-	
+
 	bool operator== (NodeAgent const& other) const {
 		return agent == other.agent;
 	}

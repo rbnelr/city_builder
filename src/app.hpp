@@ -28,7 +28,6 @@ inline int length2int (float len) {
 	return ceili(len * 100.0f);
 }
 inline constexpr float LANE_COLLISION_R = 1.3f;
-inline constexpr float CAR_SIZE = 3.5f;
 
 inline constexpr float SAFETY_DIST = 1.0f;
 
@@ -76,9 +75,12 @@ struct Citizen {
 
 		col = hsv2rgb(r.uniformf(), 1.0f, 0.8f);
 	}
-
+	
+	float car_len () {
+		return asset->mesh.aabb.size().x;
+	}
 	SelCircle get_sel_shape () {
-		return { center(), CAR_SIZE*0.5f, lrgb(0.04f, 1, 0.04f) };
+		return { center(), car_len()*0.5f, lrgb(0.04f, 1, 0.04f) };
 	}
 };
 
@@ -462,11 +464,11 @@ struct App : public Engine {
 			Random rand(0);
 			test_rand = Random(0);
 
-			auto* car_asset = assets.cars[0].get();
-
 			if (entities.buildings.size() > 0) {
 				for (int i=0; i<_citizens_n; ++i) {
 					auto* building = entities.buildings[rand.uniformi(0, (int)entities.buildings.size())].get();
+					auto* car_asset = assets.cars[rand.uniformi(0, (int)assets.cars.size())].get();
+					
 					entities.citizens[i] = std::make_unique<Citizen>(Citizen{rand, building});
 					entities.citizens[i]->asset = car_asset;
 				}

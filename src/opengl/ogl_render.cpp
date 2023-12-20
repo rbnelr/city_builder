@@ -1242,7 +1242,7 @@ struct OglRenderer : public Renderer {
 
 				// TODO: network code shoud ensure length(dir) == CAR_SIZE
 				float3 dir = entity->front_pos - entity->rear_pos;
-				float3 center = entity->front_pos - normalizesafe(dir) * CAR_SIZE/2;
+				float3 center = entity->front_pos - normalizesafe(dir) * entity->car_len()*0.5f;
 				float ang = angle2d((float2)dir);
 
 				instances[i].mesh_id = car_renderer.asset2mesh_id[entity->asset];

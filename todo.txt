@@ -15,8 +15,21 @@ https://drive.google.com/drive/folders/101Ff98vBAZMg20ZSqnNnqMhb2MuglhDC
 	 but need to be careful not to have low lod object shadows appearing on higher res lod
  -> add blurry shadows for distant casters?
  
-TODO:
+TODO (aprox in order of importance):
 
+ Turn SegLane pointers into lane pointers, where lane contains info about agents, reserved space, maybe cached bezier?
+  -> how do I access the segment then?
+  -> maybe just keep SegLane but make accessing lane directly more convinient
+   -> and maybe turn SegLane into the (unique) lane* for hashing and comparisons, since it's slightly faster
+  -> also lanes can be allocated directly after Segment itself to avoid vector
+  
+> Add actual tick system with interpolation
+ 
+> Add vehicle with trailer for shits and giggles
+
+> traffic lights for large intersections?
+  
+  
 > add glossy effect for sun, and point lights
    add glossyness to gbuffer
   especially windows should have strong reflections
@@ -25,12 +38,6 @@ TODO:
 
 add terrain clipping to roads
   
- Turn SegLane pointers into lane pointers, where lane contains info about agents, reserved space, maybe cached bezier?
-  -> how do I access the segment then?
-  -> maybe just keep SegLane but make accessing lane directly more convinient
-   -> and maybe turn SegLane into the (unique) lane* for hashing and comparisons, since it's slightly faster
-  -> also lanes can be allocated directly after Segment itself to avoid vector
-  
 > Make point lights turn off at night
  -> do gradual turning off of lights, switch to a gpu driven drawing to allow lights to turn off without cpu interaction and actually stop being rendered
  -> maybe try out tiled lighting, but not sure how to handle variable length data structure yet
@@ -38,15 +45,10 @@ add terrain clipping to roads
 > Auto exposure system, with average light?
 > Do bloom at the same time, since bloom requires downsizing lit buffer as well
   
-> Add actual tick system with interpolation
- 
-> traffic lights for large intersections?
 
 > make cars slow in curves
  -> bezier can compute curvature, instead of exact, maybe only slow down in center of curve
   -> center can vary, but could approximate point of most curvature and simply aim to reach a speed based on curvature there, could also limit on whole curve or lerp between different samples
-
-> Add vehicle with trailer for shits and giggles
 
 > A* instead of Dijkstra?
  -> does it make the code less flexible? probably not

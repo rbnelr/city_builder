@@ -296,8 +296,8 @@
 				"nearest": false
 			},
 			"shadowmap": {
-				"shadow_res": 2048,
-				"cascades": 4,
+				"shadow_res": 1024,
+				"cascades": 1,
 				"cascade_factor": 3.0,
 				"size": 128.0,
 				"depth_range": 200.0,

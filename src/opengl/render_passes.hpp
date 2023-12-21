@@ -605,6 +605,7 @@ struct RenderPasses {
 				
 				{"grid_tex", texs.grid, texs.sampler_normal},
 			});
+
 			draw_fullscreen_triangle(state);
 		}
 

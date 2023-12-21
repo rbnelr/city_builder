@@ -252,8 +252,8 @@ struct App : public Engine {
 	void reload_assets () {
 		assets.reload_meshes();
 
-		renderer->invalidate_meshes();
-		renderer->reload_textures();
+		//renderer->invalidate_meshes();
+		//renderer->reload_textures();
 	}
 
 	template <typename T>

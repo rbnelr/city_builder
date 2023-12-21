@@ -366,9 +366,9 @@ struct Assets {
 	
 	template <typename T>
 	void reload_meshes (Collection<T>& coll) {
-		for (auto& asset : coll) {
-			asset->mesh
-		}
+		//for (auto& asset : coll) {
+		//	asset->mesh
+		//}
 	}
 	void reload_meshes () {
 		reload_meshes(networks);

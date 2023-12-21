@@ -14,7 +14,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 	};
 
 	
-#define DIJK_OPT 1
+#define DIJK_OPT 0
 #if DIJK_OPT
 	std::vector<Queued> test;
 	test.reserve(512);

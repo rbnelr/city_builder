@@ -548,7 +548,7 @@ struct RenderPasses {
 		}
 	}
 	
-	void update (int2 window_size) {
+	void update (int2 window_size, bool enable_shadows) {
 		ZoneScoped;
 
 		shadowmap.update();
@@ -605,6 +605,7 @@ struct RenderPasses {
 				
 				{"grid_tex", texs.grid, texs.sampler_normal},
 			});
+
 			draw_fullscreen_triangle(state);
 		}
 

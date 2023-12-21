@@ -6,6 +6,8 @@
 	#define GBUF_IN 1
 	#include "gbuf.glsl"
 
+#define SHADOWMAP 1
+#if SHADOWMAP
 	uniform sampler2DArray shadowmap;
 	uniform sampler2DArrayShadow shadowmap2;
 	uniform mat4 shadowmap_mat;
@@ -13,8 +15,6 @@
 	uniform float shadowmap_bias_fac = 0.0005;
 	uniform float shadowmap_bias_max = 0.004;
 	uniform float shadowmap_cascade_factor;
-	
-	out vec4 frag_col;
 	
 	float sun_shadowmap (vec3 pos_world, vec3 normal) {
 		vec2 texelSize = 1.0 / textureSize(shadowmap, 0).xy;
@@ -72,6 +72,9 @@
 		
 		return shadow_fac;
 	}
+#endif
+	
+	out vec4 frag_col;
 	
 	void debug_window (sampler2D tex) {
 		vec2 tex_size = vec2(textureSize(tex, 0));
@@ -104,7 +107,11 @@
 		vec3 col = g.albedo;
 		
 		if (valid) {
+		#if SHADOWMAP
 			float shadow = sun_shadowmap(g.pos_world, g.norm_world);
+		#else
+			float shadow = 1.0;
+		#endif
 			
 			col *= sun_lighting(g.norm_world, shadow);
 			//col = apply_fog(col, pos);

@@ -1083,7 +1083,7 @@ static constexpr int BINDLESS_TEX_SSBO_BINDING = 1;
 //static constexpr int DBGDRAW_INDIRECT_VBO = 2;
 
 struct OglRenderer : public Renderer {
-	SERIALIZE(OglRenderer, lighting, passes)
+	SERIALIZE(OglRenderer, lighting, passes, enable_shadows)
 	
 	virtual void to_json (nlohmann::ordered_json& j) {
 		j["ogl_renderer"] = *this;
@@ -1091,6 +1091,8 @@ struct OglRenderer : public Renderer {
 	virtual void from_json (nlohmann::ordered_json const& j) {
 		if (j.contains("ogl_renderer")) j.at("ogl_renderer").get_to(*this);
 	}
+
+	bool enable_shadows = true;
 	
 	virtual void imgui (App& app) {
 		if (imgui_Header("Renderer", true)) {
@@ -1107,6 +1109,8 @@ struct OglRenderer : public Renderer {
 
 			lighting.imgui();
 			terrain_renderer.imgui();
+
+			ImGui::Checkbox("enable_shadows", &enable_shadows);
 
 			ImGui::PopID();
 		}
@@ -1307,7 +1311,7 @@ struct OglRenderer : public Renderer {
 			}
 		}
 
-		passes.update(app.input.window_size);
+		passes.update(app.input.window_size, enable_shadows);
 
 		auto update_view_resolution = [&] (int2 res) {
 			

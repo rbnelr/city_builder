@@ -235,6 +235,11 @@
 				"name": "smart",
 				"filename": "cars/smart.fbx",
 				"spawn_weight": 2.0
+			},
+			{
+				"name": "SUV",
+				"filename": "cars/SUV.fbx",
+				"spawn_weight": 2.0
 			}
 		],
 		"props": [

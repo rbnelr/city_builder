@@ -577,61 +577,68 @@ struct Hashmap : public std::unordered_map<KEY_T, VAL_T, HASHER> {
 	}
 };
 
-template <typename T, typename COMPARER, typename GET_IDX>
+template <typename T, typename GET_KEY, typename GET_IDX>
 struct MinHeapFunc {
 	std::vector<T>& items;
 	
-	COMPARER less;
+	GET_KEY get_key;
 	GET_IDX get_idx;
 
-	static int left_child_idx (int idx) {
-		return ((idx+1) << 1) - 1;
+	static int first_child_index (int idx) {
+		return (idx * 2) + 1;
 	}
-	static int parent_idx (int idx) {
-		return ((idx+1) >> 1) - 1;
+	static int parent_index (int idx) {
+		return (idx - 1) / 2;
 	}
 
-	void verify_heap () {
-		int count = (int)items.size();
-
+	static void verify_heap (T* items, int count) {
 		for (int i=0; i<(int)items.size(); ++i) {
-			int left_child = left_child_idx(i);
-			int right_child = left_child + 1;
+			int first_child = first_child_index(i);
 
 			// equality breaks parent < child assert, check !child < parent instead
-			if (left_child  < count) assert(!less(items[left_child ], items[i]));
-			if (right_child < count) assert(!less(items[right_child], items[i]));
+			for (int i=0; i<2; ++i) {
+				if (first_child + i < count) {
+					assert(!( get_key(items[first_child + i]) > get_key(items[i]) ));
+				}
+			}
 
 			assert(get_idx(items[i]) == i);
 		}
 	}
-	void verify_heap2 () {
-		int count = (int)items.size();
-
+	static void verify_heap2 (T* items, int count) {
 		for (int i=0; i<(int)items.size(); ++i) {
 			assert(get_idx(items[i]) == i);
 		}
 	}
 
-	void bubble_up (int idx) {
-		int count = (int)items.size();
+	void swap_with_indices (T* items, int a, int b) {
+		T val_a = items[a];
+		T val_b = items[b];
+
+		items[a] = val_b;
+		items[b] = val_a;
+
+		get_idx(val_a) = a;
+		get_idx(val_b) = b;
+	}
+
+	void bubble_up (T* items, int count, int idx) {
 		assert(idx >= 0 && idx < count);
 		//verify_heap2();
 
 		for (;;) {
-			int parent = parent_idx(idx);
+			int parent = parent_index(idx);
 			if (parent < 0)
 				break;
 
 			// if child < parent swap to keep min heap property
 			// note: avoid child <= parent for slight speed up and to avoid fifo behavior in edge cases (prio queue)
-			if (!less(items[idx], items[parent]))
+			auto cur_key    = get_key(items[idx]);
+			auto parent_key = get_key(items[parent]);
+			if (!(cur_key < parent_key))
 				break;
 			
-			std::swap(items[idx], items[parent]);
-
-			get_idx(items[idx]) = idx;
-			get_idx(items[parent]) = parent;
+			swap_with_indices(items, idx, parent);
 
 			idx = parent;
 
@@ -640,32 +647,35 @@ struct MinHeapFunc {
 
 		//verify_heap();
 	}
-	void bubble_down (int idx) {
-		int count = (int)items.size();
+	void bubble_down (T* items, int count, int idx) {
 		assert(idx >= 0 && idx < count);
-
 		//verify_heap2();
 
 		for (;;) {
-			int left_child  = left_child_idx(idx);
+			int left_child  = first_child_index(idx);
 			int right_child = left_child+1;
 
 			if (left_child >= count)
 				break; // no children -> idx is leaf
 			
 			int least = left_child;
+			auto least_key = get_key(items[left_child]);
+
 			// find least child if right exists else take left
-			if (right_child < count)
-				least = less(items[left_child], items[right_child]) ? left_child : right_child;
+			if (right_child < count) {
+				auto right_key = get_key(items[right_child]);
+
+				bool cmp = right_key < least_key;
+				least     = cmp ? right_child : least;
+				least_key = cmp ? right_key : least_key;
+			}
 
 			// if child < parent swap to keep min heap property
-			if (!less(items[least], items[idx]))
+			auto cur_key = get_key(items[idx]);
+			if (!(least_key < cur_key))
 				break;
 			
-			std::swap(items[least], items[idx]);
-
-			get_idx(items[least]) = least;
-			get_idx(items[idx]) = idx;
+			swap_with_indices(items, least, idx);
 
 			idx = least;
 
@@ -675,17 +685,17 @@ struct MinHeapFunc {
 		//verify_heap();
 	}
 
-	void push (T item) {
+	_FORCEINLINE void push (T item) {
 		//verify_heap();
 
 		int new_i = (int)items.size();
 		items.push_back(std::move(item));
 
 		get_idx(items[new_i]) = new_i;
-
-		bubble_up(new_i);
+		
+		bubble_up(items.data(), (int)items.size(), new_i);
 	}
-	T pop () {
+	_FORCEINLINE T pop () {
 		//verify_heap();
 
 		assert(items.size() > 0);
@@ -704,14 +714,33 @@ struct MinHeapFunc {
 		// shrink vec
 		items.pop_back();
 
-		if (has_remain)
-			bubble_down(0);
-
+		if (has_remain) {
+			bubble_down(items.data(), (int)items.size(), 0);
+		}
 		return res;
 	}
 	
-	// decrease 
-	void decreased_at (int idx) {
-		bubble_up(idx);
+	_FORCEINLINE void decreased_at (int idx) {
+		bubble_up(items.data(), (int)items.size(), idx);
+	}
+
+	// push new item or decrease key of existing item
+	// new item is pushed if key in item is -1
+	_FORCEINLINE void push_or_decrease (T item) {
+		//verify_heap();
+
+		int idx = get_idx(item);
+		if (idx < 0) {
+			// push item with no cached index
+
+			int new_i = (int)items.size();
+			items.push_back(std::move(item));
+
+			get_idx(items[new_i]) = new_i;
+		
+			idx = new_i;
+		}
+
+		bubble_up(items.data(), (int)items.size(), idx);
 	}
 };

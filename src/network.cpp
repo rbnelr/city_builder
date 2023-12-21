@@ -6,29 +6,24 @@ namespace network {
 
 bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 	ZoneScoped;
-	// use dijstra
+	// use dijkstra
 
+#define DIJK_OPT 0
+#if DIJK_OPT
+	std::vector<Node*> heap_vec;
+	heap_vec.reserve(512);
+
+	auto get_key = [] (Node* node) -> float { return node->_cost; };
+	auto get_idx = [] (Node* node) -> int& {  return node->_q_idx; };
+	MinHeapFunc<Node*, decltype(get_key), decltype(get_idx)> min_heap = {
+		heap_vec, get_key, get_idx
+	};
+#else
 	struct Queued {
 		Node* node;
 		float cost;
 	};
 
-	
-#define DIJK_OPT 1
-#if DIJK_OPT
-	std::vector<Queued> test;
-	test.reserve(512);
-
-	auto less = [] (Queued const& l, Queued const& r) -> bool {
-		return l.cost < r.cost;
-	};
-	auto get_idx = [] (Queued& l) -> int& {
-		return l.node->_q_idx;
-	};
-	MinHeapFunc<Queued, decltype(less), decltype(get_idx)> min_heap = {
-		test, less, get_idx
-	};
-#else
 	struct Comparer {
 		bool operator () (Queued const& l, Queued const& r) {
 			// true: l < r
@@ -61,8 +56,8 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 	}
 
 #if DIJK_OPT
-	min_heap.push({ start->node_a, start->node_a->_cost });
-	min_heap.push({ start->node_b, start->node_b->_cost });
+	min_heap.push(start->node_a);
+	min_heap.push(start->node_b);
 #else
 	unvisited.push({ start->node_a, start->node_a->_cost });
 	unvisited.push({ start->node_b, start->node_b->_cost });
@@ -81,8 +76,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 		
 	#if DIJK_OPT
 		// visit node with min cost
-		auto tst = min_heap.pop();
-		Node* cur_node = tst.node;
+		Node* cur_node = min_heap.pop();
 
 		assert(!cur_node->_visited);
 	#else
@@ -130,13 +124,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 				//assert(!other_node->_visited); // dijstra with positive costs should prevent this
 
 			#if DIJK_OPT
-				if (other_node->_q_idx < 0) {
-					min_heap.push({ other_node, other_node->_cost });
-					assert(other_node->_q_idx >= 0);
-				}
-				else {
-					min_heap.decreased_at(other_node->_q_idx);
-				}
+				min_heap.push_or_decrease(other_node);
 			#else
 				unvisited.push({ other_node, other_node->_cost }); // push updated neighbour (duplicate)
 			#endif

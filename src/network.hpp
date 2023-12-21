@@ -407,9 +407,10 @@ struct Metrics {
 };
 
 struct NetworkSettings {
-	SERIALIZE(NetworkSettings, car_accel, car_rear_drag_ratio, intersec_heur);
+	SERIALIZE(NetworkSettings, car_accel, car_deccel, car_rear_drag_ratio, intersec_heur);
 	
-	float car_accel = 5;
+	float car_accel = 4.5f;
+	float car_deccel = 5;
 
 	float car_rear_drag_ratio = 0.4f;
 
@@ -430,6 +431,7 @@ struct NetworkSettings {
 		if (!ImGui::TreeNodeEx("Network Settings", ImGuiTreeNodeFlags_DefaultOpen)) return;
 		
 		ImGui::SliderFloat("car_accel (m/s^2)", &car_accel, 0, 20);
+		ImGui::SliderFloat("car_deccel (m/s^2)", &car_deccel, 0, 20);
 
 		ImGui::SliderFloat("car_rear_drag_ratio", &car_rear_drag_ratio, 0, 1);
 

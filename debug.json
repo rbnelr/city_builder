@@ -217,16 +217,19 @@
 		],
 		"cars": [
 			{
-				"name": "normal",
-				"filename": "cars/normal.fbx"
+				"name": "limo",
+				"filename": "cars/limo.fbx",
+				"spawn_weight": 3.0
+			},
+			{
+				"name": "combi",
+				"filename": "cars/combi.fbx",
+				"spawn_weight": 1.0
 			},
 			{
 				"name": "smart",
-				"filename": "cars/smart.fbx"
-			},
-			{
-				"name": "kei0",
-				"filename": "cars/kei0.fbx"
+				"filename": "cars/smart.fbx",
+				"spawn_weight": 1.0
 			}
 		],
 		"props": [
@@ -238,7 +241,8 @@
 	},
 	"net": {
 		"settings": {
-			"car_accel": 5.0,
+			"car_accel": 4.5,
+			"car_deccel": 5.0,
 			"car_rear_drag_ratio": 0.4000000059604645,
 			"intersec_heur": {
 				"wait_boost_fac": 1.0,

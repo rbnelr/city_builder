@@ -288,13 +288,15 @@ struct BuildingAsset {
 	}
 };
 struct CarAsset {
-	friend SERIALIZE_TO_JSON(CarAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename) }
-	friend SERIALIZE_FROM_JSON(CarAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename)
+	friend SERIALIZE_TO_JSON(CarAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, spawn_weight) }
+	friend SERIALIZE_FROM_JSON(CarAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, spawn_weight)
 		t.mesh = { t.filename.c_str() };
 	}
 
 	std::string name = "<unnamed>";
 	std::string filename;
+
+	float spawn_weight = 1;
 
 	AssetMesh<BasicVertex> mesh;
 };

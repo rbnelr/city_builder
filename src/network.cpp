@@ -981,6 +981,11 @@ void update_node (App& app, Node* node, float dt) {
 	}
 }
 
+float calc_car_drag (float cur_speed) {
+	float drag_fac = 0.0014f; // ~220km/h top speed
+	
+	return drag_fac * cur_speed*cur_speed;
+}
 float calc_car_accel (float base_accel, float target_speed, float cur_speed) {
 	float drag_fac = 0.0014f; // ~220km/h top speed
 	
@@ -1002,9 +1007,17 @@ float calc_car_accel (float base_accel, float target_speed, float cur_speed) {
 	//	accel *= lerp(start_slow_amount, 1, cur_speed / start_slow_end);
 	//}
 	
-	accel -= drag_fac * cur_speed*cur_speed;
-
+	accel -= calc_car_drag(cur_speed);
 	return accel;
+}
+float calc_car_deccel (float base_deccel, float target_speed, float cur_speed) {
+	float deccel = base_deccel;
+
+	// TODO: include brake distance target here to break more smoothly?
+
+	deccel += calc_car_drag(cur_speed);
+
+	return deccel;
 }
 
 float get_cur_speed_limit (Agent* agent) {
@@ -1041,7 +1054,9 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 		agent->speed = min(agent->speed, target_speed);
 	}
 	else {
-		agent->speed = target_speed; // brake instantly for now
+		//agent->speed = target_speed; // brake instantly for now
+		agent->speed -= calc_car_deccel(app.net.settings.car_deccel, speed_limit, agent->speed);
+		agent->speed = max(agent->speed, target_speed);
 	}
 
 	met.total_flow += agent->speed / speed_limit;

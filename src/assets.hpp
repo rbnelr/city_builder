@@ -85,8 +85,24 @@ struct AssetMesh {
 	// needed so we can later load from json because json lib does not handle contructing from json
 	AssetMesh () {}
 
+	// store filename so we can reload asset
+	// TODO: this is kinda unclean, best way would be to completely reload all assets, like have a assets.json
+	// but how should reloading work?
+	// There's at least 2 kinds of reloading:
+	//  destroy existing assets, then reload assets from disk
+	//   -> existing game data breaks
+	//  reload asset data in place, keeping asset objects valid
+	// maybe if assets are reffered to by name this could be avoided?
+	// but I don't want string lookups everywhere, translating strings into objects would basically result in in place reloading
+	std::string filename;
+
 	AssetMesh (const char* filename) {
-		assimp::load(prints("assets/%s", filename).c_str(), this);
+		this->filename = prints("assets/%s", filename);
+		reload();
+	}
+
+	void reload () {
+		assimp::load(filename.c_str(), this);
 	}
 };
 
@@ -346,5 +362,18 @@ struct Assets {
 		});
 
 		ImGui::TreePop();
+	}
+	
+	template <typename T>
+	void reload_meshes (Collection<T>& coll) {
+		for (auto& asset : coll) {
+			asset->mesh
+		}
+	}
+	void reload_meshes () {
+		reload_meshes(networks);
+		reload_meshes(buildings);
+		reload_meshes(cars);
+		reload_meshes(props);
 	}
 };

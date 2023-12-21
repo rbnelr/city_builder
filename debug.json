@@ -222,14 +222,19 @@
 				"spawn_weight": 3.0
 			},
 			{
+				"name": "small",
+				"filename": "cars/small.fbx",
+				"spawn_weight": 4.0
+			},
+			{
 				"name": "combi",
 				"filename": "cars/combi.fbx",
-				"spawn_weight": 1.0
+				"spawn_weight": 1.5
 			},
 			{
 				"name": "smart",
 				"filename": "cars/smart.fbx",
-				"spawn_weight": 1.0
+				"spawn_weight": 2.0
 			}
 		],
 		"props": [

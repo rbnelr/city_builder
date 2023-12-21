@@ -161,6 +161,9 @@ struct App : public Engine {
 
 		settings.imgui();
 
+		if (ImGui::Button("Reload Assets"))
+			reload_assets();
+
 		cam.imgui("cam");
 		dbg_cam.imgui("dbg_cam");
 		ImGui::SameLine();
@@ -245,6 +248,13 @@ struct App : public Engine {
 
 	sel_ptr selection;
 	sel_ptr selection2;
+
+	void reload_assets () {
+		assets.reload_meshes();
+
+		renderer->invalidate_meshes();
+		renderer->reload_textures();
+	}
 
 	template <typename T>
 	void clear_sel () {

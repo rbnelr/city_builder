@@ -93,43 +93,128 @@ struct Entities {
 };
 
 struct Test {
-	//float2 a = float2(0, 0);
-	//float2 b = float2(50, 50);
-	//float2 c = float2(0, 50);
-	//float2 d = float2(50, 0);
-	//float2 e = float2(50, 0);
-	//float2 f = float2(50, 0);
-	//
-	//float r = 10;
+	float2 a = float2(0, 0);
+	float2 b = float2(20, 20);
+	float2 c = float2(0, 20);
+	float2 d = float2(20, 0);
+
+	float t = 0;
+	float speed = 0.1f;
+
+	float turn_r = 10;
+	float turn_curv = -deg(30);
+
+	float sel_r = 2;
+
+	float2 car_size = float2(1.4f, 3.5f);
+	float max_steer = deg(45);
+
+	void draw_car (View3D& view, float2 pos, float2 forw, float steer_radius) {
+		
+		float2 right = rotate90(-forw);
+
+		float2 rear_pos   = pos - forw * car_size.y * 0.5f;
+		float2 front_posL = rear_pos + forw * car_size.y - right * car_size.x * 0.5f;
+		float2 front_posR = rear_pos + forw * car_size.y + right * car_size.x * 0.5f;
+
+		float2 turn_circ_center = rear_pos + right * steer_radius;
+		g_dbgdraw.wire_circle(float3(turn_circ_center, 0), steer_radius, lrgba(0,1,1,1));
+
+		{ // draw body
+			float3 a = float3(pos - right*car_size.x*0.6f - forw*car_size.y*0.6f, 0);
+			float3 b = float3(pos + right*car_size.x*0.6f - forw*car_size.y*0.6f, 0);
+			float3 c = float3(pos + right*car_size.x*0.6f + forw*car_size.y*0.6f, 0);
+			float3 d = float3(pos - right*car_size.x*0.6f + forw*car_size.y*0.6f, 0);
+
+			g_dbgdraw.line(a, b, lrgba(1,1,0,1));
+			g_dbgdraw.line(b, c, lrgba(1,1,0,1));
+			g_dbgdraw.line(c, d, lrgba(1,1,0,1));
+			g_dbgdraw.line(d, a, lrgba(1,1,0,1));
+		}
+		
+		g_dbgdraw.line(float3(rear_pos, 0),   float3(turn_circ_center, 0), lrgba(0,1,1,1));
+		g_dbgdraw.line(float3(front_posL, 0), float3(turn_circ_center, 0), lrgba(0,1,1,1));
+		g_dbgdraw.line(float3(front_posR, 0), float3(turn_circ_center, 0), lrgba(0,1,1,1));
+
+		//float2 steer_forwL = rotate90(normalize(front_posL - turn_circ_center));
+		//float2 steer_forwR = rotate90(normalize(front_posR - turn_circ_center));
+		//if (steer_radius > 0) {
+		//	steer_forwL = -steer_forwL;
+		//	steer_forwR = -steer_forwR;
+		//}
+		
+		float steer_angL = atanf(car_size.y / (car_size.x * -0.5f - steer_radius));
+		float steer_angR = atanf(car_size.y / (car_size.x * +0.5f - steer_radius));
+		float2 steer_forwL = rotate2(steer_angL) * forw;
+		float2 steer_forwR = rotate2(steer_angR) * forw;
+
+		{ // draw wheels
+			float3 bl = float3(pos - right*car_size.x*0.5f - forw*car_size.y*0.5f, 0);
+			float3 br = float3(pos + right*car_size.x*0.5f - forw*car_size.y*0.5f, 0);
+			float3 fl = float3(pos - right*car_size.x*0.5f + forw*car_size.y*0.5f, 0);
+			float3 fr = float3(pos + right*car_size.x*0.5f + forw*car_size.y*0.5f, 0);
+
+			g_dbgdraw.arrow(view, bl, 2 * float3(forw, 0),        0.3f, lrgba(0,1,0,1));
+			g_dbgdraw.arrow(view, br, 2 * float3(forw, 0),        0.3f, lrgba(0,1,0,1));
+			g_dbgdraw.arrow(view, fl, 2 * float3(steer_forwL, 0), 0.3f, lrgba(0,1,0,1));
+			g_dbgdraw.arrow(view, fr, 2 * float3(steer_forwR, 0), 0.3f, lrgba(0,1,0,1));
+		}
+	}
 
 	void update (Input& I, View3D& view) {
-		//ImGui::DragFloat2("a", &a.x, 1);
-		//ImGui::DragFloat2("b", &b.x, 1);
-		//ImGui::DragFloat2("c", &c.x, 1);
-		//ImGui::DragFloat2("d", &d.x, 1);
-		//ImGui::DragFloat2("e", &e.x, 1);
-		//ImGui::DragFloat2("f", &f.x, 1);
+		ImGui::DragFloat2("a", &a.x, 1);
+		ImGui::DragFloat2("b", &b.x, 1);
+		ImGui::DragFloat2("c", &c.x, 1);
+		ImGui::DragFloat2("d", &d.x, 1);
+
+		ImGui::SliderFloat("t", &t, 0, 1);
+		ImGui::DragFloat("speed", &speed, 0.1f);
+		ImGui::DragFloat("turn_r", &turn_r, 0.1f);
+
+		ImGui::DragFloat2("car_size", &car_size.x, 0.1f);
+		ImGui::SliderAngle("max_steer", &max_steer, 0, 90);
+
+		ImGui::SliderAngle("turn_curv", &turn_curv, -90, 90);
+		
+		draggable(I, view, &a, sel_r);
+		draggable(I, view, &b, sel_r);
+		draggable(I, view, &c, sel_r);
+		draggable(I, view, &d, sel_r);
+		
+		//g_dbgdraw.point(float3(a,0), sel_r, lrgba(1,0,0,1));
+		//g_dbgdraw.point(float3(b,0), sel_r, lrgba(1,1,0,1));
+		//g_dbgdraw.point(float3(c,0), sel_r, lrgba(0,1,0,1));
+		//g_dbgdraw.point(float3(d,0), sel_r, lrgba(0,0,1,1));
 		//
-		//draggable(I, view, &a, r);
-		//draggable(I, view, &b, r);
-		//draggable(I, view, &c, r);
-		//draggable(I, view, &d, r);
-		//draggable(I, view, &e, r);
-		//draggable(I, view, &f, r);
+		//Bezier3 bez{ a, b, c };
 		//
-		//g_dbgdraw.point(float3(a,0), 5, lrgba(1,0,0,1));
-		//g_dbgdraw.point(float3(b,0), 5, lrgba(1,1,0,1));
-		//g_dbgdraw.point(float3(c,0), 5, lrgba(0,1,0,1));
-		//g_dbgdraw.point(float3(d,0), 5, lrgba(0,0,1,1));
-		//g_dbgdraw.point(float3(e,0), 5, lrgba(0,0,1,1));
-		//g_dbgdraw.point(float3(f,0), 5, lrgba(0,0,1,1));
+		//bez.dbg_draw(view, 0, 64, lrgba(1,0,0,1));
 		//
-		//float u;
-		//if (!ray_box_intersection(a, b-a, c, d-c, length(d-c), r*2, &u))
-		//	return;
+		//auto res = bez.eval(t);
 		//
-		//float2 j = a + (b-a)*u;
-		//g_dbgdraw.point(float3(j,0), 2.5f, lrgba(0,1,1,1));
+		//float2 pos = res.pos;
+		//float2 forw = normalize(res.vel);
+
+		//float ang = t * deg(360);
+		//auto rot = rotate2(ang);
+		//
+		//float2 forw = rot * float2(0,1);
+		//float2 right = rotate90(-forw);
+		//
+		//float2 rear_pos   = rot * float2(1,0) * turn_r;
+		//float2 pos        = rear_pos + forw * car_size.y * 0.5f;
+		//
+		//float2 turn_circ_center = 0;
+		//g_dbgdraw.wire_circle(float3(turn_circ_center, 0), turn_r, lrgba(0,1,1,1));
+		//
+		//
+		//draw_car(view, pos, forw, -turn_r);
+		//
+		//
+		//t += speed * I.dt;
+		//t = wrap(t, 0.0f, 1.0f);
+		
+		draw_car(view, 0, float2(0,1), 1.0f / turn_curv);
 	}
 };
 

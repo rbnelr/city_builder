@@ -1,14 +1,14 @@
 {
 	"cam": {
 		"orbit_pos": [
-			1005.7135620117188,
-			1005.4283447265625,
+			0.3328850567340851,
+			0.6401757001876831,
 			0.0
 		],
-		"zoom_target": -6.25,
+		"zoom_target": -4.75,
 		"rot_aer": [
-			-1.2887341976165771,
-			-0.8440423011779785,
+			0.0014088153839111328,
+			-1.5707963705062866,
 			0.0
 		],
 		"vfov": 0.8726646304130554,
@@ -224,12 +224,12 @@
 			{
 				"name": "small",
 				"filename": "cars/small.fbx",
-				"spawn_weight": 4.0
+				"spawn_weight": 5.0
 			},
 			{
 				"name": "combi",
 				"filename": "cars/combi.fbx",
-				"spawn_weight": 1.5
+				"spawn_weight": 1.0
 			},
 			{
 				"name": "smart",
@@ -240,6 +240,16 @@
 				"name": "SUV",
 				"filename": "cars/SUV.fbx",
 				"spawn_weight": 2.0
+			},
+			{
+				"name": "van",
+				"filename": "cars/van.fbx",
+				"spawn_weight": 1.5
+			},
+			{
+				"name": "bus",
+				"filename": "cars/bus.fbx",
+				"spawn_weight": 0.5
 			}
 		],
 		"props": [
@@ -271,7 +281,7 @@
 		"day_speed": 0.01666666753590107,
 		"day_pause": true
 	},
-	"sim_paused": false,
+	"sim_paused": true,
 	"sim_speed": 20.0,
 	"_grid_n": 40,
 	"_citizens_n": 2000,

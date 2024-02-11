@@ -195,26 +195,26 @@ struct Test {
 		//float2 pos = res.pos;
 		//float2 forw = normalize(res.vel);
 
-		//float ang = t * deg(360);
-		//auto rot = rotate2(ang);
-		//
-		//float2 forw = rot * float2(0,1);
-		//float2 right = rotate90(-forw);
-		//
-		//float2 rear_pos   = rot * float2(1,0) * turn_r;
-		//float2 pos        = rear_pos + forw * car_size.y * 0.5f;
-		//
-		//float2 turn_circ_center = 0;
-		//g_dbgdraw.wire_circle(float3(turn_circ_center, 0), turn_r, lrgba(0,1,1,1));
-		//
-		//
-		//draw_car(view, pos, forw, -turn_r);
-		//
-		//
-		//t += speed * I.dt;
-		//t = wrap(t, 0.0f, 1.0f);
+		float ang = t * deg(360);
+		auto rot = rotate2(ang);
 		
-		draw_car(view, 0, float2(0,1), 1.0f / turn_curv);
+		float2 forw = rot * float2(0,1);
+		float2 right = rotate90(-forw);
+		
+		float2 rear_pos   = rot * float2(1,0) * turn_r;
+		float2 pos        = rear_pos + forw * car_size.y * 0.5f;
+		
+		float2 turn_circ_center = 0;
+		g_dbgdraw.wire_circle(float3(turn_circ_center, 0), turn_r, lrgba(0,1,1,1));
+		
+		
+		draw_car(view, pos, forw, -turn_r);
+		
+		
+		t += speed * I.dt;
+		t = wrap(t, 0.0f, 1.0f);
+		
+		//draw_car(view, 0, float2(0,1), 1.0f / turn_curv);
 	}
 };
 

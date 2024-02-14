@@ -173,24 +173,6 @@ struct Bezier3 {
 
 		return len;
 	}
-
-	void dbg_draw (View3D const& view, float z, int res, lrgba col, float t0=0, float t1=1) const {
-		float2 prev = eval(t0).pos;
-		for (int i=0; i<res; ++i) {
-			float t = lerp(t0, t1, (float)(i+1) / res);
-
-			auto bez = eval(t);
-			
-			if (i < res-1) {
-				g_dbgdraw.line(float3(prev, z), float3(bez.pos, z), col);
-			}
-			else {
-				g_dbgdraw.arrow(view, float3(prev, z), float3(bez.pos - prev, 0), 1, col);
-			}
-
-			prev = bez.pos;
-		}
-	}
 };
 struct Bezier4 {
 	float2 a;
@@ -241,6 +223,25 @@ struct Bezier4 {
 		return { value, deriv, curv };
 	}
 };
+
+template <typename T>
+void dbg_draw_bez (T const& bez, View3D const& view, float z, int res, lrgba col, float t0=0, float t1=1) {
+	float2 prev = bez.eval(t0).pos;
+	for (int i=0; i<res; ++i) {
+		float t = lerp(t0, t1, (float)(i+1) / res);
+
+		auto val = bez.eval(t);
+			
+		if (i < res-1) {
+			g_dbgdraw.line(float3(prev, z), float3(val.pos, z), col);
+		}
+		else {
+			g_dbgdraw.arrow(view, float3(prev, z), float3(val.pos - prev, 0), 1, col);
+		}
+
+		prev = val.pos;
+	}
+}
 
 struct Line {
 	float3 a, b;

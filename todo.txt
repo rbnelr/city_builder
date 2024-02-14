@@ -15,6 +15,7 @@ https://drive.google.com/drive/folders/101Ff98vBAZMg20ZSqnNnqMhb2MuglhDC
 	 but need to be careful not to have low lod object shadows appearing on higher res lod
  -> add blurry shadows for distant casters?
  
+--------------------------------------------------------------------------------
 TODO (aprox in order of importance):
 
  Turn SegLane pointers into lane pointers, where lane contains info about agents, reserved space, maybe cached bezier?

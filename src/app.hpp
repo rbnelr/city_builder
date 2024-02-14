@@ -93,13 +93,17 @@ struct Entities {
 };
 
 struct Test {
+	SERIALIZE(Test, a, b, c, d, speed)
+
 	float2 a = float2(0, 0);
 	float2 b = float2(20, 20);
 	float2 c = float2(0, 20);
 	float2 d = float2(20, 0);
 
+	float lane_width = 4;
+
 	float t = 0;
-	float speed = 0.1f;
+	float speed = 10;
 
 	float turn_r = 10;
 	float turn_curv = -deg(30);
@@ -168,10 +172,43 @@ struct Test {
 	}
 
 	void update (Input& I, View3D& view) {
-		ImGui::DragFloat2("a", &a.x, 1);
-		ImGui::DragFloat2("b", &b.x, 1);
-		ImGui::DragFloat2("c", &c.x, 1);
-		ImGui::DragFloat2("d", &d.x, 1);
+		{
+			ImGui::DragFloat2("a", &a.x, 1);
+			ImGui::DragFloat2("b", &b.x, 1);
+			ImGui::DragFloat2("c", &c.x, 1);
+			ImGui::DragFloat2("d", &d.x, 1);
+
+			draggable(I, view, &a, sel_r);
+			draggable(I, view, &b, sel_r);
+			draggable(I, view, &c, sel_r);
+			draggable(I, view, &d, sel_r);
+		
+			g_dbgdraw.point(float3(a,0), sel_r, lrgba(1,0,0,1));
+			g_dbgdraw.point(float3(b,0), sel_r, lrgba(1,1,0,1));
+			g_dbgdraw.point(float3(c,0), sel_r, lrgba(0,1,0,1));
+			g_dbgdraw.point(float3(d,0), sel_r, lrgba(0,0,1,1));
+		
+			Bezier4 bez{ a, b, c, d };
+
+			float2 dirAB = normalizesafe(b - a);
+			float2 dirBC = normalizesafe(c - b);
+			float2 dirCD = normalizesafe(d - c);
+
+			float2 dirB = normalizesafe(dirAB + dirBC);
+			float2 dirC = normalizesafe(dirBC + dirCD);
+
+			float2 shiftA = rotate90(dirAB) * (lane_width * 0.5f);
+			float2 shiftB = rotate90(dirB ) * (lane_width * 0.5f);
+			float2 shiftC = rotate90(dirC ) * (lane_width * 0.5f);
+			float2 shiftD = rotate90(dirCD) * (lane_width * 0.5f);
+			
+			Bezier4 bezL{ a - shiftA, b - shiftB, c - shiftC, d - shiftD };
+			Bezier4 bezR{ a + shiftA, b + shiftB, c + shiftC, d + shiftD };
+
+			dbg_draw_bez(bez, view, 0, 64, lrgba(1,0,0,1));
+			dbg_draw_bez(bezL, view, 0, 64, lrgba(1,1,0,1));
+			dbg_draw_bez(bezR, view, 0, 64, lrgba(1,1,0,1));
+		}
 
 		ImGui::SliderFloat("t", &t, 0, 1);
 		ImGui::DragFloat("speed", &speed, 0.1f);
@@ -181,25 +218,6 @@ struct Test {
 		ImGui::SliderAngle("max_steer", &max_steer, 0, 90);
 
 		ImGui::SliderFloat("turn_curv", &turn_curv, -1, 1);
-		
-		//draggable(I, view, &a, sel_r);
-		//draggable(I, view, &b, sel_r);
-		//draggable(I, view, &c, sel_r);
-		//draggable(I, view, &d, sel_r);
-		//
-		//g_dbgdraw.point(float3(a,0), sel_r, lrgba(1,0,0,1));
-		//g_dbgdraw.point(float3(b,0), sel_r, lrgba(1,1,0,1));
-		//g_dbgdraw.point(float3(c,0), sel_r, lrgba(0,1,0,1));
-		//g_dbgdraw.point(float3(d,0), sel_r, lrgba(0,0,1,1));
-		//
-		//Bezier3 bez{ a, b, c };
-		//
-		//bez.dbg_draw(view, 0, 64, lrgba(1,0,0,1));
-		//
-		//auto res = bez.eval(t);
-		//
-		//float2 pos = res.pos;
-		//float2 forw = normalize(res.vel);
 
 	#if 0
 		float ang = t * deg(360);
@@ -216,7 +234,7 @@ struct Test {
 		
 		draw_car(view, pos, ang, 1.0f / -turn_r);
 
-		t += speed * I.dt;
+		t += (speed * I.dt) / (2 * PI * turn_r);
 		t = wrap(t, 0.0f, 1.0f);
 	#endif
 		
@@ -275,12 +293,12 @@ struct App : public Engine {
 	virtual ~App () {}
 	
 	friend SERIALIZE_TO_JSON(App) {
-		SERIALIZE_TO_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed,
+		SERIALIZE_TO_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed, test,
 			_grid_n, _citizens_n);
 		t.renderer->to_json(j);
 	}
 	friend SERIALIZE_FROM_JSON(App) {
-		SERIALIZE_FROM_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed,
+		SERIALIZE_FROM_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed, test,
 			_grid_n, _citizens_n);
 		t.renderer->from_json(j);
 	}

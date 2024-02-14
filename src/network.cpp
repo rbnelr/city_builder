@@ -397,7 +397,7 @@ void debug_citizen (App& app, Citizen* cit) {
 	for (int i=cit->agent->idx; ; ++i) {
 		auto s = get_agent_state(cit->agent.get(), i);
 
-		s.bezier.dbg_draw(app.view, 0, 5, lrgba(1,1,0,1), start_t, s.end_t); 
+		dbg_draw_bez(s.bezier, app.view, 0, 5, lrgba(1,1,0,1), start_t, s.end_t); 
 
 		start_t = s.next_start_t;
 		if (s.state == AgentState::ENTER_BUILDING) break;

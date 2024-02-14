@@ -616,14 +616,14 @@ struct App : public Engine {
 			entities.citizens.resize(_citizens_n);
 
 			Random rand(0);
-			WeightedChoice rand_car(assets.cars, [] (std::unique_ptr<CarAsset> const& car) { return car->spawn_weight; });
+			auto rand_car = weighted_choice(assets.cars, [] (std::unique_ptr<CarAsset> const& car) { return car->spawn_weight; });
 
 			test_rand = Random(0);
 
 			if (entities.buildings.size() > 0) {
 				for (int i=0; i<_citizens_n; ++i) {
 					auto* building = entities.buildings[rand.uniformi(0, (int)entities.buildings.size())].get();
-					auto* car_asset = assets.cars[rand_car.get_random(rand)].get();
+					auto* car_asset = rand_car.get_random(rand)->get();
 					
 					entities.citizens[i] = std::make_unique<Citizen>(Citizen{rand, building});
 					entities.citizens[i]->asset = car_asset;

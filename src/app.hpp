@@ -93,12 +93,71 @@ struct Entities {
 };
 
 struct Test {
-	SERIALIZE(Test, a, b, c, d, speed)
+	SERIALIZE(Test, bez, speed)
 
-	float2 a = float2(0, 0);
-	float2 b = float2(20, 20);
-	float2 c = float2(0, 20);
-	float2 d = float2(20, 0);
+	struct DraggableBezier3 : public Bezier3 {
+
+		void update (Input& I, View3D& view, float sel_r) {
+			ImGui::DragFloat2("a", &a.x, 1);
+			ImGui::DragFloat2("b", &b.x, 1);
+			ImGui::DragFloat2("c", &c.x, 1);
+			//ImGui::DragFloat2("d", &d.x, 1);
+
+			draggable(I, view, &a, sel_r);
+			draggable(I, view, &b, sel_r);
+			draggable(I, view, &c, sel_r);
+			//draggable(I, view, &d, sel_r);
+		
+			g_dbgdraw.point(float3(a,0), sel_r, lrgba(1,0,0,1));
+			g_dbgdraw.point(float3(b,0), sel_r, lrgba(1,1,0,1));
+			g_dbgdraw.point(float3(c,0), sel_r, lrgba(0,1,0,1));
+			//g_dbgdraw.point(float3(d,0), sel_r, lrgba(0,0,1,1));
+		}
+
+		void draw_lane (View3D& view, int n, float w, float z, lrgba col) {
+			auto prev = eval(0);
+
+			float2 left = rotate90(normalize(prev.vel)) * w*0.5f;
+			float2 prevL = prev.pos + left;
+			float2 prevR = prev.pos - left;
+
+			for (int i=0; i<n; ++i) {
+				float t = (float)(i+1) / (float)n;
+				
+				auto val = eval(t);
+
+				float2 left = rotate90(normalize(val.vel)) * w*0.5f;
+				float2 L = val.pos + left;
+				float2 R = val.pos - left;
+			
+				
+				if (i < n-1) {
+					g_dbgdraw.line(float3(prev.pos, z), float3(val.pos, z), col);
+				}
+				else {
+					g_dbgdraw.arrow(view, float3(prev.pos, z), float3(val.pos - prev.pos, z), 1, col);
+				}
+
+				g_dbgdraw.line(float3(prevL, z), float3(L, z), col);
+				g_dbgdraw.line(float3(prevR, z), float3(R, z), col);
+
+				prev = val;
+				prevL = L;
+				prevR = R;
+			}
+		}
+	};
+
+	DraggableBezier3 bez = {
+		float2(0, 0),
+		float2(20, 20),
+		float2(0, 20),
+		//float2(20, 0),
+	};
+	DraggableBezier3 bezL = bez;
+	DraggableBezier3 bezR = bez;
+
+	float sel_r = 2;
 
 	float lane_width = 4;
 
@@ -107,8 +166,6 @@ struct Test {
 
 	float turn_r = 10;
 	float turn_curv = -deg(30);
-
-	float sel_r = 2;
 
 	float2 car_size = float2(1.4f, 3.5f);
 	float max_steer = deg(45);
@@ -173,41 +230,17 @@ struct Test {
 
 	void update (Input& I, View3D& view) {
 		{
-			ImGui::DragFloat2("a", &a.x, 1);
-			ImGui::DragFloat2("b", &b.x, 1);
-			ImGui::DragFloat2("c", &c.x, 1);
-			ImGui::DragFloat2("d", &d.x, 1);
-
-			draggable(I, view, &a, sel_r);
-			draggable(I, view, &b, sel_r);
-			draggable(I, view, &c, sel_r);
-			draggable(I, view, &d, sel_r);
+			bez.update(I, view, sel_r);
+			bezL.update(I, view, sel_r);
+			bezR.update(I, view, sel_r);
 		
-			g_dbgdraw.point(float3(a,0), sel_r, lrgba(1,0,0,1));
-			g_dbgdraw.point(float3(b,0), sel_r, lrgba(1,1,0,1));
-			g_dbgdraw.point(float3(c,0), sel_r, lrgba(0,1,0,1));
-			g_dbgdraw.point(float3(d,0), sel_r, lrgba(0,0,1,1));
-		
-			Bezier4 bez{ a, b, c, d };
-
-			float2 dirAB = normalizesafe(b - a);
-			float2 dirBC = normalizesafe(c - b);
-			float2 dirCD = normalizesafe(d - c);
-
-			float2 dirB = normalizesafe(dirAB + dirBC);
-			float2 dirC = normalizesafe(dirBC + dirCD);
-
-			float2 shiftA = rotate90(dirAB) * (lane_width * 0.5f);
-			float2 shiftB = rotate90(dirB ) * (lane_width * 0.5f);
-			float2 shiftC = rotate90(dirC ) * (lane_width * 0.5f);
-			float2 shiftD = rotate90(dirCD) * (lane_width * 0.5f);
+			bez .draw_lane(view, 64, lane_width, 0, lrgba(1,0,0,1));
+			bezL.draw_lane(view, 64, lane_width, 0, lrgba(0,0,1,1));
+			bezR.draw_lane(view, 64, lane_width, 0, lrgba(1,0,1,1));
 			
-			Bezier4 bezL{ a - shiftA, b - shiftB, c - shiftC, d - shiftD };
-			Bezier4 bezR{ a + shiftA, b + shiftB, c + shiftC, d + shiftD };
-
-			dbg_draw_bez(bez, view, 0, 64, lrgba(1,0,0,1));
-			dbg_draw_bez(bezL, view, 0, 64, lrgba(1,1,0,1));
-			dbg_draw_bez(bezR, view, 0, 64, lrgba(1,1,0,1));
+			//dbg_draw_bez(bez, view, 0, 64, lrgba(1,0,0,1));
+			//dbg_draw_bez(bezL, view, 0, 64, lrgba(0,0,1,1));
+			//dbg_draw_bez(bezR, view, 0, 64, lrgba(1,0,1,1));
 		}
 
 		ImGui::SliderFloat("t", &t, 0, 1);

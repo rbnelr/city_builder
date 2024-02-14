@@ -88,6 +88,8 @@ struct BezierRes {
 	float  curv;  // curvature (delta angle over dist along curve)
 };
 struct Bezier3 {
+	SERIALIZE(Bezier3, a, b, c)
+
 	float2 a;
 	float2 b;
 	float2 c;
@@ -172,7 +174,8 @@ struct Bezier3 {
 	}
 	
 	// it's faster for check_conflict because compiler is dum dum
-	float2 eval_value_fast_t (float t) const {
+	// COLLISION_STEPS is small and constant, so loop is unrollen and ca, cb, cc become constants, which compiler does not catch
+	float2 eval_value_fast_for_const_t (float t) const {
 		float t2 = t*t;
 		
 		float _2t1 = 2.0f*t;
@@ -204,6 +207,8 @@ struct Bezier3 {
 	}
 };
 struct Bezier4 {
+	SERIALIZE(Bezier4, a, b, c, d)
+
 	float2 a;
 	float2 b;
 	float2 c;

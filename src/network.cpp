@@ -445,7 +445,7 @@ auto _gen_points (float2* points, Connection const& conn, float shift) {
 	points[0] = bez.a;
 	for (int i=0; i<COLLISION_STEPS; ++i) {
 		float t = (float)(i+1) / COLLISION_STEPS;
-		points[i+1] = bez.eval_value_fast_t(t);
+		points[i+1] = bez.eval_value_fast_for_const_t(t);
 	}
 }
 Conflict check_conflict (CachedConnection const& a, CachedConnection const& b) {

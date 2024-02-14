@@ -1,3 +1,4 @@
+// https://imgur.com/a/1TQm9CC
 
 >> clang no warn
 -Wno-unused-variable -Wno-misleading-indentation -Wno-unused-but-set-variable 
@@ -61,3 +62,5 @@ add terrain clipping to roads
 
 > swtich to bezier 4 for s curves, uturn etc.
  -> test if bezier 4 can emulate bezier 3 or if hybrid system is better
+ -> Bezier4 is hard to get consistent with spacing Bezier3 seems to work using my intersection algorithm
+     maybe use Bezier3 with 4 points (abc < .5 t , bcd > .5 t with [0, .5] as [0,1] range) ? would that even help?

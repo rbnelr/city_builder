@@ -108,9 +108,9 @@ struct Test {
 			draggable(I, view, &c, sel_r);
 			//draggable(I, view, &d, sel_r);
 		
-			g_dbgdraw.point(float3(a,0), sel_r, lrgba(1,0,0,1));
-			g_dbgdraw.point(float3(b,0), sel_r, lrgba(1,1,0,1));
-			g_dbgdraw.point(float3(c,0), sel_r, lrgba(0,1,0,1));
+			//g_dbgdraw.point(float3(a,0), sel_r, lrgba(1,0,0,1));
+			//g_dbgdraw.point(float3(b,0), sel_r, lrgba(1,1,0,1));
+			//g_dbgdraw.point(float3(c,0), sel_r, lrgba(0,1,0,1));
 			//g_dbgdraw.point(float3(d,0), sel_r, lrgba(0,0,1,1));
 		}
 
@@ -154,22 +154,16 @@ struct Test {
 		float2(0, 20),
 		//float2(20, 0),
 	};
-	DraggableBezier3 bezL = bez;
-	DraggableBezier3 bezR = bez;
 
 	float sel_r = 2;
 
-	float lane_width = 4;
+	float lane_width = 3.2f;
+	float2 car_size = float2(1.4f, 3.5f);
 
 	float t = 0;
-	float speed = 10;
+	float speed = 2;
 
-	float turn_r = 10;
-	float turn_curv = -deg(30);
-
-	float2 car_size = float2(1.4f, 3.5f);
-	float max_steer = deg(45);
-
+	float car_steer = 0; // -deg(30)
 	float2 car_center = 0;
 	float  car_rot = 0;
 
@@ -231,53 +225,33 @@ struct Test {
 	void update (Input& I, View3D& view) {
 		{
 			bez.update(I, view, sel_r);
-			bezL.update(I, view, sel_r);
-			bezR.update(I, view, sel_r);
 		
-			bez .draw_lane(view, 64, lane_width, 0, lrgba(1,0,0,1));
-			bezL.draw_lane(view, 64, lane_width, 0, lrgba(0,0,1,1));
-			bezR.draw_lane(view, 64, lane_width, 0, lrgba(1,0,1,1));
+			bez.draw_lane(view, 64, lane_width, 0, lrgba(1,0,0,1));
 			
 			//dbg_draw_bez(bez, view, 0, 64, lrgba(1,0,0,1));
-			//dbg_draw_bez(bezL, view, 0, 64, lrgba(0,0,1,1));
-			//dbg_draw_bez(bezR, view, 0, 64, lrgba(1,0,1,1));
 		}
+		
+		ImGui::DragFloat("lane_width", &lane_width, 0.1f);
+		ImGui::DragFloat2("car_size", &car_size.x, 0.1f);
 
 		ImGui::SliderFloat("t", &t, 0, 1);
 		ImGui::DragFloat("speed", &speed, 0.1f);
-		ImGui::DragFloat("turn_r", &turn_r, 0.1f);
 
-		ImGui::DragFloat2("car_size", &car_size.x, 0.1f);
-		ImGui::SliderAngle("max_steer", &max_steer, 0, 90);
+		ImGui::SliderFloat("car_steer", &car_steer, -1, 1);
+		ImGui::DragFloat2("car_center", &car_center.x, 0.1f);
+		ImGui::SliderFloat("car_rot", &car_rot, 0, 2*PI);
 
-		ImGui::SliderFloat("turn_curv", &turn_curv, -1, 1);
+		if (I.buttons[KEY_R].is_down) {
+			car_center = 0;
+			car_rot = 0;
+		}
 
-	#if 0
-		float ang = t * deg(360);
-		auto rot = rotate2(ang);
-		
-		float2 forw  = rot * float2(0,1);
-		float2 right = rotate90(-forw);
-		
-		float2 rear_pos   = rot * float2(1,0) * turn_r;
-		float2 pos        = rear_pos + forw * car_size.y * 0.5f;
-		
-		float2 turn_circ_center = 0;
-		g_dbgdraw.wire_circle(float3(turn_circ_center, 0), turn_r, lrgba(0,1,1,1));
-		
-		draw_car(view, pos, ang, 1.0f / -turn_r);
-
-		t += (speed * I.dt) / (2 * PI * turn_r);
-		t = wrap(t, 0.0f, 1.0f);
-	#endif
-		
-	#if 1
 		float2 forw  = rotate2(car_rot) * float2(0,1);
 		float2 right = rotate90(-forw);
 		
-		draw_car(view, car_center, car_rot, turn_curv);
+		draw_car(view, car_center, car_rot, car_steer);
 
-		float c = turn_curv;
+		float c = car_steer;
 		float d = speed * I.dt; // distance step (distance driven along arc)
 
 		float ang = c * d; // angle step (how much car turns)
@@ -316,7 +290,6 @@ struct Test {
 		// This is important or otherwise car will turn with center, not rear axle like in real life
 		// drive_pos += dp is wrong
 		car_center = rear_axle + forw * car_size.y * 0.5f;
-	#endif
 	}
 };
 

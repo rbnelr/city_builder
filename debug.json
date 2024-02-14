@@ -283,8 +283,8 @@
 	},
 	"sim_paused": true,
 	"sim_speed": 20.0,
-	"_grid_n": 40,
-	"_citizens_n": 2000,
+	"_grid_n": 5,
+	"_citizens_n": 30,
 	"ogl_renderer": {
 		"lighting": {
 			"sun_col": [

@@ -109,8 +109,14 @@ struct Test {
 	float2 car_size = float2(1.4f, 3.5f);
 	float max_steer = deg(45);
 
-	void draw_car (View3D& view, float2 pos, float2 forw, float steer_radius) {
+	float2 car_center = 0;
+	float  car_rot = 0;
+
+	void draw_car (View3D& view, float2 pos, float ang, float steer_curv) {
+
+		float steer_radius = 1.0f / steer_curv;
 		
+		float2 forw  = rotate2(ang) * float2(0,1);
 		float2 right = rotate90(-forw);
 
 		float2 rear_pos   = pos - forw * car_size.y * 0.5f;
@@ -174,13 +180,13 @@ struct Test {
 		ImGui::DragFloat2("car_size", &car_size.x, 0.1f);
 		ImGui::SliderAngle("max_steer", &max_steer, 0, 90);
 
-		ImGui::SliderAngle("turn_curv", &turn_curv, -90, 90);
+		ImGui::SliderFloat("turn_curv", &turn_curv, -1, 1);
 		
-		draggable(I, view, &a, sel_r);
-		draggable(I, view, &b, sel_r);
-		draggable(I, view, &c, sel_r);
-		draggable(I, view, &d, sel_r);
-		
+		//draggable(I, view, &a, sel_r);
+		//draggable(I, view, &b, sel_r);
+		//draggable(I, view, &c, sel_r);
+		//draggable(I, view, &d, sel_r);
+		//
 		//g_dbgdraw.point(float3(a,0), sel_r, lrgba(1,0,0,1));
 		//g_dbgdraw.point(float3(b,0), sel_r, lrgba(1,1,0,1));
 		//g_dbgdraw.point(float3(c,0), sel_r, lrgba(0,1,0,1));
@@ -195,26 +201,71 @@ struct Test {
 		//float2 pos = res.pos;
 		//float2 forw = normalize(res.vel);
 
-		//float ang = t * deg(360);
-		//auto rot = rotate2(ang);
-		//
-		//float2 forw = rot * float2(0,1);
-		//float2 right = rotate90(-forw);
-		//
-		//float2 rear_pos   = rot * float2(1,0) * turn_r;
-		//float2 pos        = rear_pos + forw * car_size.y * 0.5f;
-		//
-		//float2 turn_circ_center = 0;
-		//g_dbgdraw.wire_circle(float3(turn_circ_center, 0), turn_r, lrgba(0,1,1,1));
-		//
-		//
-		//draw_car(view, pos, forw, -turn_r);
-		//
-		//
-		//t += speed * I.dt;
-		//t = wrap(t, 0.0f, 1.0f);
+	#if 0
+		float ang = t * deg(360);
+		auto rot = rotate2(ang);
 		
-		draw_car(view, 0, float2(0,1), 1.0f / turn_curv);
+		float2 forw  = rot * float2(0,1);
+		float2 right = rotate90(-forw);
+		
+		float2 rear_pos   = rot * float2(1,0) * turn_r;
+		float2 pos        = rear_pos + forw * car_size.y * 0.5f;
+		
+		float2 turn_circ_center = 0;
+		g_dbgdraw.wire_circle(float3(turn_circ_center, 0), turn_r, lrgba(0,1,1,1));
+		
+		draw_car(view, pos, ang, 1.0f / -turn_r);
+
+		t += speed * I.dt;
+		t = wrap(t, 0.0f, 1.0f);
+	#endif
+		
+	#if 1
+		float2 forw  = rotate2(car_rot) * float2(0,1);
+		float2 right = rotate90(-forw);
+		
+		draw_car(view, car_center, car_rot, turn_curv);
+
+		float c = turn_curv;
+		float d = speed * I.dt; // distance step (distance driven along arc)
+
+		float ang = c * d; // angle step (how much car turns)
+
+		float dx, dy;
+		{
+			// how much car rear axle moves (in local car space)
+			if (abs(c) >= 0.05f) {
+				// parametric circle path formula
+				dx = (1.0f / c) * (1.0f - cos(ang));
+				dy = (1.0f / c) * sin(ang);
+			}
+			else {
+				// use approximation with low (or zero) curvature to avoid div by 0 (and other numerical problems with the trigs?)
+				// won't be accurate at all with high d!
+				dx = c * d*d / 2.0f;
+				dy = d;
+			}
+		}
+
+		// world space movement
+		float2 dp = right * dx + forw * dy;
+		
+		// move rear axle of car, not center
+		float2 rear_axle = car_center - forw * car_size.y * 0.5f;
+		rear_axle += dp;
+		
+		// car direction turns
+		car_rot -= ang;
+
+		// new forward vector
+		forw  = rotate2(car_rot) * float2(0,1);
+		//right = rotate90(-forw);
+
+		// update car center based on new rear axle with new forward vector
+		// This is important or otherwise car will turn with center, not rear axle like in real life
+		// drive_pos += dp is wrong
+		car_center = rear_axle + forw * car_size.y * 0.5f;
+	#endif
 	}
 };
 

@@ -409,6 +409,12 @@ void debug_citizen (App& app, Citizen* cit) {
 	static ValuePlotter speed_plot = ValuePlotter();
 	speed_plot.push_value(cit->agent->speed);
 	speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
+	
+	static ValuePlotter accel_plot = ValuePlotter();
+	accel_plot.push_value(cit->suspension_ang.y);
+	accel_plot.imgui_display("suspension_ang.y",
+		-app.net.settings.suspension_max_ang.y,
+		 app.net.settings.suspension_max_ang.y);
 }
 
 void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col) {
@@ -1027,6 +1033,33 @@ float network::Agent::car_len () {
 	return cit->car_len();
 }
 
+void update_vehicle_suspension (App& app, Agent& agent, float2 local_accel, float dt) {
+	// assume constant mass
+
+	float2 ang = agent.cit->suspension_ang;
+	float2 vel = agent.cit->suspension_ang_vel;
+
+	// spring resitive accel
+	//float2 accel = -ang * app.net.settings.suspension_spring_k;
+	
+	// quadratic for more smooth spring limit (and more wobbly around zero)
+	float2 accel = -ang * abs(ang / app.net.settings.suspension_max_ang) * app.net.settings.suspension_spring_k * 3;
+	
+	// spring point accel
+	accel += local_accel * app.net.settings.suspension_accel_fac;
+	// spring dampening
+	accel -= vel * app.net.settings.suspension_spring_damp;
+
+	// apply vel, pos and clamp
+	vel += accel * dt;
+	ang += vel * dt;
+	ang = clamp(ang, -app.net.settings.suspension_max_ang,
+	                 +app.net.settings.suspension_max_ang);
+
+	agent.cit->suspension_ang = ang;
+	agent.cit->suspension_ang_vel = vel;
+}
+
 void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	if (app.sim_paused)
 		return;
@@ -1034,19 +1067,23 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	assert(agent->bez_t < 1.0f);
 	float speed_limit = get_cur_speed_limit(agent);
 
+	float old_speed = agent->speed;
+	float new_speed = old_speed;
+
 	// car speed change
 	float target_speed = speed_limit * agent->brake;
-	if (target_speed >= agent->speed) {
-		float accel = calc_car_accel(app.net.settings.car_accel, speed_limit, agent->speed);
-		agent->speed += accel * dt;
-		agent->speed = min(agent->speed, target_speed);
+	if (target_speed >= new_speed) {
+		float accel = calc_car_accel(app.net.settings.car_accel, speed_limit, new_speed);
+		new_speed += accel * dt;
+		new_speed = min(new_speed, target_speed);
 	}
 	else {
-		//agent->speed = target_speed; // brake instantly for now
-		agent->speed -= calc_car_deccel(app.net.settings.car_deccel, speed_limit, agent->speed);
-		agent->speed = max(agent->speed, target_speed);
+		//new_speed = target_speed; // brake instantly for now
+		new_speed -= calc_car_deccel(app.net.settings.car_deccel, speed_limit, new_speed);
+		new_speed = max(new_speed, target_speed);
 	}
 
+	agent->speed = new_speed;
 	met.total_flow += agent->speed / speed_limit;
 	
 	// move car with speed on bezier based on previous frame delta t
@@ -1083,6 +1120,7 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	float2 old_rear  = (float2)agent->cit->rear_pos;
 
 	float2 forw = normalizesafe(old_front - old_rear);
+	float2 right = -rotate90(forw);
 	//float forw_amount = dot(new_front - old_front, forw);
 
 	float car_len = agent->car_len();
@@ -1092,6 +1130,22 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 
 	agent->cit->front_pos = float3(new_front, agent->state.pos_z);
 	agent->cit->rear_pos  = float3(new_rear,  agent->state.pos_z);
+	
+	float2 old_center = (old_front + old_rear) * 0.5f;
+	float2 new_center = (new_front + new_rear) * 0.5f;
+	float2 center_vel = (new_center - old_center) / dt;
+	float2 center_accel = (center_vel - float2(agent->cit->vel)) / dt;
+	agent->cit->vel = float3(center_vel, 0);
+
+	if (agent->cit == app.selection.get<Citizen*>()) {
+		g_dbgdraw.arrow(app.view, float3(new_front, agent->state.pos_z), float3(center_vel, 0),   0.2f, lrgba(0,0,1,1));
+		g_dbgdraw.arrow(app.view, float3(new_front + center_vel, agent->state.pos_z), float3(center_accel*0.1f, 0), 0.2f, lrgba(0,1,0,1));
+	}
+
+	// accel from world to local space
+	center_accel.x = dot(center_accel.x, right);
+	center_accel.y = dot(center_accel.y, forw);
+	update_vehicle_suspension(app, *agent, -center_accel, dt);
 }
 
 void Metrics::update (Var& var, App& app) {

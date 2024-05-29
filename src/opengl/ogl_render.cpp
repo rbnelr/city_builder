@@ -451,13 +451,13 @@ struct EntityRenderer {
 	struct MeshInstance {
 		int    mesh_id;
 		float3 pos;
-		float  rot;
+		float3 rot;
 		float3 col; // Just for debug?
 			
 		VERTEX_CONFIG(
 			ATTRIB(INT , MeshInstance, mesh_id),
 			ATTRIB(FLT3, MeshInstance, pos),
-			ATTRIB(FLT , MeshInstance, rot),
+			ATTRIB(FLT3, MeshInstance, rot),
 			ATTRIB(FLT3, MeshInstance, col),
 		)
 	};
@@ -711,7 +711,7 @@ struct Mesher {
 	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
 	std::vector<DecalRenderer::Instance> decals;
 
-	PropInstance& push_prop (PropAsset* asset, float3 pos, float rot) {
+	PropInstance& push_prop (PropAsset* asset, float3 pos, float3 rot) {
 		auto* i = push_back(prop_instances, 1);
 		
 		i->mesh_id = prop_renderer.asset2mesh_id[asset];
@@ -739,7 +739,7 @@ struct Mesher {
 		float3 pos = seg.pos_a + right * shift.x + forw * shift.y + up * shift.z;
 		rot += angle2d(forw);
 
-		return push_prop(streetlight_asset, pos, rot);
+		return push_prop(streetlight_asset, pos, float3(0, 0, rot));
 	}
 
 
@@ -862,7 +862,7 @@ struct Mesher {
 			while (y < seg._length) {
 				auto& prop = place_prop(seg, light.shift + float3(0,y,0), light.rot, streetlight_asset);
 
-				auto mat = obj_transform(prop.pos, prop.rot);
+				auto mat = obj_transform(prop.pos, prop.rot.z);
 				auto light_pos = mat * light.light.pos;
 				auto col = light.light.col * light.light.strength;
 
@@ -1050,7 +1050,7 @@ struct Mesher {
 
 			building_instances[i].mesh_id = building_renderer.asset2mesh_id[entity->asset];
 			building_instances[i].pos = entity->pos;
-			building_instances[i].rot = entity->rot;
+			building_instances[i].rot = float3(0, 0, entity->rot);
 			building_instances[i].col = 1;
 		}
 
@@ -1247,7 +1247,7 @@ struct OglRenderer : public Renderer {
 
 				instances[i].mesh_id = car_renderer.asset2mesh_id[entity->asset];
 				instances[i].pos = center;
-				instances[i].rot = ang;
+				instances[i].rot = float3(entity->suspension_ang, ang);
 				instances[i].col = entity->col;
 			}
 

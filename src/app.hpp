@@ -68,6 +68,11 @@ struct Citizen {
 	float3 front_pos;
 	float3 rear_pos;
 
+	float3 vel = 0;
+
+	float2 suspension_ang = 0;
+	float2 suspension_ang_vel = 0;
+
 	float3 center () { return (front_pos + rear_pos)*0.5; };
 
 	Citizen (Random& r, Building* initial_building) { // TODO: spawn citizens on map edge (on path)

@@ -15,7 +15,7 @@ struct glDrawElementsIndirectCommand {
 struct MeshInstance {
 	uint  mesh_id;
 	float posx, posy, posz; // Avoid alignment, not needed here anyway
-	float rot;
+	float rotx, roty, rotz;
 	float colr, colg, colb; // Avoid alignment, not needed here anyway
 };
 struct MeshInfo {

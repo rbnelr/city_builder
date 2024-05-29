@@ -413,6 +413,11 @@ struct NetworkSettings {
 	float car_deccel = 5;
 
 	float car_rear_drag_ratio = 0.4f;
+	
+	float2 suspension_max_ang = float2(deg(10), deg(6));
+	float2 suspension_spring_k = 50;
+	float2 suspension_spring_damp = 5;
+	float2 suspension_accel_fac = float2(0.1f, 0.2f);
 
 	struct IntersectionHeuristics {
 		SERIALIZE(IntersectionHeuristics, wait_boost_fac, progress_boost, exit_eta_penal,
@@ -434,6 +439,12 @@ struct NetworkSettings {
 		ImGui::SliderFloat("car_deccel (m/s^2)", &car_deccel, 0, 20);
 
 		ImGui::SliderFloat("car_rear_drag_ratio", &car_rear_drag_ratio, 0, 1);
+		
+		ImGui::SliderAngle("suspension_max_ang.x", &suspension_max_ang.x, 0, +30);
+		ImGui::SliderAngle("suspension_max_ang.y", &suspension_max_ang.y, 0, +30);
+		ImGui::SliderFloat2("suspension_spring_k", &suspension_spring_k.x, 0, 100);
+		ImGui::SliderFloat2("suspension_spring_damp", &suspension_spring_damp.x, 0, 100);
+		ImGui::SliderFloat2("suspension_accel_fac", &suspension_accel_fac.x, 0, 10);
 
 		if (ImGui::TreeNode("Intersection Heuristics")) {
 

@@ -104,22 +104,29 @@ mat3 instance_euler_mat (float z, float y, float x) {
 	float sz = sin(z);
 	float cz = cos(z);
 	
-	mat3 matX = mat3(
-		   1,   0,   0,
-		   0,  cx,  sx,
-		   0, -sx,  cx
+	//mat3 matX = mat3(
+	//	   1,   0,   0,
+	//	   0,  cx,  sx,
+	//	   0, -sx,  cx
+	//);
+	//mat3 matY = mat3(
+	//	  cy,   0, -sy,
+	//	   0,   1,   0,
+	//	  sy,   0,  cy
+	//);
+	//mat3 matZ = mat3( // Column major for some insane reason!
+	//	  cz,  sz,   0,
+	//	 -sz,  cz,   0,
+	//	   0,   0,   1
+	//);
+	//return matZ * matY * matX;
+	
+	mat3 matZYX = mat3(
+		             cz*cy,               sz*cy,    -sy, 
+		cz*(sy*sx) - sz*cx,  sz*(sy*sx) + cz*cx,  cy*sx, 
+		cz*(sy*cx) + sz*sx,  sz*(sy*cx) - cz*sx,  cy*cx 
 	);
-	mat3 matY = mat3(
-		  cy,   0, -sy,
-		   0,   1,   0,
-		  sy,   0,  cy
-	);
-	mat3 matZ = mat3( // Column major for some insane reason!
-		  cz,  sz,   0,
-		 -sz,  cz,   0,
-		   0,   0,   1
-	);
-	return matZ * matY * matX;
+	return matZYX;
 }
 
 uniform sampler2D clouds;

@@ -308,7 +308,7 @@ void brake_for_dist (Agent* agent, float obstacle_dist) {
 	agent->brake = min(agent->brake, brake);
 }
 
-void debug_node (App& app, Node* node) {
+void debug_node (App& app, Node* node, View3D const& view) {
 	if (!node) return;
 
 	g_dbgdraw.wire_circle(node->pos, node->_radius, lrgba(1,1,0,1));
@@ -328,7 +328,7 @@ void debug_node (App& app, Node* node) {
 			g_dbgdraw.wire_circle(agent.agent->cit->center(), agent.agent->car_len()*0.5f, lrgba(1,0,0.5f,1));
 	
 			g_dbgdraw.text.draw_text(prints("%d%s", i++, agent.blocked ? " B":""),
-				30, 1, g_dbgdraw.text.map_text(agent.agent->cit->center(), app.view));
+				30, 1, g_dbgdraw.text.map_text(agent.agent->cit->center(), view));
 		}
 	}
 
@@ -397,7 +397,7 @@ void debug_citizen (App& app, Citizen* cit) {
 	for (int i=cit->agent->idx; ; ++i) {
 		auto s = get_agent_state(cit->agent.get(), i);
 
-		dbg_draw_bez(s.bezier, app.view, 0, 5, lrgba(1,1,0,1), start_t, s.end_t); 
+		dbg_draw_bez(s.bezier, 0, 5, lrgba(1,1,0,1), start_t, s.end_t); 
 
 		start_t = s.next_start_t;
 		if (s.state == AgentState::ENTER_BUILDING) break;
@@ -409,12 +409,6 @@ void debug_citizen (App& app, Citizen* cit) {
 	static ValuePlotter speed_plot = ValuePlotter();
 	speed_plot.push_value(cit->agent->speed);
 	speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
-	
-	static ValuePlotter accel_plot = ValuePlotter();
-	accel_plot.push_value(cit->suspension_ang.y);
-	accel_plot.imgui_display("suspension_ang.y",
-		-app.net.settings.suspension_max_ang.y,
-		 app.net.settings.suspension_max_ang.y);
 }
 
 void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col) {
@@ -429,7 +423,7 @@ void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col
 	float3 end = pos + float3(dir,0)*dist;
 	float3 normal = float3(rotate90(dir), 0);
 
-	g_dbgdraw.arrow(app.view, pos, obstacle - pos, 0.3f, col);
+	g_dbgdraw.arrow(pos, obstacle - pos, 0.3f, col);
 	g_dbgdraw.line(end - normal, end + normal, col);
 }
 void _FORCEINLINE dbg_brake_for_agent (App& app, Agent* cur, float dist, Agent* obstacle) {
@@ -981,8 +975,6 @@ float calc_car_drag (float cur_speed) {
 	return drag_fac * cur_speed*cur_speed;
 }
 float calc_car_accel (float base_accel, float target_speed, float cur_speed) {
-	float drag_fac = 0.0014f; // ~220km/h top speed
-	
 	float accel = base_accel;
 	
 	//// slow down acceleration close to target_speed
@@ -1131,21 +1123,35 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	agent->cit->front_pos = float3(new_front, agent->state.pos_z);
 	agent->cit->rear_pos  = float3(new_rear,  agent->state.pos_z);
 	
-	float2 old_center = (old_front + old_rear) * 0.5f;
-	float2 new_center = (new_front + new_rear) * 0.5f;
-	float2 center_vel = (new_center - old_center) / dt;
-	float2 center_accel = (center_vel - float2(agent->cit->vel)) / dt;
-	agent->cit->vel = float3(center_vel, 0);
+	{
+		float2 old_center = (old_front + old_rear) * 0.5f;
+		float2 new_center = (new_front + new_rear) * 0.5f;
+		float2 center_vel = (new_center - old_center) / dt;
+		float2 center_accel = (center_vel - float2(agent->cit->vel)) / dt;
 
-	if (agent->cit == app.selection.get<Citizen*>()) {
-		g_dbgdraw.arrow(app.view, float3(new_front, agent->state.pos_z), float3(center_vel, 0),   0.2f, lrgba(0,0,1,1));
-		g_dbgdraw.arrow(app.view, float3(new_front + center_vel, agent->state.pos_z), float3(center_accel*0.1f, 0), 0.2f, lrgba(0,1,0,1));
+		if (agent->cit == app.selection.get<Citizen*>()) {
+			g_dbgdraw.arrow(float3(new_front, agent->state.pos_z), float3(center_vel, 0), 0.2f, lrgba(0,0,1,1));
+			g_dbgdraw.arrow(float3(new_front, agent->state.pos_z), float3(center_accel*0.1f, 0), 0.2f, lrgba(0,1,0,1));
+		}
+
+		// accel from world to local space
+		//float accel_cap = 30; // we get artefacts with huge accelerations due to discontinuities, cap accel to hide
+		//center_accel.y = clamp( dot(center_accel, right), -accel_cap, accel_cap);
+		//center_accel.x = clamp( dot(center_accel, forw ), -accel_cap, accel_cap);
+		center_accel.x = dot(center_accel, right);
+		center_accel.y = dot(center_accel, forw );
+		update_vehicle_suspension(app, *agent, -center_accel, dt);
+		
+		if (agent->cit == app.selection.get<Citizen*>()) {
+			//printf("%7.3f %7.3f  |  %7.3f %7.3f\n", center_accel.x, center_accel.y, center_vel.x, center_vel.y);
+			
+			float2 a = right * agent->cit->suspension_ang.x + forw * agent->cit->suspension_ang.y;
+			g_dbgdraw.point(float3(new_center, agent->state.pos_z), 0.3f, lrgba(.5f,.5f,.1f,0.5f));
+			g_dbgdraw.point(float3(new_center + a*10, agent->state.pos_z), 0.3f, lrgba(1,1,0.5f,1));
+		}
+
+		agent->cit->vel = float3(center_vel, 0);
 	}
-
-	// accel from world to local space
-	center_accel.x = dot(center_accel.x, right);
-	center_accel.y = dot(center_accel.y, forw);
-	update_vehicle_suspension(app, *agent, -center_accel, dt);
 }
 
 void Metrics::update (Var& var, App& app) {
@@ -1229,9 +1235,6 @@ void Network::simulate (App& app) {
 		metrics.update(met, app);
 	//}
 
-	debug_node(app, app.selection.get<Node*>());
-	debug_citizen(app, app.selection.get<Citizen*>());
-
 	static RunningAverage pathings_avg(30);
 	pathings_avg.push((float)pathing_count);
 	float min, max;
@@ -1244,6 +1247,11 @@ void Network::simulate (App& app) {
 	
 	ImGui::Text("last dijkstra: iter: %05d iter_dupl: %05d iter_lanes: %05d", _dijk_iter, _dijk_iter_dupl, _dijk_iter_lanes);
 
+}
+
+void Network::draw_debug (App& app, View3D& view) {
+	debug_node(app, app.selection.get<Node*>(), view);
+	debug_citizen(app, app.selection.get<Citizen*>());
 }
 
 } // namespace network

@@ -1241,9 +1241,9 @@ struct OglRenderer : public Renderer {
 				auto& entity = app.entities.citizens[i];
 
 				// TODO: network code shoud ensure length(dir) == CAR_SIZE
-				float3 dir = entity->front_pos - entity->rear_pos;
-				float3 center = entity->front_pos - normalizesafe(dir) * entity->car_len()*0.5f;
-				float ang = angle2d((float2)dir);
+				float3 center;
+				float ang;
+				entity->calc_pos(&center, &ang);
 
 				instances[i].mesh_id = car_renderer.asset2mesh_id[entity->asset];
 				instances[i].pos = center;
@@ -1259,7 +1259,7 @@ struct OglRenderer : public Renderer {
 		ZoneScoped;
 		gl_dbgdraw.gl_text_render.begin(g_dbgdraw.text); // upload text and init data structures to allow text printing
 	}
-	virtual void end (App& app) {
+	virtual void end (App& app, View3D& view) {
 		ZoneScoped;
 
 		lighting.sun_dir = float4(app.time_of_day.sun_dir, 0.0);
@@ -1311,20 +1311,20 @@ struct OglRenderer : public Renderer {
 
 		auto update_view_resolution = [&] (int2 res) {
 			
-			app.view.viewport_size = (float2)res;
-			app.view.inv_viewport_size = 1.0f / app.view.viewport_size;
+			view.viewport_size = (float2)res;
+			view.inv_viewport_size = 1.0f / view.viewport_size;
 
-			common_ubo.set_view(app.view);
+			common_ubo.set_view(view);
 		};
 
 		{
 			ZoneScopedN("shadow_pass");
 			OGL_TRACE("shadow_pass");
 
-			passes.shadowmap.draw_cascades(app, state, [&] (View3D const& view) {
+			passes.shadowmap.draw_cascades(app, view, state, [&] (View3D& view) {
 				common_ubo.set_view(view);
 				
-				terrain_renderer.render_terrain(state, textures, app.view, true);
+				terrain_renderer.render_terrain(state, textures, view, true);
 		
 				network_renderer.render(state, textures, true);
 
@@ -1342,7 +1342,7 @@ struct OglRenderer : public Renderer {
 			
 			passes.begin_geometry_pass(state);
 
-			terrain_renderer.render_terrain(state, textures, app.view);
+			terrain_renderer.render_terrain(state, textures, view);
 
 			network_renderer.render(state, textures);
 			network_renderer.render_decals(state, passes.gbuf, textures);

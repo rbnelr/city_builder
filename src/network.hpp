@@ -417,7 +417,7 @@ struct NetworkSettings {
 	float2 suspension_max_ang = float2(deg(10), deg(6));
 	float2 suspension_spring_k = 50;
 	float2 suspension_spring_damp = 5;
-	float2 suspension_accel_fac = float2(0.1f, 0.2f);
+	float2 suspension_accel_fac = float2(0.2f, 0.2f);
 
 	struct IntersectionHeuristics {
 		SERIALIZE(IntersectionHeuristics, wait_boost_fac, progress_boost, exit_eta_penal,
@@ -484,6 +484,7 @@ struct Network {
 	int pathing_count;
 
 	void simulate (App& app);
+	void draw_debug (App& app, View3D& view);
 };
 
 inline void calc_default_allowed_turns (Node& node) {

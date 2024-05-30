@@ -15,7 +15,7 @@ struct Renderer {
 	virtual void imgui (App& app) = 0;
 
 	virtual void begin (App& app) = 0;
-	virtual void end (App& app) = 0;
+	virtual void end (App& app, View3D& view) = 0;
 
 	virtual void to_json (nlohmann::ordered_json& j) = 0;
 	virtual void from_json (nlohmann::ordered_json const& j) = 0;
@@ -70,8 +70,9 @@ struct Citizen {
 
 	float3 vel = 0;
 
-	float2 suspension_ang = 0;
-	float2 suspension_ang_vel = 0;
+	// suspension (ie. car wobble) angles based on car acceleration on forward and sideways axes (computed seperately)
+	float2 suspension_ang = 0; // angle in radians, X: sideways (rotation on local X), Y: forwards
+	float2 suspension_ang_vel = 0; // angular velocity in radians
 
 	float3 center () { return (front_pos + rear_pos)*0.5; };
 
@@ -86,6 +87,12 @@ struct Citizen {
 	}
 	SelCircle get_sel_shape () {
 		return { center(), car_len()*0.5f, lrgb(0.04f, 1, 0.04f) };
+	}
+	
+	void calc_pos (float3* pos, float* ang) {
+		float3 dir = front_pos - rear_pos;
+		*pos = front_pos - normalizesafe(dir) * car_len()*0.5f;
+		*ang = angle2d((float2)dir);
 	}
 };
 
@@ -298,6 +305,56 @@ struct Test {
 	}
 };
 
+struct CameraTrack {
+	// this implementation is dodgy
+
+	bool track = false;
+	bool track_rot = false;
+
+	bool cur_tracking = false;
+
+	float3 offset=0;
+	float rot_offset=0;
+
+	void imgui () {
+		ImGui::Checkbox("Track Selection", &track);
+		ImGui::SameLine();
+		ImGui::Checkbox("Track Rotation", &track_rot);
+	}
+
+	void update (sel_ptr selection, float3* cam_pos, float* cam_rot) {
+		auto* sel = selection.get<Citizen*>();
+
+		if (track && sel) {
+			float3 pos;
+			float ang;
+			sel->calc_pos(&pos, &ang);
+			
+			if (!cur_tracking) {
+				//*cam_pos -= pos;
+				*cam_pos = 0;
+				*cam_rot -= ang;
+			}
+
+			offset = pos;
+			if (track_rot)
+				rot_offset = ang;
+
+			cur_tracking = true;
+		}
+		else {
+			if (cur_tracking) {
+				*cam_pos += offset;
+				*cam_rot += rot_offset;
+				offset = 0;
+				rot_offset = 0;
+			}
+
+			cur_tracking = false;
+		}
+	}
+};
+
 struct App : public Engine {
 
 	App (): Engine{"Kiss-Framework Project"} {}
@@ -331,6 +388,8 @@ struct App : public Engine {
 		ImGui::SameLine();
 		ImGui::Checkbox("View", &view_dbg_cam);
 
+		cam_track.imgui();
+
 		time_of_day.imgui();
 
 		ImGui::Checkbox("sim_paused", &sim_paused);
@@ -348,7 +407,8 @@ struct App : public Engine {
 	network::Network net;
 
 	GameCamera cam = GameCamera{ float3(8,8,0) * 1024 };
-	View3D view;
+	
+	CameraTrack cam_track;
 
 	Flycam dbg_cam = Flycam(0, 0, 100);
 	bool view_dbg_cam = false;
@@ -419,7 +479,7 @@ struct App : public Engine {
 			selection2 = nullptr;
 	}
 
-	void update_selection () {
+	void update_selection (View3D const& view) {
 		Ray ray;
 		if (!view.cursor_ray(input, &ray.pos, &ray.dir))
 			return;
@@ -643,13 +703,13 @@ struct App : public Engine {
 		}
 	}
 	
-	void update () {
+	View3D update () {
 		ZoneScoped;
 		
 		if (input.buttons[KEY_P].went_down) {
 			view_dbg_cam = !view_dbg_cam;
 			if (view_dbg_cam) {
-				auto tmp_view = cam.clac_view((float2)input.window_size);
+				auto tmp_view = cam.clac_view((float2)input.window_size, cam_track.offset, cam_track.rot_offset);
 				dbg_cam.rot_aer = cam.rot_aer;
 				dbg_cam.pos = tmp_view.cam_pos;
 
@@ -669,18 +729,30 @@ struct App : public Engine {
 
 		time_of_day.update(*this);
 		
-		view = view_dbg_cam ?
-			dbg_cam.update(input, (float2)input.window_size) :
-			cam.update(input, (float2)input.window_size);
+		cam_track.update(selection, &cam.orbit_pos, &cam.rot_aer.x);
 
+		//view = view_dbg_cam ?
+		//	dbg_cam.update(input, (float2)input.window_size) :
+		//	cam    .update(input, (float2)input.window_size, cam_track.offset, cam_track.rot_offset);
+
+		net.simulate(*this);
+		
+		cam_track.update(selection, &cam.orbit_pos, &cam.rot_aer.x);
+
+		View3D view = view_dbg_cam ?
+			dbg_cam.update(input, (float2)input.window_size) :
+			cam    .update(input, (float2)input.window_size, cam_track.offset, cam_track.rot_offset);
+		
 		test.update(input, view);
+
+		net.draw_debug(*this, view);
 
 		g_dbgdraw.axis_gizmo(view, input.window_size);
 
-		net.simulate(*this);
-
 		// select after updating positions
-		update_selection();
+		update_selection(view);
+
+		return view;
 	}
 
 	virtual void frame () {
@@ -689,9 +761,9 @@ struct App : public Engine {
 		g_dbgdraw.clear();
 		renderer->begin(*this);
 
-		update();
+		auto view = update();
 
-		renderer->end(*this);
+		renderer->end(*this, view);
 
 
 		assets.assets_reloaded = false;

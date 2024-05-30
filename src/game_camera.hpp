@@ -94,7 +94,7 @@ struct GameCamera {
 		return powf(2.0f, -zoom);
 	}
 
-	View3D update (Input& I, float2 const& viewport_size) {
+	View3D update (Input& I, float2 const& viewport_size, float3 offset=0, float rot_offset=0) {
 
 		bool scroll_fps = I.buttons[KEY_F].is_down;
 
@@ -184,13 +184,13 @@ struct GameCamera {
 			}
 		}
 
-		return clac_view(viewport_size);
+		return clac_view(viewport_size, offset, rot_offset);
 	}
 
-	View3D clac_view (float2 const& viewport_size) {
+	View3D clac_view (float2 const& viewport_size, float3 offset=0, float rot_offset=0) {
 
 		float3x3 cam2world_rot, world2cam_rot;
-		azimuthal_mount(rot_aer, &world2cam_rot, &cam2world_rot);
+		azimuthal_mount(rot_aer + float3(rot_offset,0,0), &world2cam_rot, &cam2world_rot);
 
 		float aspect = viewport_size.x / viewport_size.y;
 		
@@ -200,6 +200,9 @@ struct GameCamera {
 			collided_pos = orbit_pos + _dir * calc_orbit_distance();
 			collided_pos.z = max(collided_pos.z, 0.01f);
 		}
+
+		collided_pos += offset;
+
 		float3x4 world2cam = float3x4(world2cam_rot) * translate(-collided_pos);
 		float3x4 cam2world = translate(collided_pos) * float3x4(cam2world_rot);
 

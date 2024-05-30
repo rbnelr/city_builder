@@ -268,7 +268,7 @@ struct DirectionalCascadedShadowmap {
 	}
 
 	template <typename FUNC>
-	void draw_cascades (App& app, StateManager& state, FUNC draw_scene) {
+	void draw_cascades (App& app, View3D& view, StateManager& state, FUNC draw_scene) {
 		
 		float casc_size = size;
 		float casc_depth_range = depth_range;
@@ -285,7 +285,7 @@ struct DirectionalCascadedShadowmap {
 			glClear(GL_DEPTH_BUFFER_BIT);
 
 			//float3 center = float3(size * 0.5f, size * 0.5f, 0.0f);
-			float3 center = app.view.cam_pos;
+			float3 center = view.cam_pos;
 			center.z = 0; // force shadowmap center to world plane to avoid depth range running out
 		
 			float3x4 world2cam = app.time_of_day.world2sun * translate(-center);

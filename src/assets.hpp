@@ -43,6 +43,20 @@ struct BasicVertex {
 		ATTRIB(FLT2, BasicVertex, uv),
 	)
 };
+// Mesh with anim bones but no interpolation between bones (single bone per vertex and no bone weights)
+// -> used for vehicles
+struct SimpleAnimVertex {
+	float3  pos;
+	float3  normal;
+	float2  uv;
+	uint8_t bone;
+	
+	VERTEX_CONFIG(
+		ATTRIB(FLT3, BasicVertex, pos),
+		ATTRIB(FLT3, BasicVertex, normal),
+		ATTRIB(FLT2, BasicVertex, uv),
+	)
+};
 struct VertexPos3 {
 	float3 pos;
 
@@ -258,6 +272,13 @@ enum class BuildingType {
 };
 NLOHMANN_JSON_SERIALIZE_ENUM(BuildingType, { { BuildingType::RESIDENTIAL, "RESIDENTIAL" }, { BuildingType::COMMERCIAL, "COMMERCIAL" } })
 
+constexpr const char* WHEEL_NAMES[] = {
+	"Wheel.FL",
+	"Wheel.FR",
+	"Wheel.BL",
+	"Wheel.BR",
+};
+
 struct BuildingAsset {
 	friend SERIALIZE_TO_JSON(BuildingAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, type, citizens, size) }
 	friend SERIALIZE_FROM_JSON(BuildingAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, type, citizens, size)
@@ -297,6 +318,12 @@ struct CarAsset {
 	std::string filename;
 
 	float spawn_weight = 1;
+	
+	struct Wheel {
+		float3 pos;
+		float radius;
+	};
+	std::vector<Wheel> wheels;
 
 	AssetMesh<BasicVertex> mesh;
 };

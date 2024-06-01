@@ -9,10 +9,20 @@
 // I think there might have been some issues with trying to do that?
 
 namespace assimp {
+	float4x4 get_matrix (aiMatrix4x4t<float> const& m) {
+		return float4x4(
+			m.a1,m.a2,m.a3,m.a4,
+			m.b1,m.b2,m.b3,m.b4,
+			m.c1,m.c2,m.c3,m.c4,
+			m.d1,m.d2,m.d3,m.d4
+		);
+	}
+	float4x4 node_transform (aiNode const* node, float4x4 const& transform) {
+		return transform * get_matrix(node->mTransformation);
+	}
+
 	void print_scene (aiNode const* node, int depth, float4x4 const& transform) {
-		auto& t = node->mTransformation;
-		float4x4 mat = float4x4(t.a1,t.a2,t.a3,t.a4,  t.b1,t.b2,t.b3,t.b4, t.c1,t.c2,t.c3,t.c4,  t.d1,t.d2,t.d3,t.d4);
-		mat = transform * mat;
+		float4x4 mat = node_transform(node, transform);
 
 		float3 pos = (float3)(mat * float4(0,0,0,1));
 
@@ -29,8 +39,8 @@ namespace assimp {
 		for (unsigned int i=0; i<node->mNumChildren; ++i)
 			print_scene(node->mChildren[i], depth+1, mat);
 	}
-	void print_scene (aiScene const* scene) {
-		printf("FBX file: {\n");
+	void print_scene (aiScene const* scene, char const* filename) {
+		printf("FBX file: %s {\n", filename);
 
 		float scl = 1.0f / 100; // fbx seems to use centimeter units (with UnitScaleFactor 1) 
 
@@ -45,7 +55,19 @@ namespace assimp {
 		}
 
 		for (unsigned int i=0; i<scene->mNumMeshes; ++i) {
-			printf("  mesh[%d]: \"%s\"\n", i, scene->mMeshes[i]->mName.C_Str());
+			auto* m = scene->mMeshes[i];
+
+			printf("  mesh[%d]: \"%s\" Bones: {%s", i, m->mName.C_Str(), m->mNumBones > 0 ? "\n":" ");
+			
+			for (unsigned j=0; j<m->mNumBones; ++j) {
+				auto& b = m->mBones[j];
+				printf("    bone[%d]: \"%s\"\n", j, b->mName.C_Str());
+
+				auto mat = get_matrix(b->mOffsetMatrix);
+				printf("");
+			}
+
+			printf("  }\n");
 		}
 
 		print_scene(scene->mRootNode, 1, (float4x4)scale(float3(scl)));
@@ -76,6 +98,7 @@ namespace assimp {
 
 			auto& pos  = mesh->mVertices[j];
 			auto& norm = mesh->mNormals[j];
+			auto* bones = mesh->mBones ? mesh->mBones[j] : nullptr;
 			auto* uv   = &mesh->mTextureCoords[0][j];
 			auto* col  = &mesh->mColors[0][j];
 
@@ -96,9 +119,9 @@ namespace assimp {
 			data.vertices.emplace_back();
 			auto& v = data.vertices.back();
 
-			auto& pos  = mesh->mVertices[j];
+			auto& pos = mesh->mVertices[j];
 
-			v.pos    = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
+			v.pos = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
 		}
 
 		push_face_indices(mesh, data.indices, first_vertex);
@@ -107,9 +130,7 @@ namespace assimp {
 	template <typename... ARGS>
 	// Recursively load fbx tree, applying transformations to vertices
 	void load_join_mesh_recurse (aiScene const* scene, aiNode const* node, float4x4 const& transform, ARGS&... args) {
-		auto& t = node->mTransformation;
-		float4x4 mat = float4x4(t.a1,t.a2,t.a3,t.a4,  t.b1,t.b2,t.b3,t.b4, t.c1,t.c2,t.c3,t.c4,  t.d1,t.d2,t.d3,t.d4);
-		mat = transform * mat;
+		float4x4 mat = node_transform(node, transform);
 	
 		for (unsigned int i=0; i<node->mNumMeshes; ++i) {
 			unsigned int mesh_idx = node->mMeshes[i];
@@ -119,6 +140,36 @@ namespace assimp {
 	
 		for (unsigned int i=0; i<node->mNumChildren; ++i)
 			load_join_mesh_recurse(scene, node->mChildren[i], mat, args...);
+	}
+	
+	//void find_wheel_bones (aiScene const* scene, aiNode const* node, float4x4 const& transform) {
+	//	float4x4 mat = node_transform(node, transform);
+	//
+	//	if (strcmp(scene->mMetaData->mKeys[i].C_Str(), "UnitScaleFactor") == 0) {
+	//		float fac = 1.0f;
+	//		if (scene->mMetaData->mValues[i].mType == AI_DOUBLE) fac = (float)*(double*)scene->mMetaData->mValues[i].mData;
+	//		if (scene->mMetaData->mValues[i].mType == AI_FLOAT)  fac =        *(float*) scene->mMetaData->mValues[i].mData;
+	//		scl *= fac;
+	//	}
+	//	node->mName
+	//
+	//	for (unsigned int i=0; i<node->mNumChildren; ++i)
+	//		find_wheel_bones(node->mChildren[i], mat);
+	//	
+	//	//for (unsigned int i=0; i<node->mNumChildren; ++i)
+	//	//	load_join_mesh_recurse(scene, node->mChildren[i], mat, args...);
+	//}
+	void find_wheel_bones (aiScene const* scene, float4x4 const& transform) {
+		//scene->mNumSkeletons;
+	
+		//for (unsigned int i=0; i<node->mNumMeshes; ++i) {
+		//	unsigned int mesh_idx = node->mMeshes[i];
+		//	assert(mesh_idx < scene->mNumMeshes);
+		//	load_mesh_data(scene->mMeshes[mesh_idx], mat, args...);
+		//}
+		//
+		//for (unsigned int i=0; i<node->mNumChildren; ++i)
+		//	load_join_mesh_recurse(scene, node->mChildren[i], mat, args...);
 	}
 	
 	float4x4 get_base_transform (aiScene const* scene) {
@@ -145,11 +196,13 @@ namespace assimp {
 			return false;
 		}
 
-		print_scene(scene);
+		print_scene(scene, filename);
 
 		auto transform = get_base_transform(scene);
 		
 		if (!scene->mRootNode) return false;
+
+		find_wheel_bones(scene, transform);
 
 		auto find_node = [&] (std::string_view tag) -> aiNode* {
 			for (unsigned int i=0; i<scene->mRootNode->mNumChildren; ++i) {
@@ -186,7 +239,7 @@ namespace assimp {
 			return false;
 		}
 
-		print_scene(scene);
+		print_scene(scene, filename);
 
 		auto transform = get_base_transform(scene);
 		

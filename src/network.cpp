@@ -410,7 +410,7 @@ void debug_citizen (App& app, Citizen* cit, View3D const& view) {
 	speed_plot.push_value(cit->agent->speed);
 	speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
 
-	if (cit->asset->name == "combi") {
+	if (cit->owned_car->name == "combi") {
 		for (auto& m : _mats) {
 			float3 center;
 			float ang;
@@ -1038,11 +1038,11 @@ float get_cur_speed_limit (Agent* agent) {
 }
 
 float network::Agent::car_len () {
-	return cit->car_len();
+	return cit->owned_car->mesh.aabb.size().x;
 }
 void network::Agent::calc_pos (float3* pos, float* ang) {
 	float3 dir = front_pos - rear_pos;
-	*pos = front_pos - normalizesafe(dir) * cit->car_len()*0.5f;
+	*pos = front_pos - normalizesafe(dir) * car_len()*0.5f;
 	*ang = angle2d((float2)dir);
 }
 
@@ -1113,7 +1113,7 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 
 		if (agent->state.state == AgentState::ENTER_BUILDING) {
 			// end path
-			agent->cit->building = agent->end;
+			agent->cit->target_building = agent->end;
 			agent->cit->agent = nullptr;
 			return;
 		}
@@ -1122,9 +1122,11 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	}
 
 	// eval bezier at car front
-	auto bez_res = agent->state.bezier.eval(agent->bez_t);
+	auto bez_res = agent->state.bezier.eval_with_curv(agent->bez_t);
 	// remember bezier delta t for next frame
 	agent->bez_speed = length(bez_res.vel); // bezier t / delta pos
+
+	agent->turn_curv = bez_res.curv; // TODO: to be correct for wheel turning this would need to be computed based on the rear axle
 
 	// actually move car rear using (bogus) trailer formula
 	float2 new_front = bez_res.pos;
@@ -1169,6 +1171,9 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 			float2 a = right * agent->suspension_ang.x + forw * agent->suspension_ang.y;
 			g_dbgdraw.point(float3(new_center, agent->state.pos_z), 0.3f, lrgba(.5f,.5f,.1f,0.5f));
 			g_dbgdraw.point(float3(new_center + a*10, agent->state.pos_z), 0.3f, lrgba(1,1,0.5f,1));
+			
+			float turn_r = 1.0f/agent->turn_curv;
+			g_dbgdraw.wire_circle(float3(new_rear - right * turn_r, agent->state.pos_z), turn_r, lrgba(1,0,0,1), 128);
 		}
 
 		agent->vel = float3(center_vel, 0);
@@ -1192,19 +1197,19 @@ void Network::simulate (App& app) {
 	auto do_pathfind = [&] (Citizen* cit) {
 		auto* cur_target = app.entities.buildings[ app.test_rand.uniformi(0, (int)app.entities.buildings.size()) ].get();
 		
-		assert(cit->building->connected_segment);
-		if (cit->building->connected_segment) {
+		assert(cit->target_building->connected_segment);
+		if (cit->target_building->connected_segment) {
 			ZoneScopedN("pathfind");
 
 			pathing_count++;
 
 			auto agent = std::make_unique<network::Agent>();
 			agent->cit = cit;
-			agent->start = cit->building;
+			agent->start = cit->target_building;
 			agent->end   = cur_target;
-			bool valid = pathfind(cit->building->connected_segment, cur_target->connected_segment, agent.get());
+			bool valid = pathfind(cit->target_building->connected_segment, cur_target->connected_segment, agent.get());
 			if (valid) {
-				cit->building = nullptr;
+				cit->target_building = nullptr;
 				cit->agent = std::move(agent);
 				// get initial state
 				cit->agent->state = get_agent_state(cit->agent.get(), cit->agent->idx);
@@ -1221,7 +1226,7 @@ void Network::simulate (App& app) {
 		{
 			ZoneScopedN("init pass");
 			for (auto& cit : app.entities.citizens) {
-				if (cit->building) continue;
+				if (cit->target_building) continue;
 				cit->agent->brake = 1;
 			}
 		}
@@ -1242,7 +1247,7 @@ void Network::simulate (App& app) {
 		{
 			ZoneScopedN("final pass");
 			for (auto& cit : app.entities.citizens) {
-				if (cit->building) {
+				if (cit->target_building) {
 					do_pathfind(cit.get());
 				}
 				else {

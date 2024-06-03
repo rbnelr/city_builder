@@ -37,6 +37,9 @@ struct Building;
 
 typedef NullableVariant<Citizen*, network::Node*> sel_ptr;
 
+struct WorldLoc {
+
+};
 
 struct Building {
 	BuildingAsset* asset;
@@ -53,30 +56,37 @@ struct Citizen {
 	// OR car/building etc needs to track citizen and we dont know where the citizen is
 	// probably best to first use double pointers everywhere, likely that this is not a problem in terms of memory
 
-	// TODO: i think some sort of CitizenLoc interface would work well here
-	Building* building = nullptr;
-	std::unique_ptr<network::Agent> agent = nullptr;
-
 	//Building* home = nullptr;
 	//Building* work = nullptr;
+	
+	// current (random target), while not driving this is also the place where they are
+	Building* target_building = nullptr;
 
-	CarAsset* asset;
+	// while driving this is non null and represents the currently driving car
+	// (while inside building car does not exist)
+	std::unique_ptr<network::Agent> agent = nullptr;
 
+
+	CarAsset* owned_car;
+
+	// random color for better debug visualization
 	lrgb col;
 
 	Citizen (Random& r, Building* initial_building) { // TODO: spawn citizens on map edge (on path)
-		building = initial_building;
+		target_building = initial_building;
 
 		col = hsv2rgb(r.uniformf(), 1.0f, 0.8f);
 	}
-	
-	float car_len () {
-		return asset->mesh.aabb.size().x;
+
+	bool selectable () {
+		// can only select while driving currently
+		return agent != nullptr;
 	}
 	SelCircle get_sel_shape () {
+		auto c = lrgb(0.04f, 1, 0.04f);
 		if (agent)
-			return { agent->center(), car_len()*0.5f, lrgb(0.04f, 1, 0.04f) };
-		return SelCircle{};
+			return { agent->center(), agent->car_len()*0.5f, c };
+		return { target_building->pos, 1, c };
 	}
 };
 
@@ -683,7 +693,7 @@ struct App : public Engine {
 					auto* car_asset = rand_car.get_random(rand)->get();
 					
 					entities.citizens[i] = std::make_unique<Citizen>(Citizen{rand, building});
-					entities.citizens[i]->asset = car_asset;
+					entities.citizens[i]->owned_car = car_asset;
 				}
 			}
 		}

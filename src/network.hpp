@@ -190,6 +190,19 @@ struct Agent {
 
 	Building* start = nullptr;
 	Building* end   = nullptr;
+
+
+	float speed = 0; // real speed
+
+	// speed (delta position) / delta beizer t
+	float bez_speed;
+
+	float brake;
+
+	// curvature, ie. 1/turn_radius, positive means left
+	float turn_curv = 0;
+
+	AgentState state;
 	
 
 	float3 front_pos;
@@ -205,15 +218,6 @@ struct Agent {
 	
 	float car_len ();
 	void calc_pos (float3* pos, float* ang);
-
-	float speed = 0; // real speed
-
-	// speed (delta position) / delta beizer t
-	float bez_speed;
-
-	float brake;
-
-	AgentState state;
 };
 
 struct NodeAgent {

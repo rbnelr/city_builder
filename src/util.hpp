@@ -149,6 +149,8 @@ struct Bezier3 {
 		// vel = dpos / t -> (x/dt) / (dpos/dt) -> x/dpos
 		// so it seems this actually normalizes the curvature to be decoupled from your t (parameter) space
 		// and always be correct in position space
+
+		// curvature is positive when the curve curves CCW, since atan grows CCW
 		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
 		float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
 
@@ -521,23 +523,17 @@ struct NullableVariant {
 
 struct SelCircle {
 	float3   pos;
-	float    radius = -1;
+	float    radius;
 	lrgb     col;
 
-	bool valid () {
-		return radius > 0;
-	}
-
 	bool test (Ray const& ray, float* hit_dist) {
-		return valid() && intersect_circle_ray(pos, radius, ray, hit_dist);
+		return intersect_circle_ray(pos, radius, ray, hit_dist);
 	}
 	
 	void highlight () {
-		assert(valid());
 		g_dbgdraw.wire_circle(pos, radius + 0.25f, lrgba(1,1,1,1), 32);
 	}
 	void highlight_selected (float tint=0, lrgba tint_col=0) {
-		assert(valid());
 		lrgba tinted = lerp(lrgba(col,1), tint_col, tint);
 		g_dbgdraw.wire_circle(pos, radius, tinted, 32);
 	}

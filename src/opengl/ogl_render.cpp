@@ -1280,7 +1280,7 @@ struct OglRenderer : public Renderer {
 				float ang;
 				entity->agent->calc_pos(&center, &ang);
 
-				instances[i].mesh_id = car_renderer.asset2mesh_id[entity->asset];
+				instances[i].mesh_id = car_renderer.asset2mesh_id[entity->owned_car];
 				instances[i].pos = center;
 				instances[i].rot = float3(entity->agent->suspension_ang, ang);
 				instances[i].col = entity->col;

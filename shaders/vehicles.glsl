@@ -25,10 +25,6 @@ layout(location = 7) in vec3  instance_col;
 // could get these like this as well, if ssbo is needed anyway for bone array like access
 // -> instance[gl_InstanceID].posx, instance[gl_InstanceID].posy ...
 
-uniform float time = 0;
-uniform mat4 _mats[5];
-uniform mat4 _mats_inv[5];
-
 void main () {
 	// heading rotation
 	//mat4 rot_mat = mat4(mat_rotateZ(instance_rot.z));
@@ -52,17 +48,7 @@ void main () {
 	//	rot_mat = rot_mat * (bone2mesh * bone_rot * mesh2bone);
 	//}
 	
-	float rotX = instance[instance_id].bone_rot[mesh_boneID*3  ];
-	float rotY = instance[instance_id].bone_rot[mesh_boneID*3+1];
-	float rotZ = instance[instance_id].bone_rot[mesh_boneID*3+2];
-	
-	mat4 heading_rot = mat4(mat_rotateZ(rotZ));
-	mat4 bone_rot = mat4(mat_rotate_eulerXY(rotX, rotY));
-	
-	mat4 mesh2bone = _mats[mesh_boneID];
-	mat4 bone2mesh = _mats_inv[mesh_boneID];
-	
-	mat4 bone_transform = heading_rot * (bone2mesh * (bone_rot * mesh2bone));
+	mat4 bone_transform = mat4(instance[instance_id].bone_rot[mesh_boneID]);
 	
 	v.world_pos    = (bone_transform * vec4(mesh_pos, 1.0)).xyz + instance_pos;
 	v.world_normal = mat3(bone_transform) * mesh_normal;

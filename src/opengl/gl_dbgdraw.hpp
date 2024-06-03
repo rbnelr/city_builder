@@ -108,8 +108,8 @@ struct glDebugDraw {
 		float4 col;
 	
 		VERTEX_CONFIG(
-			ATTRIB(FLT4, IndirectLineVertex, pos),
-			ATTRIB(FLT4, IndirectLineVertex, col),
+			ATTRIB(FLT,4, IndirectLineVertex, pos),
+			ATTRIB(FLT,4, IndirectLineVertex, col),
 		)
 	};
 	//struct IndirectWireInstace {

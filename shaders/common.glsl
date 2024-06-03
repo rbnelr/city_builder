@@ -83,18 +83,49 @@ sampler2D bindless_tex (int tex_id) {
 
 //#include "dbg_indirect_draw.glsl"
 
-mat3 instance_rot_mat (float rot) {
+mat3 mat_rotateX (float rot) {
 	float s = sin(rot);
 	float c = cos(rot);
-	mat3 rot_mat = mat3( // Column major for some insane reason!
+	return mat3( // Column major for some insane reason!
+		 1,  0,  0,
+		 0,  c,  s,
+		 0, -s,  c
+	);
+}
+mat3 mat_rotateY (float rot) {
+	float s = sin(rot);
+	float c = cos(rot);
+	return mat3( // Column major for some insane reason!
+		 c,  0, -s,
+		 0,  1,  0,
+		 s,  0,  c
+	);
+}
+mat3 mat_rotateZ (float rot) {
+	float s = sin(rot);
+	float c = cos(rot);
+	return mat3( // Column major for some insane reason!
 		 c,  s,  0,
 		-s,  c,  0,
 		 0,  0,  1
 	);
-	return rot_mat;
 }
 
-mat3 instance_euler_mat (float z, float y, float x) {
+mat3 mat_rotate_eulerXY (float x, float y) {
+	float sx = sin(x);
+	float cx = cos(x);
+	
+	float sy = sin(y);
+	float cy = cos(y);
+	
+	return mat3(
+		   cy,    0,    -sy, 
+		sy*sx,  +cx,  cy*sx, 
+		sy*cx,  -sx,  cy*cx 
+	);
+}
+
+mat3 mat_rotate_eulerXYZ (float x, float y, float z) {
 	float sx = sin(x);
 	float cx = cos(x);
 	
@@ -104,29 +135,11 @@ mat3 instance_euler_mat (float z, float y, float x) {
 	float sz = sin(z);
 	float cz = cos(z);
 	
-	//mat3 matX = mat3(
-	//	   1,   0,   0,
-	//	   0,  cx,  sx,
-	//	   0, -sx,  cx
-	//);
-	//mat3 matY = mat3(
-	//	  cy,   0, -sy,
-	//	   0,   1,   0,
-	//	  sy,   0,  cy
-	//);
-	//mat3 matZ = mat3( // Column major for some insane reason!
-	//	  cz,  sz,   0,
-	//	 -sz,  cz,   0,
-	//	   0,   0,   1
-	//);
-	//return matZ * matY * matX;
-	
-	mat3 matZYX = mat3(
+	return mat3(
 		             cz*cy,               sz*cy,    -sy, 
 		cz*(sy*sx) - sz*cx,  sz*(sy*sx) + cz*cx,  cy*sx, 
 		cz*(sy*cx) + sz*sx,  sz*(sy*cx) - cz*sx,  cy*cx 
 	);
-	return matZYX;
 }
 
 uniform sampler2D clouds;

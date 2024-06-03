@@ -12,12 +12,21 @@ struct glDrawElementsIndirectCommand {
 	uint  baseInstance;
 };
 
-struct MeshInstance {
+// float x,y,z instead of vec3 to avoid alignment being applied (VBO instance buffer does not align, C++ float3 does not align and we can simply read as floats and turn them into a vec3
+struct StaticEntityInstance {
 	uint  mesh_id;
-	float posx, posy, posz; // Avoid alignment, not needed here anyway
-	float rotx, roty, rotz;
-	float colr, colg, colb; // Avoid alignment, not needed here anyway
+	float posx, posy, posz;
+	float rotx;
+	float colr, colg, colb;
 };
+struct VehicleInstance {
+	uint  mesh_id;
+	float posx, posy, posz;
+	float rotx, roty, rotz;
+	float colr, colg, colb;
+	float steer_ang;
+};
+
 struct MeshInfo {
 	uint mesh_lod_id; // index of MeshLodInfos [lods]
 	uint lods;
@@ -33,7 +42,9 @@ layout(std430, binding = 2) restrict buffer CommandsBuf {
 	glDrawElementsIndirectCommand cmd[];
 };
 layout(std430, binding = 3) restrict buffer InstancesBuf {
-	MeshInstance instance[];
+	// TODO: we only rely on certain instance infos like position to compute lod
+	// instead of needing to macro-ize shader for each instance vertex layout, could possibly read using some kind of buffer read where we just have a uniform int stride?
+	INSTANCE_T instance[];
 };
 layout(std430, binding = 4) restrict buffer MeshInfoBuf {
 	MeshInfo mesh_info[];

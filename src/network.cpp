@@ -325,10 +325,10 @@ void debug_node (App& app, Node* node, View3D const& view) {
 	{
 		int i=0;
 		for (auto& agent : node->agents.test.list) {
-			g_dbgdraw.wire_circle(agent.agent->cit->center(), agent.agent->car_len()*0.5f, lrgba(1,0,0.5f,1));
+			g_dbgdraw.wire_circle(agent.agent->center(), agent.agent->car_len()*0.5f, lrgba(1,0,0.5f,1));
 	
 			g_dbgdraw.text.draw_text(prints("%d%s", i++, agent.blocked ? " B":""),
-				30, 1, g_dbgdraw.text.map_text(agent.agent->cit->center(), view));
+				30, 1, g_dbgdraw.text.map_text(agent.agent->center(), view));
 		}
 	}
 
@@ -390,7 +390,7 @@ void debug_node (App& app, Node* node, View3D const& view) {
 	//	}
 	//}
 }
-void debug_citizen (App& app, Citizen* cit) {
+void debug_citizen (App& app, Citizen* cit, View3D const& view) {
 	if (!cit || !cit->agent) return;
 
 	float start_t = cit->agent->bez_t;
@@ -409,6 +409,22 @@ void debug_citizen (App& app, Citizen* cit) {
 	static ValuePlotter speed_plot = ValuePlotter();
 	speed_plot.push_value(cit->agent->speed);
 	speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
+
+	if (cit->asset->name == "combi") {
+		for (auto& m : _mats) {
+			float3 center;
+			float ang;
+			cit->agent->calc_pos(&center, &ang);
+
+			auto mat = translate(center) * rotate3_Z(ang) * inverse(m);
+
+			auto pos = (float3)(mat * float4(0,0,0,1));
+			g_dbgdraw.point(pos, 0.01f, lrgba(0,0,0,1));
+			g_dbgdraw.line(pos, (float3)(mat * float4(.1f,0,0,1)), lrgba(1,0,0,1));
+			g_dbgdraw.line(pos, (float3)(mat * float4(0,.1f,0,1)), lrgba(0,1,0,1));
+			g_dbgdraw.line(pos, (float3)(mat * float4(0,0,.1f,1)), lrgba(0,0,1,1));
+		}
+	}
 }
 
 void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col) {
@@ -418,7 +434,7 @@ void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col
 
 	dist = max(dist, 0.0f);
 
-	float3 pos = cur->cit->front_pos;
+	float3 pos = cur->front_pos;
 	float3 dir = normalizesafe(obstacle - pos);
 	float3 end = pos + float3(dir,0)*dist;
 	float3 normal = float3(rotate90(dir), 0);
@@ -428,7 +444,7 @@ void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col
 }
 void _FORCEINLINE dbg_brake_for_agent (App& app, Agent* cur, float dist, Agent* obstacle) {
 	if (app.selection.get<Citizen*>() == cur->cit) {
-		float3 center = (obstacle->cit->rear_pos + obstacle->cit->front_pos) * 0.5f;
+		float3 center = (obstacle->rear_pos + obstacle->front_pos) * 0.5f;
 		dbg_brake_for(app, cur, dist, center, lrgba(1,0.1f,0,1));
 	}
 }
@@ -1024,12 +1040,17 @@ float get_cur_speed_limit (Agent* agent) {
 float network::Agent::car_len () {
 	return cit->car_len();
 }
+void network::Agent::calc_pos (float3* pos, float* ang) {
+	float3 dir = front_pos - rear_pos;
+	*pos = front_pos - normalizesafe(dir) * cit->car_len()*0.5f;
+	*ang = angle2d((float2)dir);
+}
 
 void update_vehicle_suspension (App& app, Agent& agent, float2 local_accel, float dt) {
 	// assume constant mass
 
-	float2 ang = agent.cit->suspension_ang;
-	float2 vel = agent.cit->suspension_ang_vel;
+	float2 ang = agent.suspension_ang;
+	float2 vel = agent.suspension_ang_vel;
 
 	// spring resitive accel
 	//float2 accel = -ang * app.net.settings.suspension_spring_k;
@@ -1048,8 +1069,8 @@ void update_vehicle_suspension (App& app, Agent& agent, float2 local_accel, floa
 	ang = clamp(ang, -app.net.settings.suspension_max_ang,
 	                 +app.net.settings.suspension_max_ang);
 
-	agent.cit->suspension_ang = ang;
-	agent.cit->suspension_ang_vel = vel;
+	agent.suspension_ang = ang;
+	agent.suspension_ang_vel = vel;
 }
 
 void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
@@ -1108,8 +1129,8 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	// actually move car rear using (bogus) trailer formula
 	float2 new_front = bez_res.pos;
 	
-	float2 old_front = (float2)agent->cit->front_pos;
-	float2 old_rear  = (float2)agent->cit->rear_pos;
+	float2 old_front = (float2)agent->front_pos;
+	float2 old_rear  = (float2)agent->rear_pos;
 
 	float2 forw = normalizesafe(old_front - old_rear);
 	float2 right = -rotate90(forw);
@@ -1120,14 +1141,14 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 
 	float2 new_rear = new_front - normalizesafe(new_front - ref_point) * car_len;
 
-	agent->cit->front_pos = float3(new_front, agent->state.pos_z);
-	agent->cit->rear_pos  = float3(new_rear,  agent->state.pos_z);
+	agent->front_pos = float3(new_front, agent->state.pos_z);
+	agent->rear_pos  = float3(new_rear,  agent->state.pos_z);
 	
 	{
 		float2 old_center = (old_front + old_rear) * 0.5f;
 		float2 new_center = (new_front + new_rear) * 0.5f;
 		float2 center_vel = (new_center - old_center) / dt;
-		float2 center_accel = (center_vel - float2(agent->cit->vel)) / dt;
+		float2 center_accel = (center_vel - float2(agent->vel)) / dt;
 
 		if (agent->cit == app.selection.get<Citizen*>()) {
 			g_dbgdraw.arrow(float3(new_front, agent->state.pos_z), float3(center_vel, 0), 0.2f, lrgba(0,0,1,1));
@@ -1145,12 +1166,12 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 		if (agent->cit == app.selection.get<Citizen*>()) {
 			//printf("%7.3f %7.3f  |  %7.3f %7.3f\n", center_accel.x, center_accel.y, center_vel.x, center_vel.y);
 			
-			float2 a = right * agent->cit->suspension_ang.x + forw * agent->cit->suspension_ang.y;
+			float2 a = right * agent->suspension_ang.x + forw * agent->suspension_ang.y;
 			g_dbgdraw.point(float3(new_center, agent->state.pos_z), 0.3f, lrgba(.5f,.5f,.1f,0.5f));
 			g_dbgdraw.point(float3(new_center + a*10, agent->state.pos_z), 0.3f, lrgba(1,1,0.5f,1));
 		}
 
-		agent->cit->vel = float3(center_vel, 0);
+		agent->vel = float3(center_vel, 0);
 	}
 }
 
@@ -1166,13 +1187,11 @@ void Network::simulate (App& app) {
 	pathing_count = 0;
 
 	float dt = app.sim_paused ? 0 : app.input.dt * app.sim_speed;
+	app._test_time += dt;
 
 	auto do_pathfind = [&] (Citizen* cit) {
 		auto* cur_target = app.entities.buildings[ app.test_rand.uniformi(0, (int)app.entities.buildings.size()) ].get();
-	
-		cit->front_pos = cit->building->pos;
-		cit->rear_pos = cit->front_pos;
-
+		
 		assert(cit->building->connected_segment);
 		if (cit->building->connected_segment) {
 			ZoneScopedN("pathfind");
@@ -1251,7 +1270,7 @@ void Network::simulate (App& app) {
 
 void Network::draw_debug (App& app, View3D& view) {
 	debug_node(app, app.selection.get<Node*>(), view);
-	debug_citizen(app, app.selection.get<Citizen*>());
+	debug_citizen(app, app.selection.get<Citizen*>(), view);
 }
 
 } // namespace network

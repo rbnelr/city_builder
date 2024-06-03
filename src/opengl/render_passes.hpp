@@ -312,7 +312,7 @@ struct DecalRenderer {
 		float3 pos;
 
 		VERTEX_CONFIG(
-			ATTRIB(FLT3, Vertex, pos),
+			ATTRIB(FLT,3, Vertex, pos),
 		)
 	};
 	struct Instance {
@@ -324,12 +324,12 @@ struct DecalRenderer {
 		float4 col;
 
 		VERTEX_CONFIG(
-			ATTRIB(FLT3, Instance, pos),
-			ATTRIB(FLT,  Instance, rot),
-			ATTRIB(FLT3, Instance, size),
-			ATTRIB(INT,  Instance, tex_id),
-			ATTRIB(FLT2, Instance, uv_scale),
-			ATTRIB(FLT4, Instance, col),
+			ATTRIB(FLT,3, Instance, pos),
+			ATTRIB(FLT,1, Instance, rot),
+			ATTRIB(FLT,3, Instance, size),
+			ATTRIB(INT,1, Instance, tex_id),
+			ATTRIB(FLT,2, Instance, uv_scale),
+			ATTRIB(FLT,4, Instance, col),
 		)
 	};
 	
@@ -398,9 +398,9 @@ struct DefferedPointLightRenderer {
 		float3 col;
 
 		VERTEX_CONFIG(
-			ATTRIB(FLT3, MeshInstance, pos),
-			ATTRIB(FLT , MeshInstance, radius),
-			ATTRIB(FLT3, MeshInstance, col),
+			ATTRIB(FLT,3, MeshInstance, pos),
+			ATTRIB(FLT,1, MeshInstance, radius),
+			ATTRIB(FLT,3, MeshInstance, col),
 		)
 	};
 

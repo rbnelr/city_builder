@@ -64,18 +64,6 @@ struct Citizen {
 
 	lrgb col;
 
-	// TODO: get rid of this? This is not persistent data (and citizens in buildings don't need to be drawn)
-	float3 front_pos;
-	float3 rear_pos;
-
-	float3 vel = 0;
-
-	// suspension (ie. car wobble) angles based on car acceleration on forward and sideways axes (computed seperately)
-	float2 suspension_ang = 0; // angle in radians, X: sideways (rotation on local X), Y: forwards
-	float2 suspension_ang_vel = 0; // angular velocity in radians
-
-	float3 center () { return (front_pos + rear_pos)*0.5; };
-
 	Citizen (Random& r, Building* initial_building) { // TODO: spawn citizens on map edge (on path)
 		building = initial_building;
 
@@ -86,13 +74,9 @@ struct Citizen {
 		return asset->mesh.aabb.size().x;
 	}
 	SelCircle get_sel_shape () {
-		return { center(), car_len()*0.5f, lrgb(0.04f, 1, 0.04f) };
-	}
-	
-	void calc_pos (float3* pos, float* ang) {
-		float3 dir = front_pos - rear_pos;
-		*pos = front_pos - normalizesafe(dir) * car_len()*0.5f;
-		*ang = angle2d((float2)dir);
+		if (agent)
+			return { agent->center(), car_len()*0.5f, lrgb(0.04f, 1, 0.04f) };
+		return SelCircle{};
 	}
 };
 
@@ -325,10 +309,10 @@ struct CameraTrack {
 	void update (sel_ptr selection, float3* cam_pos, float* cam_rot) {
 		auto* sel = selection.get<Citizen*>();
 
-		if (track && sel) {
+		if (track && sel && sel->agent) {
 			float3 pos;
 			float ang;
-			sel->calc_pos(&pos, &ang);
+			sel->agent->calc_pos(&pos, &ang);
 			
 			if (!cur_tracking) {
 				//*cam_pos -= pos;
@@ -399,6 +383,8 @@ struct App : public Engine {
 
 		net.imgui();
 	}
+
+	float _test_time = 0;
 
 	Settings settings;
 	

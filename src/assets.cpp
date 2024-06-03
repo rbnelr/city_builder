@@ -63,8 +63,8 @@ namespace assimp {
 				auto& b = m->mBones[j];
 				printf("    bone[%d]: \"%s\"\n", j, b->mName.C_Str());
 
-				auto mat = get_matrix(b->mOffsetMatrix);
-				printf("");
+				//auto mat = get_matrix(b->mOffsetMatrix);
+				//printf("");
 			}
 
 			printf("  }\n");
@@ -77,8 +77,8 @@ namespace assimp {
 
 	template <typename IDX_T>
 	void push_face_indices (aiMesh const* mesh, std::vector<IDX_T>& indices, int first_vertex) {
-		for (unsigned j=0; j<mesh->mNumFaces; ++j) {
-			auto& f = mesh->mFaces[j];
+		for (unsigned i=0; i<mesh->mNumFaces; ++i) {
+			auto& f = mesh->mFaces[i];
 			assert(f.mNumIndices == 3);
 
 			for (unsigned k=0; k<3; ++k) {
@@ -92,15 +92,14 @@ namespace assimp {
 	void load_mesh_data (aiMesh const* mesh, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB3& aabb) {
 		int first_vertex = (int)data.vertices.size();
 		
-		for (unsigned j=0; j<mesh->mNumVertices; ++j) {
+		for (unsigned i=0; i<mesh->mNumVertices; ++i) {
 			data.vertices.emplace_back();
 			auto& v = data.vertices.back();
 
-			auto& pos  = mesh->mVertices[j];
-			auto& norm = mesh->mNormals[j];
-			auto* bones = mesh->mBones ? mesh->mBones[j] : nullptr;
-			auto* uv   = &mesh->mTextureCoords[0][j];
-			auto* col  = &mesh->mColors[0][j];
+			auto& pos  = mesh->mVertices[i];
+			auto& norm = mesh->mNormals[i];
+			auto* uv   = &mesh->mTextureCoords[0][i];
+			auto* col  = &mesh->mColors[0][i];
 
 			v.pos    = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
 			v.normal = (float3)(transform * float4(norm.x, norm.y, norm.z, 0.0f));
@@ -108,6 +107,42 @@ namespace assimp {
 			//v.col  = mesh->mColors[0] ? float4(col->r, col->g, col->b, col->a) : lrgba(1,1,1,1);
 
 			aabb.add(v.pos);
+		}
+
+		push_face_indices(mesh, data.indices, first_vertex);
+	}
+	void load_mesh_data (aiMesh const* mesh, float4x4 const& transform, Mesh<SimpleAnimVertex, uint16_t>& data, AABB3& aabb) {
+		int first_vertex = (int)data.vertices.size();
+		
+		for (unsigned i=0; i<mesh->mNumVertices; ++i) {
+			data.vertices.emplace_back();
+			auto& v = data.vertices.back();
+
+			auto& pos  = mesh->mVertices[i];
+			auto& norm = mesh->mNormals[i];
+			auto* uv   = &mesh->mTextureCoords[0][i];
+			auto* col  = &mesh->mColors[0][i];
+
+			v.pos    = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
+			v.normal = (float3)(transform * float4(norm.x, norm.y, norm.z, 0.0f));
+			v.uv     = mesh->mTextureCoords[0] ? float2(uv->x, uv->y) : float2(0.0f);
+			//v.col  = mesh->mColors[0] ? float4(col->r, col->g, col->b, col->a) : lrgba(1,1,1,1);
+			v.boneID = (uint8_t)-1;
+
+			aabb.add(v.pos);
+		}
+		
+		assert(mesh->mNumBones <= 255);
+		for (unsigned bone_id=0; bone_id<mesh->mNumBones; ++bone_id) {
+			auto* b = mesh->mBones[bone_id];
+
+			for (unsigned j=0; j<b->mNumWeights; ++j) {
+				unsigned vert_id = b->mWeights[j].mVertexId;
+				assert(vert_id >= 0 && vert_id < mesh->mNumVertices);
+				if (b->mWeights[j].mWeight > 0.5f) {
+					data.vertices[vert_id].boneID = (uint8_t)bone_id;
+				}
+			}
 		}
 
 		push_face_indices(mesh, data.indices, first_vertex);
@@ -141,37 +176,7 @@ namespace assimp {
 		for (unsigned int i=0; i<node->mNumChildren; ++i)
 			load_join_mesh_recurse(scene, node->mChildren[i], mat, args...);
 	}
-	
-	//void find_wheel_bones (aiScene const* scene, aiNode const* node, float4x4 const& transform) {
-	//	float4x4 mat = node_transform(node, transform);
-	//
-	//	if (strcmp(scene->mMetaData->mKeys[i].C_Str(), "UnitScaleFactor") == 0) {
-	//		float fac = 1.0f;
-	//		if (scene->mMetaData->mValues[i].mType == AI_DOUBLE) fac = (float)*(double*)scene->mMetaData->mValues[i].mData;
-	//		if (scene->mMetaData->mValues[i].mType == AI_FLOAT)  fac =        *(float*) scene->mMetaData->mValues[i].mData;
-	//		scl *= fac;
-	//	}
-	//	node->mName
-	//
-	//	for (unsigned int i=0; i<node->mNumChildren; ++i)
-	//		find_wheel_bones(node->mChildren[i], mat);
-	//	
-	//	//for (unsigned int i=0; i<node->mNumChildren; ++i)
-	//	//	load_join_mesh_recurse(scene, node->mChildren[i], mat, args...);
-	//}
-	void find_wheel_bones (aiScene const* scene, float4x4 const& transform) {
-		//scene->mNumSkeletons;
-	
-		//for (unsigned int i=0; i<node->mNumMeshes; ++i) {
-		//	unsigned int mesh_idx = node->mMeshes[i];
-		//	assert(mesh_idx < scene->mNumMeshes);
-		//	load_mesh_data(scene->mMeshes[mesh_idx], mat, args...);
-		//}
-		//
-		//for (unsigned int i=0; i<node->mNumChildren; ++i)
-		//	load_join_mesh_recurse(scene, node->mChildren[i], mat, args...);
-	}
-	
+
 	float4x4 get_base_transform (aiScene const* scene) {
 		
 		float scl = 1.0f / 100; // fbx seems to use centimeter units (with UnitScaleFactor 1) 
@@ -187,7 +192,8 @@ namespace assimp {
 		return (float4x4)scale(float3(scl));
 	}
 
-	bool load (char const* filename, AssetMesh<BasicVertex>* out_mesh) {
+	template <typename V>
+	bool load (char const* filename, AssetMesh<V>* out_mesh) {
 		Assimp::Importer importer;
 
 		auto* scene = importer.ReadFile(filename, aiProcess_Triangulate|aiProcess_JoinIdenticalVertices|aiProcess_CalcTangentSpace|aiProcess_ImproveCacheLocality);
@@ -202,7 +208,18 @@ namespace assimp {
 		
 		if (!scene->mRootNode) return false;
 
-		find_wheel_bones(scene, transform);
+		for (unsigned int i=0; i<scene->mNumMeshes; ++i) {
+			auto* m = scene->mMeshes[i];
+
+			for (unsigned j=0; j<m->mNumBones; ++j) {
+				auto& b = m->mBones[j];
+
+				_mats[j] = get_matrix(b->mOffsetMatrix);
+
+				//auto mat = get_matrix(b->mOffsetMatrix);
+				//printf("");
+			}
+		}
 
 		auto find_node = [&] (std::string_view tag) -> aiNode* {
 			for (unsigned int i=0; i<scene->mRootNode->mNumChildren; ++i) {
@@ -222,8 +239,15 @@ namespace assimp {
 		}
 
 		return out_mesh->mesh_lods.size() > 0 &&
-			out_mesh->mesh_lods[0].vertices.size() > 0 &&
-			out_mesh->mesh_lods[0].indices.size() > 0;
+		       out_mesh->mesh_lods[0].vertices.size() > 0 &&
+		       out_mesh->mesh_lods[0].indices.size() > 0;
+	}
+	
+	bool load (char const* filename, AssetMesh<BasicVertex,      uint16_t>* out_mesh) {
+		return load<>(filename, out_mesh);
+	}
+	bool load (char const* filename, AssetMesh<SimpleAnimVertex, uint16_t>* out_mesh) {
+		return load<>(filename, out_mesh);
 	}
 	
 	bool load_simple (char const* filename, SimpleMesh* out_mesh) {

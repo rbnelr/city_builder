@@ -17,11 +17,11 @@ layout(location = 1) in vec3  mesh_normal;
 layout(location = 2) in vec2  mesh_uv;
 //layout(location = 3) in int   mesh_id;
 layout(location = 4) in vec3  instance_pos;
-layout(location = 5) in vec3  instance_rot;
+layout(location = 5) in float instance_rot;
 layout(location = 6) in vec3  instance_col;
 
 void main () {
-	mat3 rot_mat = instance_euler_mat(instance_rot.z, instance_rot.y, instance_rot.x);
+	mat3 rot_mat = mat_rotateZ(instance_rot);
 	
 	v.world_pos    = rot_mat * mesh_pos + instance_pos;
 	v.world_normal = rot_mat * mesh_normal;

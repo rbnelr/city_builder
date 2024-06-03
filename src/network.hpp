@@ -190,6 +190,21 @@ struct Agent {
 
 	Building* start = nullptr;
 	Building* end   = nullptr;
+	
+
+	float3 front_pos;
+	float3 rear_pos;
+
+	float3 vel = 0;
+
+	// suspension (ie. car wobble) angles based on car acceleration on forward and sideways axes (computed seperately)
+	float2 suspension_ang = 0; // angle in radians, X: sideways (rotation on local X), Y: forwards
+	float2 suspension_ang_vel = 0; // angular velocity in radians
+
+	float3 center () { return (front_pos + rear_pos)*0.5; };
+	
+	float car_len ();
+	void calc_pos (float3* pos, float* ang);
 
 	float speed = 0; // real speed
 
@@ -199,8 +214,6 @@ struct Agent {
 	float brake;
 
 	AgentState state;
-
-	float car_len ();
 };
 
 struct NodeAgent {

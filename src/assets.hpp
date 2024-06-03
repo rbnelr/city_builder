@@ -38,9 +38,9 @@ struct BasicVertex {
 	float2 uv;
 		
 	VERTEX_CONFIG(
-		ATTRIB(FLT3, BasicVertex, pos),
-		ATTRIB(FLT3, BasicVertex, normal),
-		ATTRIB(FLT2, BasicVertex, uv),
+		ATTRIB(FLT,3, BasicVertex, pos),
+		ATTRIB(FLT,3, BasicVertex, normal),
+		ATTRIB(FLT,2, BasicVertex, uv),
 	)
 };
 // Mesh with anim bones but no interpolation between bones (single bone per vertex and no bone weights)
@@ -49,19 +49,20 @@ struct SimpleAnimVertex {
 	float3  pos;
 	float3  normal;
 	float2  uv;
-	uint8_t bone;
+	uint8_t boneID;
 	
 	VERTEX_CONFIG(
-		ATTRIB(FLT3, BasicVertex, pos),
-		ATTRIB(FLT3, BasicVertex, normal),
-		ATTRIB(FLT2, BasicVertex, uv),
+		ATTRIB(FLT,3, SimpleAnimVertex, pos),
+		ATTRIB(FLT,3, SimpleAnimVertex, normal),
+		ATTRIB(FLT,2, SimpleAnimVertex, uv),
+		ATTRIB(UBYTE,1, SimpleAnimVertex, boneID),
 	)
 };
 struct VertexPos3 {
 	float3 pos;
 
 	VERTEX_CONFIG(
-		ATTRIB(FLT3, VertexPos3, pos),
+		ATTRIB(FLT,3, VertexPos3, pos),
 	)
 };
 
@@ -83,7 +84,9 @@ typedef Mesh<VertexPos3, uint16_t> SimpleMesh;
 template <typename VERT_T, typename IDX_T=uint16_t> struct AssetMesh;
 
 namespace assimp {
-	bool load (char const* filename, AssetMesh<BasicVertex>* out_data);
+	bool load (char const* filename, AssetMesh<BasicVertex,      uint16_t>* out_data);
+	bool load (char const* filename, AssetMesh<SimpleAnimVertex, uint16_t>* out_data);
+
 	bool load_simple (char const* filename, SimpleMesh* out_data);
 }
 
@@ -272,12 +275,15 @@ enum class BuildingType {
 };
 NLOHMANN_JSON_SERIALIZE_ENUM(BuildingType, { { BuildingType::RESIDENTIAL, "RESIDENTIAL" }, { BuildingType::COMMERCIAL, "COMMERCIAL" } })
 
-constexpr const char* WHEEL_NAMES[] = {
+//constexpr const char* BASE_BONE_NAME = "Base";
+constexpr const char* WHEEL_BONE_NAMES[] = {
 	"Wheel.FL",
 	"Wheel.FR",
 	"Wheel.BL",
 	"Wheel.BR",
 };
+
+inline float4x4 _mats[5];
 
 struct BuildingAsset {
 	friend SERIALIZE_TO_JSON(BuildingAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, type, citizens, size) }
@@ -325,7 +331,7 @@ struct CarAsset {
 	};
 	std::vector<Wheel> wheels;
 
-	AssetMesh<BasicVertex> mesh;
+	AssetMesh<SimpleAnimVertex> mesh;
 };
 struct PropAsset {
 	friend SERIALIZE_TO_JSON(PropAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename) }

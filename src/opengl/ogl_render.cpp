@@ -72,9 +72,9 @@ struct TriRenderer {
 		float4 col;
 
 		VERTEX_CONFIG(
-			ATTRIB(FLT3, Vertex, pos),
-			ATTRIB(FLT2, Vertex, uv),
-			ATTRIB(FLT4, Vertex, col),
+			ATTRIB(FLT,3, Vertex, pos),
+			ATTRIB(FLT,2, Vertex, uv),
+			ATTRIB(FLT,4, Vertex, col),
 		)
 	};
 
@@ -150,7 +150,7 @@ struct TerrainRenderer {
 		float2 pos;
 
 		VERTEX_CONFIG(
-			ATTRIB(FLT2, TerrainVertex, pos),
+			ATTRIB(FLT,2, TerrainVertex, pos),
 		)
 	};
 	VertexBufferI terrain_chunk = vertex_bufferI<TerrainVertex>("terrain");
@@ -374,7 +374,7 @@ struct SkyboxRenderer {
 		float3 pos;
 		
 		VERTEX_CONFIG(
-			ATTRIB(FLT3, Vertex, pos),
+			ATTRIB(FLT,3, Vertex, pos),
 		)
 	};
 	VertexBufferI skybox = vertex_bufferI<Vertex>("skybox");
@@ -438,29 +438,52 @@ struct SkyboxRenderer {
 	}
 };
 
-template <typename ASSET_T>
+struct StaticEntityInstance {
+	int    mesh_id;
+	float3 pos;
+	float  rot;
+	float3 col; // Just for debug?
+
+	static constexpr const char* name = "StaticEntityInstance";
+	
+	VERTEX_CONFIG(
+		ATTRIB(INT,1, StaticEntityInstance, mesh_id),
+		ATTRIB(FLT,3, StaticEntityInstance, pos),
+		ATTRIB(FLT,1, StaticEntityInstance, rot),
+		ATTRIB(FLT,3, StaticEntityInstance, col),
+	)
+};
+struct VehicleInstance {
+	int    mesh_id;
+	float3 pos;
+	float3 rot; // XY: suspension sway Z: heading
+	float3 col; // Just for debug?
+	float  steer_ang;
+
+	static constexpr const char* name = "VehicleInstance";
+
+	VERTEX_CONFIG(
+		ATTRIB(INT,1, VehicleInstance, mesh_id),
+		ATTRIB(FLT,3, VehicleInstance, pos),
+		ATTRIB(FLT,3, VehicleInstance, rot),
+		ATTRIB(FLT,3, VehicleInstance, col),
+		ATTRIB(FLT,1, VehicleInstance, steer_ang),
+	)
+};
+
+template <typename ASSET_T, typename INSTANCE_T>
 struct EntityRenderer {
 	typedef typename decltype(ASSET_T().mesh)::vert_t vert_t;
 	typedef typename decltype(ASSET_T().mesh)::idx_t  idx_t;
 
 	static constexpr uint32_t COMPUTE_GROUPSZ = 512;
 
-	Shader* shad = g_shaders.compile("entities");
-	Shader* shad_lod_cull = g_shaders.compile("lod_cull", { {"GROUPSZ", prints("%d", COMPUTE_GROUPSZ)} }, { shader::COMPUTE_SHADER });
+	Shader* shad;
+	Shader* shad_lod_cull = g_shaders.compile("lod_cull", {
+			{"GROUPSZ", prints("%d", COMPUTE_GROUPSZ)},
+			{"INSTANCE_T", INSTANCE_T::name},
+		}, { shader::COMPUTE_SHADER });
 
-	struct MeshInstance {
-		int    mesh_id;
-		float3 pos;
-		float3 rot;
-		float3 col; // Just for debug?
-			
-		VERTEX_CONFIG(
-			ATTRIB(INT , MeshInstance, mesh_id),
-			ATTRIB(FLT3, MeshInstance, pos),
-			ATTRIB(FLT3, MeshInstance, rot),
-			ATTRIB(FLT3, MeshInstance, col),
-		)
-	};
 	struct MeshInfo {
 		uint32_t mesh_lod_id; // index of MeshLodInfos [lods]
 		uint32_t lods;
@@ -474,7 +497,7 @@ struct EntityRenderer {
 
 	// All meshes/lods vbo (indexed) GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER
 	// All entities instance data GL_ARRAY_BUFFER
-	VertexBufferInstancedI vbo = vertex_buffer_instancedI<vert_t, MeshInstance>("meshes");
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<vert_t, INSTANCE_T>("meshes");
 		
 	Ssbo ssbo_mesh_info = {"mesh_info"};
 	Ssbo ssbo_mesh_lod_info = {"mesh_lod_info"};
@@ -486,7 +509,8 @@ struct EntityRenderer {
 		
 	uint32_t entities = 0;
 	
-	EntityRenderer () {
+	EntityRenderer (Shader* shad): shad{shad} {
+
 		//int3 sz = -1;
 		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &sz.x);
 		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &sz.y);
@@ -562,7 +586,7 @@ struct EntityRenderer {
 		entities = (uint32_t)instances.size();
 	}
 
-	void draw (StateManager& state, Textures& texs, Texture2D& tex, bool shadow_pass=false) {
+	void draw (StateManager& state, Textures& texs, Texture2D& tex, bool shadow_pass=false, float time=0) {
 		ZoneScoped;
 		OGL_TRACE("draw entities");
 
@@ -615,6 +639,18 @@ struct EntityRenderer {
 			state.bind_textures(shad, {
 				{"tex", tex, texs.sampler_normal},
 			});
+			shad->set_uniform("time", time);
+
+
+			float4x4 mats[ARRLEN(_mats)];
+			float4x4 mats_inv[ARRLEN(_mats)];
+
+			for (int i=0; i<ARRLEN(_mats); ++i) {
+				mats[i] = _mats[i];
+				mats_inv[i] = inverse(_mats[i]);
+			}
+			shad->set_uniform_array("_mats[0]", mats, ARRLEN(mats));
+			shad->set_uniform_array("_mats_inv[0]", mats_inv, ARRLEN(mats_inv));
 
 			glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, entities, 0);
 				
@@ -636,11 +672,11 @@ struct NetworkRenderer {
 		//float4 col;
 
 		VERTEX_CONFIG(
-			ATTRIB(FLT3, Vertex, pos),
-			ATTRIB(FLT3, Vertex, norm),
-			ATTRIB(FLT3, Vertex, tang),
-			ATTRIB(FLT2, Vertex, uv),
-			ATTRIB(INT , Vertex, tex_id),
+			ATTRIB(FLT,3, Vertex, pos),
+			ATTRIB(FLT,3, Vertex, norm),
+			ATTRIB(FLT,3, Vertex, tang),
+			ATTRIB(FLT,2, Vertex, uv),
+			ATTRIB(INT,1, Vertex, tex_id),
 		)
 	};
 
@@ -696,22 +732,20 @@ struct NetworkRenderer {
 };
 
 struct Mesher {
-	EntityRenderer<BuildingAsset>& building_renderer;
-	NetworkRenderer              & network_renderer;
-	EntityRenderer<PropAsset>    & prop_renderer;
-	DefferedPointLightRenderer   & light_renderer;
-	Textures                     & textures;
+	EntityRenderer<BuildingAsset, StaticEntityInstance>& building_renderer;
+	NetworkRenderer                                    & network_renderer;
+	EntityRenderer<PropAsset, StaticEntityInstance>    & prop_renderer;
+	DefferedPointLightRenderer                         & light_renderer;
+	Textures                                           & textures;
 	
-	typedef EntityRenderer<PropAsset>::MeshInstance PropInstance;
-
-	std::vector<EntityRenderer<BuildingAsset>::MeshInstance> building_instances;
-	std::vector<PropInstance>     prop_instances;
+	std::vector<StaticEntityInstance> building_instances;
+	std::vector<StaticEntityInstance> prop_instances;
 	std::vector<DefferedPointLightRenderer::MeshInstance>    light_instances;
 	
 	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
 	std::vector<DecalRenderer::Instance> decals;
 
-	PropInstance& push_prop (PropAsset* asset, float3 pos, float3 rot) {
+	StaticEntityInstance& push_prop (PropAsset* asset, float3 pos, float rot) {
 		auto* i = push_back(prop_instances, 1);
 		
 		i->mesh_id = prop_renderer.asset2mesh_id[asset];
@@ -729,7 +763,7 @@ struct Mesher {
 		i->col = col;
 	}
 	
-	PropInstance& place_prop (network::Segment& seg, float3 shift, float rot, PropAsset* prop) {
+	StaticEntityInstance& place_prop (network::Segment& seg, float3 shift, float rot, PropAsset* prop) {
 		float3 dir = seg.node_b->pos - seg.node_a->pos;
 
 		float3 forw = normalizesafe(dir);
@@ -739,7 +773,7 @@ struct Mesher {
 		float3 pos = seg.pos_a + right * shift.x + forw * shift.y + up * shift.z;
 		rot += angle2d(forw);
 
-		return push_prop(streetlight_asset, pos, float3(0, 0, rot));
+		return push_prop(streetlight_asset, pos, rot);
 	}
 
 
@@ -862,7 +896,7 @@ struct Mesher {
 			while (y < seg._length) {
 				auto& prop = place_prop(seg, light.shift + float3(0,y,0), light.rot, streetlight_asset);
 
-				auto mat = obj_transform(prop.pos, prop.rot.z);
+				auto mat = obj_transform(prop.pos, prop.rot);
 				auto light_pos = mat * light.light.pos;
 				auto col = light.light.col * light.light.strength;
 
@@ -1050,7 +1084,7 @@ struct Mesher {
 
 			building_instances[i].mesh_id = building_renderer.asset2mesh_id[entity->asset];
 			building_instances[i].pos = entity->pos;
-			building_instances[i].rot = float3(0, 0, entity->rot);
+			building_instances[i].rot = entity->rot;
 			building_instances[i].col = 1;
 		}
 
@@ -1205,12 +1239,12 @@ struct OglRenderer : public Renderer {
 	
 	NetworkRenderer network_renderer;
 
-	EntityRenderer<BuildingAsset> building_renderer;
-	EntityRenderer<CarAsset>      car_renderer;
+	EntityRenderer<BuildingAsset, StaticEntityInstance>   building_renderer{ g_shaders.compile("entities") };
+	EntityRenderer<CarAsset,      VehicleInstance>        car_renderer{      g_shaders.compile("vehicles") };
 	// TODO: roll this into building renderer at least (car renderer might want different shader for wheel movement)
 	// but doing so might require some problem solving to unify textures somehow
 	// -> atlas or texture arrays for all texture sizes?
-	EntityRenderer<PropAsset>     prop_renderer;
+	EntityRenderer<PropAsset,     StaticEntityInstance>   prop_renderer{     g_shaders.compile("entities") };
 
 	DefferedPointLightRenderer light_renderer;
 
@@ -1234,20 +1268,21 @@ struct OglRenderer : public Renderer {
 		ZoneScoped;
 
 		car_renderer.update_instances([&] () {
-			std::vector<decltype(car_renderer)::MeshInstance> instances;
+			std::vector<VehicleInstance> instances;
 			instances.resize(app.entities.citizens.size());
 
 			for (uint32_t i=0; i<(uint32_t)app.entities.citizens.size(); ++i) {
 				auto& entity = app.entities.citizens[i];
+				if (!entity->agent) continue;
 
 				// TODO: network code shoud ensure length(dir) == CAR_SIZE
 				float3 center;
 				float ang;
-				entity->calc_pos(&center, &ang);
+				entity->agent->calc_pos(&center, &ang);
 
 				instances[i].mesh_id = car_renderer.asset2mesh_id[entity->asset];
 				instances[i].pos = center;
-				instances[i].rot = float3(entity->suspension_ang, ang);
+				instances[i].rot = float3(entity->agent->suspension_ang, ang);
 				instances[i].col = entity->col;
 			}
 
@@ -1329,7 +1364,7 @@ struct OglRenderer : public Renderer {
 				network_renderer.render(state, textures, true);
 
 				building_renderer.draw(state, textures, textures.house_diff, true);
-				car_renderer.draw(state, textures, textures.car_diff, true);
+				car_renderer.draw(state, textures, textures.car_diff, true, app._test_time);
 				prop_renderer.draw(state, textures, textures.streetlight_diff, true);
 			});
 		}
@@ -1348,7 +1383,7 @@ struct OglRenderer : public Renderer {
 			network_renderer.render_decals(state, passes.gbuf, textures);
 		
 			building_renderer.draw(state, textures, textures.house_diff);
-			car_renderer.draw(state, textures, textures.car_diff);
+			car_renderer.draw(state, textures, textures.car_diff, false, app._test_time);
 			prop_renderer.draw(state, textures, textures.streetlight_diff);
 
 			// TODO: draw during lighting pass?

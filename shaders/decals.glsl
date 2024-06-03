@@ -20,7 +20,7 @@ VS2FS Vertex {
 	layout(location = 6) in vec4  instance_col;
 	
 	void main () {
-		mat3 rot_mat = instance_rot_mat(instance_rot);
+		mat3 rot_mat = mat_rotateZ(instance_rot);
 	
 		vec3 pos_world = (rot_mat * (instance_size * mesh_pos)) + instance_pos;
 		

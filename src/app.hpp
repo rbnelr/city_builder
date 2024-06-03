@@ -37,10 +37,6 @@ struct Building;
 
 typedef NullableVariant<Citizen*, network::Node*> sel_ptr;
 
-struct WorldLoc {
-
-};
-
 struct Building {
 	BuildingAsset* asset;
 

@@ -1065,6 +1065,8 @@ void update_vehicle_suspension (App& app, Agent& agent, float2 local_accel, floa
 
 	// apply vel, pos and clamp
 	vel += accel * dt;
+	vel = clamp(vel, -100, +100);
+
 	ang += vel * dt;
 	ang = clamp(ang, -app.net.settings.suspension_max_ang,
 	                 +app.net.settings.suspension_max_ang);
@@ -1074,7 +1076,7 @@ void update_vehicle_suspension (App& app, Agent& agent, float2 local_accel, floa
 }
 
 void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
-	if (app.sim_paused)
+	if (dt < 0.001f)
 		return;
 
 	assert(agent->bez_t < 1.0f);
@@ -1169,8 +1171,8 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 			//printf("%7.3f %7.3f  |  %7.3f %7.3f\n", center_accel.x, center_accel.y, center_vel.x, center_vel.y);
 			
 			float2 a = right * agent->suspension_ang.x + forw * agent->suspension_ang.y;
-			g_dbgdraw.point(float3(new_center, agent->state.pos_z), 0.3f, lrgba(.5f,.5f,.1f,0.5f));
-			g_dbgdraw.point(float3(new_center + a*10, agent->state.pos_z), 0.3f, lrgba(1,1,0.5f,1));
+			g_dbgdraw.point(float3(new_center, agent->state.pos_z), 0.1f, lrgba(.5f,.5f,.1f,0.5f));
+			g_dbgdraw.point(float3(new_center + a*10, agent->state.pos_z), 0.1f, lrgba(1,1,0.5f,1));
 			
 			float turn_r = 1.0f/agent->turn_curv;
 			g_dbgdraw.wire_circle(float3(new_rear - right * turn_r, agent->state.pos_z), turn_r, lrgba(1,0,0,1), 128);

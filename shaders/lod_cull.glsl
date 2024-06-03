@@ -2,6 +2,8 @@
 layout(local_size_x = GROUPSZ) in;
 #include "common.glsl"
 
+#include "entity_instances.glsl"
+
 // assume uint == uint32_t
 
 struct glDrawElementsIndirectCommand {
@@ -10,21 +12,6 @@ struct glDrawElementsIndirectCommand {
 	uint  firstIndex;
 	int   baseVertex;
 	uint  baseInstance;
-};
-
-// float x,y,z instead of vec3 to avoid alignment being applied (VBO instance buffer does not align, C++ float3 does not align and we can simply read as floats and turn them into a vec3
-struct StaticEntityInstance {
-	uint  mesh_id;
-	float posx, posy, posz;
-	float rotx;
-	float colr, colg, colb;
-};
-struct VehicleInstance {
-	uint  mesh_id;
-	float posx, posy, posz;
-	float rotx, roty, rotz;
-	float colr, colg, colb;
-	float steer_ang;
 };
 
 struct MeshInfo {
@@ -38,13 +25,8 @@ struct MeshLodInfo {
 	uint index_count;
 };
 
-layout(std430, binding = 2) restrict buffer CommandsBuf {
+layout(std430, binding = 3) restrict buffer CommandsBuf {
 	glDrawElementsIndirectCommand cmd[];
-};
-layout(std430, binding = 3) restrict buffer InstancesBuf {
-	// TODO: we only rely on certain instance infos like position to compute lod
-	// instead of needing to macro-ize shader for each instance vertex layout, could possibly read using some kind of buffer read where we just have a uniform int stride?
-	INSTANCE_T instance[];
 };
 layout(std430, binding = 4) restrict buffer MeshInfoBuf {
 	MeshInfo mesh_info[];
@@ -55,8 +37,6 @@ layout(std430, binding = 5) restrict buffer MeshLodInfoBuf {
 
 uniform float lod_bias = -3.0f;
 uniform float lod_fac  = 0.45f;
-
-uniform uint entities;
 
 uint pick_lod (vec3 obj_pos, uint lod_count) {
 	float obj_lod_start = 32.0;
@@ -73,7 +53,7 @@ void main () {
 	//uint idx = atomicAdd(_dbgdrawbuf.lines.cmd.count, 2u);
 	
 	uint i = gl_GlobalInvocationID.x;
-	if (i >= entities) return;
+	if (i >= instances_count) return;
 	
 	vec3 pos = vec3(instance[i].posx, instance[i].posy, instance[i].posz);
 	uint mesh_id = instance[i].mesh_id;

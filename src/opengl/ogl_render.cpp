@@ -455,19 +455,21 @@ struct StaticEntityInstance {
 };
 struct VehicleInstance {
 	int    mesh_id;
+	int    instance_id; // uGH!!!
 	float3 pos;
-	float3 rot; // XY: suspension sway Z: heading
 	float3 col; // Just for debug?
-	float  steer_ang;
+	
+	float pad_0;
+
+	float3 bone_rot[5];
 
 	static constexpr const char* name = "VehicleInstance";
 
 	VERTEX_CONFIG(
 		ATTRIB(INT,1, VehicleInstance, mesh_id),
+		ATTRIB(INT,1, VehicleInstance, instance_id),
 		ATTRIB(FLT,3, VehicleInstance, pos),
-		ATTRIB(FLT,3, VehicleInstance, rot),
 		ATTRIB(FLT,3, VehicleInstance, col),
-		ATTRIB(FLT,1, VehicleInstance, steer_ang),
 	)
 };
 
@@ -507,9 +509,16 @@ struct EntityRenderer {
 
 	std::unordered_map<ASSET_T*, int> asset2mesh_id;
 		
-	uint32_t entities = 0;
+	uint32_t entities_count = 0;
 	
-	EntityRenderer (Shader* shad): shad{shad} {
+	EntityRenderer (const char* shad_name) {
+		shad = g_shaders.compile(shad_name, {
+			{"INSTANCE_T", INSTANCE_T::name},
+		});
+		shad_lod_cull = g_shaders.compile("lod_cull", {
+			{"GROUPSZ", prints("%d", COMPUTE_GROUPSZ)},
+			{"INSTANCE_T", INSTANCE_T::name},
+		}, { shader::COMPUTE_SHADER });
 
 		//int3 sz = -1;
 		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &sz.x);
@@ -583,34 +592,34 @@ struct EntityRenderer {
 		auto instances = get_instances();
 		vbo.stream_instances(instances);
 
-		entities = (uint32_t)instances.size();
+		entities_count = (uint32_t)instances.size();
 	}
 
 	void draw (StateManager& state, Textures& texs, Texture2D& tex, bool shadow_pass=false, float time=0) {
 		ZoneScoped;
 		OGL_TRACE("draw entities");
-
+		
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, vbo.instances);
+		
 		{
 			OGL_TRACE("lod_cull compute");
 				
 			glBindBuffer(GL_ARRAY_BUFFER, indirect_vbo);
-			glBufferData(GL_ARRAY_BUFFER, entities * sizeof(glDrawElementsIndirectCommand), nullptr, GL_STREAM_DRAW);
+			glBufferData(GL_ARRAY_BUFFER, entities_count * sizeof(glDrawElementsIndirectCommand), nullptr, GL_STREAM_DRAW);
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
 			
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, indirect_vbo);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, vbo.instances);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, indirect_vbo);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, ssbo_mesh_info);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ssbo_mesh_lod_info);
-				
+
 			glUseProgram(shad_lod_cull->prog);
 
-			shad_lod_cull->set_uniform("entities", entities);
+			shad_lod_cull->set_uniform("instances_count", entities_count);
 
-			uint32_t groups_x = (entities + COMPUTE_GROUPSZ-1) / COMPUTE_GROUPSZ;
+			uint32_t groups_x = (entities_count + COMPUTE_GROUPSZ-1) / COMPUTE_GROUPSZ;
 			glDispatchCompute(groups_x, 1, 1);
 			glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
-			
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, 0);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, 0);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, 0);
@@ -652,11 +661,13 @@ struct EntityRenderer {
 			shad->set_uniform_array("_mats[0]", mats, ARRLEN(mats));
 			shad->set_uniform_array("_mats_inv[0]", mats_inv, ARRLEN(mats_inv));
 
-			glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, entities, 0);
+			glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, entities_count, 0);
 				
 			glBindVertexArray(0);
 			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 		}
+		
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
 
 		//ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f); // TODO: ????? How to get this info?
 	}
@@ -1239,12 +1250,12 @@ struct OglRenderer : public Renderer {
 	
 	NetworkRenderer network_renderer;
 
-	EntityRenderer<BuildingAsset, StaticEntityInstance>   building_renderer{ g_shaders.compile("entities") };
-	EntityRenderer<CarAsset,      VehicleInstance>        car_renderer{      g_shaders.compile("vehicles") };
+	EntityRenderer<BuildingAsset, StaticEntityInstance>   building_renderer{ "entities" };
+	EntityRenderer<CarAsset,      VehicleInstance>        car_renderer{      "vehicles" };
 	// TODO: roll this into building renderer at least (car renderer might want different shader for wheel movement)
 	// but doing so might require some problem solving to unify textures somehow
 	// -> atlas or texture arrays for all texture sizes?
-	EntityRenderer<PropAsset,     StaticEntityInstance>   prop_renderer{     g_shaders.compile("entities") };
+	EntityRenderer<PropAsset,     StaticEntityInstance>   prop_renderer{     "entities" };
 
 	DefferedPointLightRenderer light_renderer;
 
@@ -1281,9 +1292,17 @@ struct OglRenderer : public Renderer {
 				entity->agent->calc_pos(&center, &ang);
 
 				instances[i].mesh_id = car_renderer.asset2mesh_id[entity->owned_car];
+				instances[i].instance_id = i;
 				instances[i].pos = center;
-				instances[i].rot = float3(entity->agent->suspension_ang, ang);
 				instances[i].col = entity->col;
+				
+
+				float wheel_ang = app._test_time * -deg(360);
+
+				instances[i].bone_rot[0] = float3(entity->agent->suspension_ang.x, ang, -entity->agent->suspension_ang.y);
+				for (int i=1; i<5; ++i) {
+					instances[i].bone_rot[i] = float3(0, ang, wheel_ang);
+				}
 			}
 
 			return instances;
@@ -1364,7 +1383,7 @@ struct OglRenderer : public Renderer {
 				network_renderer.render(state, textures, true);
 
 				building_renderer.draw(state, textures, textures.house_diff, true);
-				car_renderer.draw(state, textures, textures.car_diff, true, app._test_time);
+				car_renderer.draw(state, textures, textures.car_diff);
 				prop_renderer.draw(state, textures, textures.streetlight_diff, true);
 			});
 		}
@@ -1383,7 +1402,7 @@ struct OglRenderer : public Renderer {
 			network_renderer.render_decals(state, passes.gbuf, textures);
 		
 			building_renderer.draw(state, textures, textures.house_diff);
-			car_renderer.draw(state, textures, textures.car_diff, false, app._test_time);
+			car_renderer.draw(state, textures, textures.car_diff);
 			prop_renderer.draw(state, textures, textures.streetlight_diff);
 
 			// TODO: draw during lighting pass?

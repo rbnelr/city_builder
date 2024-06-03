@@ -127,7 +127,7 @@ namespace assimp {
 			v.normal = (float3)(transform * float4(norm.x, norm.y, norm.z, 0.0f));
 			v.uv     = mesh->mTextureCoords[0] ? float2(uv->x, uv->y) : float2(0.0f);
 			//v.col  = mesh->mColors[0] ? float4(col->r, col->g, col->b, col->a) : lrgba(1,1,1,1);
-			v.boneID = (uint8_t)-1;
+			v.boneID = 0; // assume first bone to get reasonable result at least // (uint8_t)-1;
 
 			aabb.add(v.pos);
 		}
@@ -196,7 +196,7 @@ namespace assimp {
 	bool load (char const* filename, AssetMesh<V>* out_mesh) {
 		Assimp::Importer importer;
 
-		auto* scene = importer.ReadFile(filename, aiProcess_Triangulate|aiProcess_JoinIdenticalVertices|aiProcess_CalcTangentSpace|aiProcess_ImproveCacheLocality);
+		auto* scene = importer.ReadFile(filename, aiProcess_Triangulate|aiProcess_JoinIdenticalVertices|aiProcess_CalcTangentSpace|aiProcess_ImproveCacheLocality|aiProcess_PopulateArmatureData);
 		if (!scene) {
 			fprintf(stderr, "Assimp error: %s\n", importer.GetErrorString());
 			return false;

@@ -8,12 +8,11 @@ struct StaticEntityInstance {
 };
 struct VehicleInstance {
 	uint  mesh_id;
+	uint  instance_id;
 	float posx, posy, posz;
 	float colr, colg, colb;
-	float pad_0;
 	
-	float bone_rot[3*5];
-	// Cannot use vec3 bone_rot[5] since vec3 will be padded to vec4 and I don't want to waste memory, and vec3 memory access is likely not faster than 3 float loads anyway? 
+	mat3x4 bone_rot[5];
 };
 layout(std430, binding = 2) restrict buffer InstancesBuf {
 	// TODO: we only rely on certain instance infos like position to compute lod

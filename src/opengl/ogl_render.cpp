@@ -459,9 +459,7 @@ struct VehicleInstance {
 	float3 pos;
 	float3 col; // Just for debug?
 	
-	float pad_0;
-
-	float3 bone_rot[5];
+	float3x4 bone_rot[5];
 
 	static constexpr const char* name = "VehicleInstance";
 
@@ -1297,11 +1295,25 @@ struct OglRenderer : public Renderer {
 				instances[i].col = entity->col;
 				
 
+				float3x3 heading_rot = rotate3_Z(ang);
+
 				float wheel_ang = app._test_time * -deg(360);
 
-				instances[i].bone_rot[0] = float3(entity->agent->suspension_ang.x, ang, -entity->agent->suspension_ang.y);
-				for (int i=1; i<5; ++i) {
-					instances[i].bone_rot[i] = float3(0, ang, wheel_ang);
+				for (int boneID=0; boneID<5; ++boneID) {
+					float3x3 bone_rot;
+					if (boneID == 0) {
+						bone_rot = rotate3_X(entity->agent->suspension_ang.x) * rotate3_Z(-entity->agent->suspension_ang.y);
+					}
+					else {
+						bone_rot = rotate3_Y(0) * rotate3_Z(wheel_ang);
+					}
+					
+					float4x4 mesh2bone = _mats[boneID];
+					float4x4 bone2mesh = inverse(mesh2bone);
+
+					float4x4 bone_transform = float4x4(heading_rot) * (bone2mesh * (float4x4(bone_rot) * mesh2bone));
+
+					instances[i].bone_rot[boneID] = float3x4(bone_transform);
 				}
 			}
 

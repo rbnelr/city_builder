@@ -56,12 +56,13 @@ void main () {
 	float rotY = instance[instance_id].bone_rot[mesh_boneID*3+1];
 	float rotZ = instance[instance_id].bone_rot[mesh_boneID*3+2];
 	
-	mat4 bone_rot = mat4(mat_rotate_eulerXYZ(rotX, rotY, rotZ));
+	mat4 heading_rot = mat4(mat_rotateZ(rotZ));
+	mat4 bone_rot = mat4(mat_rotate_eulerXY(rotX, rotY));
 	
 	mat4 mesh2bone = _mats[mesh_boneID];
 	mat4 bone2mesh = _mats_inv[mesh_boneID];
 	
-	mat4 bone_transform = bone2mesh * (bone_rot * mesh2bone);
+	mat4 bone_transform = heading_rot * (bone2mesh * (bone_rot * mesh2bone));
 	
 	v.world_pos    = (bone_transform * vec4(mesh_pos, 1.0)).xyz + instance_pos;
 	v.world_normal = mat3(bone_transform) * mesh_normal;

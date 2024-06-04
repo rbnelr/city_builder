@@ -410,20 +410,18 @@ void debug_citizen (App& app, Citizen* cit, View3D const& view) {
 	speed_plot.push_value(cit->agent->speed);
 	speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
 
-	if (cit->owned_car->name == "combi") {
-		for (auto& m : _mats) {
-			float3 center;
-			float ang;
-			cit->agent->calc_pos(&center, &ang);
+	for (auto& bone : cit->owned_car->bone_mats) {
+		float3 center;
+		float ang;
+		cit->agent->calc_pos(&center, &ang);
 
-			auto mat = translate(center) * rotate3_Z(ang) * inverse(m);
+		auto mat = translate(center) * rotate3_Z(ang) * bone.bone2mesh;
 
-			auto pos = (float3)(mat * float4(0,0,0,1));
-			g_dbgdraw.point(pos, 0.01f, lrgba(0,0,0,1));
-			g_dbgdraw.line(pos, (float3)(mat * float4(.1f,0,0,1)), lrgba(1,0,0,1));
-			g_dbgdraw.line(pos, (float3)(mat * float4(0,.1f,0,1)), lrgba(0,1,0,1));
-			g_dbgdraw.line(pos, (float3)(mat * float4(0,0,.1f,1)), lrgba(0,0,1,1));
-		}
+		auto pos = (float3)(mat * float4(0,0,0,1));
+		g_dbgdraw.point(pos, 0.01f, lrgba(0,0,0,1));
+		g_dbgdraw.line(pos, (float3)(mat * float4(.1f,0,0,1)), lrgba(1,0,0,1));
+		g_dbgdraw.line(pos, (float3)(mat * float4(0,.1f,0,1)), lrgba(0,1,0,1));
+		g_dbgdraw.line(pos, (float3)(mat * float4(0,0,.1f,1)), lrgba(0,0,1,1));
 	}
 }
 
@@ -1102,7 +1100,8 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	met.total_flow += agent->speed / speed_limit;
 	
 	// move car with speed on bezier based on previous frame delta t
-	agent->bez_t += agent->speed * dt / agent->bez_speed;
+	float delta_dist = agent->speed * dt;
+	agent->bez_t += delta_dist / agent->bez_speed;
 
 	// do bookkeeping when car reaches end of current bezier
 	if (agent->bez_t >= agent->state.end_t) {
@@ -1179,6 +1178,11 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 		}
 
 		agent->vel = float3(center_vel, 0);
+
+		float wheel_circum = agent->cit->owned_car->wheel_r * (2*PI);
+
+		agent->wheel_roll += delta_dist / wheel_circum;
+		agent->wheel_roll = fmodf(agent->wheel_roll, 1.0f);
 	}
 }
 

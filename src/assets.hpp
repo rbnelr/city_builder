@@ -66,6 +66,11 @@ struct VertexPos3 {
 	)
 };
 
+struct BoneMats {
+	float4x4 mesh2bone = float4x4::identity();
+	float4x4 bone2mesh = float4x4::identity();
+};
+
 inline float3x4 obj_transform (float3 pos, float rotZ) {
 	float3x3 rot_mat = rotate3_Z(rotZ);
 	
@@ -84,10 +89,11 @@ typedef Mesh<VertexPos3, uint16_t> SimpleMesh;
 template <typename VERT_T, typename IDX_T=uint16_t> struct AssetMesh;
 
 namespace assimp {
-	bool load (char const* filename, AssetMesh<BasicVertex,      uint16_t>* out_data);
-	bool load (char const* filename, AssetMesh<SimpleAnimVertex, uint16_t>* out_data);
+	bool load_basic (char const* filename, AssetMesh<BasicVertex, uint16_t>* out_mesh);
+	bool load_simple_anim (char const* filename, AssetMesh<SimpleAnimVertex, uint16_t>* out_mesh,
+		BoneMats* out_mats, float* out_wheel_r);
 
-	bool load_simple (char const* filename, SimpleMesh* out_data);
+	bool load_simple (char const* filename, SimpleMesh* out_mesh);
 }
 
 template <typename VERT_T, typename IDX_T>
@@ -98,13 +104,6 @@ struct AssetMesh {
 	std::vector< Mesh<VERT_T, IDX_T> > mesh_lods;
 
 	AABB<float3> aabb;
-	
-	// needed so we can later load from json because json lib does not handle contructing from json
-	AssetMesh () {}
-
-	AssetMesh (const char* filename) {
-		assimp::load(prints("assets/%s", filename).c_str(), this);
-	}
 };
 
 enum class LaneDir : uint8_t {
@@ -275,20 +274,27 @@ enum class BuildingType {
 };
 NLOHMANN_JSON_SERIALIZE_ENUM(BuildingType, { { BuildingType::RESIDENTIAL, "RESIDENTIAL" }, { BuildingType::COMMERCIAL, "COMMERCIAL" } })
 
-//constexpr const char* BASE_BONE_NAME = "Base";
-constexpr const char* WHEEL_BONE_NAMES[] = {
+enum eVehicleBone {
+	VBONE_BASE=0,
+	VBONE_WHEEL_FL,
+	VBONE_WHEEL_FR,
+	VBONE_WHEEL_BL,
+	VBONE_WHEEL_BR,
+
+	VBONE_COUNT,
+};
+constexpr const char* VEHICLE_BONE_NAMES[] = {
+	"Base",
 	"Wheel.FL",
 	"Wheel.FR",
 	"Wheel.BL",
 	"Wheel.BR",
 };
 
-inline float4x4 _mats[5];
-
 struct BuildingAsset {
 	friend SERIALIZE_TO_JSON(BuildingAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, type, citizens, size) }
 	friend SERIALIZE_FROM_JSON(BuildingAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, type, citizens, size)
-		t.mesh = { t.filename.c_str() };
+		assimp::load_basic(prints("assets/%s", t.filename.c_str()).c_str(), &t.mesh);
 	}
 
 	std::string name = "<unnamed>";
@@ -317,7 +323,7 @@ struct BuildingAsset {
 struct CarAsset {
 	friend SERIALIZE_TO_JSON(CarAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, spawn_weight) }
 	friend SERIALIZE_FROM_JSON(CarAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, spawn_weight)
-		t.mesh = { t.filename.c_str() };
+		assimp::load_simple_anim(prints("assets/%s", t.filename.c_str()).c_str(), &t.mesh, t.bone_mats, &t.wheel_r);
 	}
 
 	std::string name = "<unnamed>";
@@ -325,18 +331,16 @@ struct CarAsset {
 
 	float spawn_weight = 1;
 	
-	struct Wheel {
-		float3 pos;
-		float radius;
-	};
-	std::vector<Wheel> wheels;
+	BoneMats bone_mats[5];
+
+	float wheel_r = 0.5f;
 
 	AssetMesh<SimpleAnimVertex> mesh;
 };
 struct PropAsset {
 	friend SERIALIZE_TO_JSON(PropAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename) }
 	friend SERIALIZE_FROM_JSON(PropAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename)
-		t.mesh = { t.filename.c_str() };
+		assimp::load_basic(prints("assets/%s", t.filename.c_str()).c_str(), &t.mesh);
 	}
 
 	std::string name = "<unnamed>";

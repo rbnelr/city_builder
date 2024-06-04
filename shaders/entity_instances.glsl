@@ -12,7 +12,7 @@ struct VehicleInstance {
 	float posx, posy, posz;
 	float colr, colg, colb;
 	
-	float bone_rot[5][4][3]; // mat4x3 is a float3x4 matrix because ogl uses wrong terminology
+	mat4 bone_rot[5];
 };
 layout(std430, binding = 2) restrict buffer InstancesBuf {
 	// TODO: we only rely on certain instance infos like position to compute lod

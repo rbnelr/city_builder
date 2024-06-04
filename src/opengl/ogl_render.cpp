@@ -459,7 +459,8 @@ struct VehicleInstance {
 	float3 pos;
 	float3 col; // Just for debug?
 	
-	float3x4 bone_rot[5];
+	// can't be float3x4 even though that would be more efficient because that involves absurd hack where you load every float manually
+	float4x4 bone_rot[5];
 
 	static constexpr const char* name = "VehicleInstance";
 
@@ -1264,7 +1265,7 @@ struct OglRenderer : public Renderer {
 	}
 	void upload_car_instances (App& app) {
 		ZoneScoped;
-
+		
 		car_renderer.update_instances([&] () {
 			std::vector<VehicleInstance> instances;
 			instances.resize(app.entities.citizens.size());
@@ -1272,6 +1273,8 @@ struct OglRenderer : public Renderer {
 			for (uint32_t i=0; i<(uint32_t)app.entities.citizens.size(); ++i) {
 				auto& entity = app.entities.citizens[i];
 				if (!entity->agent) continue;
+
+				auto& bone_mats = entity->owned_car->bone_mats;
 
 				// TODO: network code shoud ensure length(dir) == CAR_SIZE
 				float3 center;
@@ -1283,27 +1286,38 @@ struct OglRenderer : public Renderer {
 				instances[i].pos = center;
 				instances[i].col = entity->col;
 				
-
 				float3x3 heading_rot = rotate3_Z(ang);
+				auto set_bone_rot = [&] (int boneID, float3x3 const& bone_rot) {
+					instances[i].bone_rot[boneID] = float4x4(heading_rot) *
+						(bone_mats[boneID].bone2mesh * float4x4(bone_rot) * bone_mats[boneID].mesh2bone);
+				};
 
-				float wheel_ang = app._test_time * -deg(360);
+				float wheel_ang = entity->agent->wheel_roll * -deg(360);
+				float3x3 roll_mat = rotate3_Z(wheel_ang);
 
-				for (int boneID=0; boneID<5; ++boneID) {
-					float3x3 bone_rot;
-					if (boneID == 0) {
-						bone_rot = rotate3_X(entity->agent->suspension_ang.x) * rotate3_Z(-entity->agent->suspension_ang.y);
-					}
-					else {
-						bone_rot = rotate3_Y(0) * rotate3_Z(wheel_ang);
-					}
-					
-					float4x4 mesh2bone = _mats[boneID];
-					float4x4 bone2mesh = inverse(mesh2bone);
+				float rear_axle_x = (bone_mats[VBONE_WHEEL_BL].bone2mesh * float4(0,0,0,1)).x;
+				
+				auto get_wheel_turn = [&] (int boneID) {
+					// formula for ackerman steering with fixed rear axle
+					// X is forw, Y is left
+					float2 wheel_pos2d = (float2)(bone_mats[boneID].bone2mesh * float4(0,0,0,1));
+					float2 wheel_rel2d = wheel_pos2d - float2(rear_axle_x, 0);
 
-					float4x4 bone_transform = float4x4(heading_rot) * (bone2mesh * (float4x4(bone_rot) * mesh2bone));
-					
-					instances[i].bone_rot[boneID] = (float3x4)bone_transform;
-				}
+					float c = entity->agent->turn_curv;
+					float ang = -atanf((c * wheel_rel2d.x) / (c * -wheel_rel2d.y - 1.0f));
+
+					return rotate3_Y(ang);
+				};
+
+				float3x3 base_rot = rotate3_X(entity->agent->suspension_ang.x) * rotate3_Z(-entity->agent->suspension_ang.y);
+				set_bone_rot(VBONE_BASE, base_rot);
+
+
+				set_bone_rot(VBONE_WHEEL_FL, get_wheel_turn(VBONE_WHEEL_FL) * roll_mat);
+				set_bone_rot(VBONE_WHEEL_FR, get_wheel_turn(VBONE_WHEEL_FR) * roll_mat);
+
+				set_bone_rot(VBONE_WHEEL_BL, roll_mat);
+				set_bone_rot(VBONE_WHEEL_BR, roll_mat);
 			}
 
 			return instances;

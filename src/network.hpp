@@ -202,6 +202,8 @@ struct Agent {
 	// curvature, ie. 1/turn_radius, positive means left
 	float turn_curv = 0;
 
+	float wheel_roll = 0;
+
 	AgentState state;
 	
 

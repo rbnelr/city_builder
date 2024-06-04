@@ -229,7 +229,7 @@
 			{
 				"name": "combi",
 				"filename": "cars/combi.fbx",
-				"spawn_weight": 20.0
+				"spawn_weight": 2.0
 			},
 			{
 				"name": "smart",

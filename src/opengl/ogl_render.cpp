@@ -455,7 +455,7 @@ struct StaticEntityInstance {
 };
 struct VehicleInstance {
 	int    mesh_id;
-	int    instance_id; // uGH!!!
+	int    instance_id; // uGH!!! avoiding this (gl_BaseInstance + gl_InstanceID) requires opengl 4.6
 	float3 pos;
 	float3 col; // Just for debug?
 	
@@ -647,17 +647,6 @@ struct EntityRenderer {
 				{"tex", tex, texs.sampler_normal},
 			});
 			shad->set_uniform("time", time);
-
-
-			float4x4 mats[ARRLEN(_mats)];
-			float4x4 mats_inv[ARRLEN(_mats)];
-
-			for (int i=0; i<ARRLEN(_mats); ++i) {
-				mats[i] = _mats[i];
-				mats_inv[i] = inverse(_mats[i]);
-			}
-			shad->set_uniform_array("_mats[0]", mats, ARRLEN(mats));
-			shad->set_uniform_array("_mats_inv[0]", mats_inv, ARRLEN(mats_inv));
 
 			glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, entities_count, 0);
 				
@@ -1312,8 +1301,8 @@ struct OglRenderer : public Renderer {
 					float4x4 bone2mesh = inverse(mesh2bone);
 
 					float4x4 bone_transform = float4x4(heading_rot) * (bone2mesh * (float4x4(bone_rot) * mesh2bone));
-
-					instances[i].bone_rot[boneID] = float3x4(bone_transform);
+					
+					instances[i].bone_rot[boneID] = (float3x4)bone_transform;
 				}
 			}
 

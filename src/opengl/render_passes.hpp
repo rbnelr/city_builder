@@ -66,8 +66,11 @@ struct Textures {
 		//bindless_textures.load_texture<srgba8>("misc/turn_arrow_LSR.png");
 		
 		// TODO: make dynamic so that any texture from json works
-		bindless_textures.load_texture<srgb8>("cars/car.png");
-		bindless_textures.load_texture<srgb8>("cars/bus.png");
+		bindless_textures.load_texture<srgb8>("cars/car.diff.png");
+		bindless_textures.load_texture<srgb8>("cars/car.tint.png");
+
+		bindless_textures.load_texture<srgb8>("cars/bus.diff.png");
+		bindless_textures.load_texture<srgb8>("cars/bus.tint.png");
 	}
 
 	//Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);

@@ -1280,7 +1280,7 @@ struct OglRenderer : public Renderer {
 
 				auto& bone_mats = entity->owned_car->bone_mats;
 
-				int tex_id = textures.bindless_textures.get_tex_id(entity->owned_car->tex_filename);
+				int tex_id = textures.bindless_textures.get_tex_id(entity->owned_car->tex_filename + ".diff.png");
 
 				// TODO: network code shoud ensure length(dir) == CAR_SIZE
 				float3 center;

@@ -64,6 +64,10 @@ struct Textures {
 		load<srgb8>(curb);
 
 		//bindless_textures.load_texture<srgba8>("misc/turn_arrow_LSR.png");
+		
+		// TODO: make dynamic so that any texture from json works
+		bindless_textures.load_texture<srgb8>("cars/car.png");
+		bindless_textures.load_texture<srgb8>("cars/bus.png");
 	}
 
 	//Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
@@ -76,8 +80,7 @@ struct Textures {
 	
 	Texture2D house_diff = load_texture<srgb8>("house_Diff", "buildings/house.png");
 	Texture2D streetlight_diff = load_texture<srgb8>("streetlight_Diff", "props/streetlight_Diff.png");
-	Texture2D car_diff = load_texture<srgb8>("car_Diffe", "cars/car.png");
-	
+
 	Texture2D cracks = load_texture<srgb8>("cracks", "misc/cracks.png"); // TODO: support single channel
 
 	template <typename T>

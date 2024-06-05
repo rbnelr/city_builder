@@ -219,36 +219,43 @@
 			{
 				"name": "limo",
 				"filename": "cars/limo.fbx",
+				"tex_filename": "cars/car.png",
 				"spawn_weight": 3.0
 			},
 			{
 				"name": "small",
 				"filename": "cars/small.fbx",
+				"tex_filename": "cars/car.png",
 				"spawn_weight": 5.0
 			},
 			{
 				"name": "combi",
 				"filename": "cars/combi.fbx",
+				"tex_filename": "cars/car.png",
 				"spawn_weight": 2.0
 			},
 			{
 				"name": "smart",
 				"filename": "cars/smart.fbx",
+				"tex_filename": "cars/car.png",
 				"spawn_weight": 2.0
 			},
 			{
 				"name": "SUV",
 				"filename": "cars/SUV.fbx",
+				"tex_filename": "cars/car.png",
 				"spawn_weight": 2.0
 			},
 			{
 				"name": "van",
 				"filename": "cars/van.fbx",
+				"tex_filename": "cars/car.png",
 				"spawn_weight": 1.5
 			},
 			{
 				"name": "bus",
 				"filename": "cars/bus.fbx",
+				"tex_filename": "cars/bus.png",
 				"spawn_weight": 0.5
 			}
 		],

@@ -9,8 +9,11 @@ struct StaticEntityInstance {
 struct VehicleInstance {
 	uint  mesh_id;
 	uint  instance_id;
+	uint  tex_id;
 	float posx, posy, posz;
 	float colr, colg, colb;
+	
+	float pad0, pad1, pad2;
 	
 	mat4 bone_rot[5];
 };

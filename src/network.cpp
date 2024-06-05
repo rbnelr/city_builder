@@ -1074,7 +1074,7 @@ void update_vehicle_suspension (App& app, Agent& agent, float2 local_accel, floa
 }
 
 void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
-	if (dt < 0.001f)
+	if (dt < 0.0001f)
 		return;
 
 	assert(agent->bez_t < 1.0f);
@@ -1126,8 +1126,7 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	auto bez_res = agent->state.bezier.eval_with_curv(agent->bez_t);
 	// remember bezier delta t for next frame
 	agent->bez_speed = length(bez_res.vel); // bezier t / delta pos
-
-	agent->turn_curv = bez_res.curv; // TODO: to be correct for wheel turning this would need to be computed based on the rear axle
+	float2 bez_dir = bez_res.vel / agent->bez_speed;
 
 	// actually move car rear using (bogus) trailer formula
 	float2 new_front = bez_res.pos;
@@ -1147,6 +1146,9 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 	agent->front_pos = float3(new_front, agent->state.pos_z);
 	agent->rear_pos  = float3(new_rear,  agent->state.pos_z);
 	
+	// totally wack with car_rear_drag_ratio
+	agent->turn_curv = bez_res.curv; // TODO: to be correct for wheel turning this would need to be computed based on the rear axle
+
 	{
 		float2 old_center = (old_front + old_rear) * 0.5f;
 		float2 new_center = (new_front + new_rear) * 0.5f;

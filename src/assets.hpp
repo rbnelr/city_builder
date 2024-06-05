@@ -321,13 +321,15 @@ struct BuildingAsset {
 	}
 };
 struct CarAsset {
-	friend SERIALIZE_TO_JSON(CarAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, spawn_weight) }
-	friend SERIALIZE_FROM_JSON(CarAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, spawn_weight)
+	friend SERIALIZE_TO_JSON(CarAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, tex_filename, spawn_weight) }
+	friend SERIALIZE_FROM_JSON(CarAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, tex_filename, spawn_weight)
 		assimp::load_simple_anim(prints("assets/%s", t.filename.c_str()).c_str(), &t.mesh, t.bone_mats, &t.wheel_r);
 	}
 
 	std::string name = "<unnamed>";
 	std::string filename;
+
+	std::string tex_filename;
 
 	float spawn_weight = 1;
 	

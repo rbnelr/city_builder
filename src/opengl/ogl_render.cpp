@@ -456,9 +456,12 @@ struct StaticEntityInstance {
 struct VehicleInstance {
 	int    mesh_id;
 	int    instance_id; // uGH!!! avoiding this (gl_BaseInstance + gl_InstanceID) requires opengl 4.6
+	int    tex_id;
 	float3 pos;
 	float3 col; // Just for debug?
 	
+	float _pad[3] = {};
+
 	// can't be float3x4 even though that would be more efficient because that involves absurd hack where you load every float manually
 	float4x4 bone_rot[5];
 
@@ -467,6 +470,7 @@ struct VehicleInstance {
 	VERTEX_CONFIG(
 		ATTRIB(INT,1, VehicleInstance, mesh_id),
 		ATTRIB(INT,1, VehicleInstance, instance_id),
+		ATTRIB(INT,1, VehicleInstance, tex_id),
 		ATTRIB(FLT,3, VehicleInstance, pos),
 		ATTRIB(FLT,3, VehicleInstance, col),
 	)
@@ -1276,6 +1280,8 @@ struct OglRenderer : public Renderer {
 
 				auto& bone_mats = entity->owned_car->bone_mats;
 
+				int tex_id = textures.bindless_textures.get_tex_id(entity->owned_car->tex_filename);
+
 				// TODO: network code shoud ensure length(dir) == CAR_SIZE
 				float3 center;
 				float ang;
@@ -1283,6 +1289,7 @@ struct OglRenderer : public Renderer {
 
 				instances[i].mesh_id = car_renderer.asset2mesh_id[entity->owned_car];
 				instances[i].instance_id = i;
+				instances[i].tex_id = tex_id;
 				instances[i].pos = center;
 				instances[i].col = entity->col;
 				
@@ -1398,7 +1405,7 @@ struct OglRenderer : public Renderer {
 				network_renderer.render(state, textures, true);
 
 				building_renderer.draw(state, textures, textures.house_diff, true);
-				car_renderer.draw(state, textures, textures.car_diff);
+				car_renderer.draw(state, textures, textures.house_diff);
 				prop_renderer.draw(state, textures, textures.streetlight_diff, true);
 			});
 		}
@@ -1417,7 +1424,7 @@ struct OglRenderer : public Renderer {
 			network_renderer.render_decals(state, passes.gbuf, textures);
 		
 			building_renderer.draw(state, textures, textures.house_diff);
-			car_renderer.draw(state, textures, textures.car_diff);
+			car_renderer.draw(state, textures, textures.house_diff); // dummy tex, get rid of textures in general (building and props need bindless too)
 			prop_renderer.draw(state, textures, textures.streetlight_diff);
 
 			// TODO: draw during lighting pass?

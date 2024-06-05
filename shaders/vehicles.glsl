@@ -9,6 +9,7 @@ VS2FS Vertex {
 	vec2 uv;
 	
 	flat vec3 col;
+	flat int tex_id;
 } v;
 
 #ifdef _VERTEX
@@ -20,8 +21,9 @@ layout(location = 3) in uint  mesh_boneID;
 
 //layout(location = 4) in int   mesh_id;
 layout(location = 5) in int   instance_id;
-layout(location = 6) in vec3  instance_pos;
-layout(location = 7) in vec3  instance_col;
+layout(location = 6) in int   tex_id;
+layout(location = 7) in vec3  instance_pos;
+layout(location = 8) in vec3  instance_col;
 // could get these like this as well, if ssbo is needed anyway for bone array like access
 // -> instance[gl_InstanceID].posx, instance[gl_InstanceID].posy ...
 
@@ -33,6 +35,7 @@ void main () {
 	
 	v.uv           = mesh_uv;
 	v.col          = instance_col;
+	v.tex_id       = tex_id;
 	
 	gl_Position = view.world2clip * vec4(v.world_pos, 1.0);
 }
@@ -46,7 +49,7 @@ void main () {
 	
 	GBUF_OUT
 	void main () {
-		frag_col = texture(tex, v.uv) * vec4(v.col, 1.0);
+		frag_col = texture(bindless_tex(v.tex_id), v.uv) * vec4(v.col, 1.0);
 		frag_norm = vec4(v.world_normal, 1.0);
 	}
 #endif

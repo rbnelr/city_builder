@@ -94,6 +94,24 @@ struct GameCamera {
 		return powf(2.0f, -zoom);
 	}
 
+	//// pre transform matrix to allow camera to move relative to objects
+	//float3x4 tracking_space = float3x4::identity();
+	//float3x4 tracking_space_inv = float3x4::identity();
+	//
+	//void tracking_space (float3x4 const& tracking_space, float3x4 const& tracking_space_inv) {
+	//	this->tracking_space     = tracking_space;
+	//	this->tracking_space_inv = tracking_space_inv;
+	//}
+	//void begin_tracking () {
+	//
+	//}
+	//void update_tracking (bool track, begin_or_stop_tracking
+	//		float3x4 const& tracking_space,
+	//		float3x4 const& tracking_space_inv) {
+	//	this->tracking_space     = tracking_space;
+	//	this->tracking_space_inv = tracking_space_inv;
+	//}
+
 	View3D update (Input& I, float2 const& viewport_size, float3 offset=0, float rot_offset=0) {
 
 		bool scroll_fps = I.buttons[KEY_F].is_down;
@@ -203,6 +221,8 @@ struct GameCamera {
 
 		collided_pos += offset;
 
+		//float3x4 world2cam = float3x4(world2cam_rot) * translate(-collided_pos) * tracking_space_inv;
+		//float3x4 cam2world = tracking_space * translate(collided_pos) * float3x4(cam2world_rot);
 		float3x4 world2cam = float3x4(world2cam_rot) * translate(-collided_pos);
 		float3x4 cam2world = translate(collided_pos) * float3x4(cam2world_rot);
 

@@ -19,6 +19,8 @@ https://drive.google.com/drive/folders/101Ff98vBAZMg20ZSqnNnqMhb2MuglhDC
 --------------------------------------------------------------------------------
 TODO (aprox in order of importance):
 
+> fix tracking cam (movement doesn't follow tracked space)
+
  Turn SegLane pointers into lane pointers, where lane contains info about agents, reserved space, maybe cached bezier?
   -> how do I access the segment then?
   -> maybe just keep SegLane but make accessing lane directly more convinient

@@ -17,7 +17,7 @@ struct VehicleInstance {
 	
 	mat4 bone_rot[5];
 };
-layout(std430, binding = 2) restrict buffer InstancesBuf {
+layout(std430, binding = 2) readonly restrict buffer InstancesBuf {
 	// TODO: we only rely on certain instance infos like position to compute lod
 	// instead of needing to macro-ize shader for each instance vertex layout, could possibly read using some kind of buffer read where we just have a uniform int stride?
 	INSTANCE_T instance[];

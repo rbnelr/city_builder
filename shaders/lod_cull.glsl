@@ -25,13 +25,13 @@ struct MeshLodInfo {
 	uint index_count;
 };
 
-layout(std430, binding = 3) restrict buffer CommandsBuf {
+layout(std430, binding = 3) writeonly restrict buffer CommandsBuf {
 	glDrawElementsIndirectCommand cmd[];
 };
-layout(std430, binding = 4) restrict buffer MeshInfoBuf {
+layout(std430, binding = 4) readonly restrict buffer MeshInfoBuf {
 	MeshInfo mesh_info[];
 };
-layout(std430, binding = 5) restrict buffer MeshLodInfoBuf {
+layout(std430, binding = 5) readonly restrict buffer MeshLodInfoBuf {
 	MeshLodInfo mesh_lod_info[];
 };
 

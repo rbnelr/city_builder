@@ -215,47 +215,47 @@
 				]
 			}
 		],
-		"cars": [
+		"vehicles": [
 			{
 				"name": "limo",
-				"filename": "cars/limo.fbx",
-				"tex_filename": "cars/car",
+				"filename": "vehicles/limo.fbx",
+				"tex_filename": "vehicles/car",
 				"spawn_weight": 3.0
 			},
 			{
 				"name": "small",
-				"filename": "cars/small.fbx",
-				"tex_filename": "cars/car",
+				"filename": "vehicles/small.fbx",
+				"tex_filename": "vehicles/car",
 				"spawn_weight": 5.0
 			},
 			{
 				"name": "combi",
-				"filename": "cars/combi.fbx",
-				"tex_filename": "cars/car",
+				"filename": "vehicles/combi.fbx",
+				"tex_filename": "vehicles/car",
 				"spawn_weight": 2.0
 			},
 			{
 				"name": "smart",
-				"filename": "cars/smart.fbx",
-				"tex_filename": "cars/car",
+				"filename": "vehicles/smart.fbx",
+				"tex_filename": "vehicles/car",
 				"spawn_weight": 2.0
 			},
 			{
 				"name": "SUV",
-				"filename": "cars/SUV.fbx",
-				"tex_filename": "cars/car",
+				"filename": "vehicles/SUV.fbx",
+				"tex_filename": "vehicles/car",
 				"spawn_weight": 2.0
 			},
 			{
 				"name": "van",
-				"filename": "cars/van.fbx",
-				"tex_filename": "cars/car",
+				"filename": "vehicles/van.fbx",
+				"tex_filename": "vehicles/car",
 				"spawn_weight": 1.5
 			},
 			{
 				"name": "bus",
-				"filename": "cars/bus.fbx",
-				"tex_filename": "cars/bus",
+				"filename": "vehicles/bus.fbx",
+				"tex_filename": "vehicles/bus",
 				"spawn_weight": 0.5
 			}
 		],

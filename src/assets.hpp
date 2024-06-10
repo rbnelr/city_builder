@@ -320,9 +320,9 @@ struct BuildingAsset {
 		return changed;
 	}
 };
-struct CarAsset {
-	friend SERIALIZE_TO_JSON(CarAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, tex_filename, spawn_weight) }
-	friend SERIALIZE_FROM_JSON(CarAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, tex_filename, spawn_weight)
+struct VehicleAsset {
+	friend SERIALIZE_TO_JSON(VehicleAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, tex_filename, spawn_weight) }
+	friend SERIALIZE_FROM_JSON(VehicleAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, tex_filename, spawn_weight)
 		assimp::load_simple_anim(prints("assets/%s", t.filename.c_str()).c_str(), &t.mesh, t.bone_mats, &t.wheel_r);
 	}
 
@@ -352,8 +352,8 @@ struct PropAsset {
 };
 
 struct Assets {
-	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(networks, buildings, cars, props) }
-	friend SERIALIZE_FROM_JSON(Assets) { SERIALIZE_FROM_JSON_EXPAND(networks, buildings, cars, props)
+	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(networks, buildings, vehicles, props) }
+	friend SERIALIZE_FROM_JSON(Assets) { SERIALIZE_FROM_JSON_EXPAND(networks, buildings, vehicles, props)
 		t.assets_reloaded = true;
 	}
 
@@ -365,7 +365,7 @@ struct Assets {
 	
 	Collection<NetworkAsset>  networks;
 	Collection<BuildingAsset> buildings;
-	Collection<CarAsset>      cars;
+	Collection<VehicleAsset>  vehicles;
 	Collection<PropAsset>     props;
 	
 	void imgui (Settings& settings) {

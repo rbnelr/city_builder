@@ -1243,7 +1243,7 @@ struct OglRenderer : public Renderer {
 	NetworkRenderer network_renderer;
 
 	EntityRenderer<BuildingAsset, StaticEntityInstance>   building_renderer{ "entities" };
-	EntityRenderer<CarAsset,      VehicleInstance>        car_renderer{      "vehicles" };
+	EntityRenderer<VehicleAsset,  VehicleInstance>        vehicle_renderer{  "vehicles" };
 	// TODO: roll this into building renderer at least (car renderer might want different shader for wheel movement)
 	// but doing so might require some problem solving to unify textures somehow
 	// -> atlas or texture arrays for all texture sizes?
@@ -1270,7 +1270,7 @@ struct OglRenderer : public Renderer {
 	void upload_car_instances (App& app) {
 		ZoneScoped;
 		
-		car_renderer.update_instances([&] () {
+		vehicle_renderer.update_instances([&] () {
 			std::vector<VehicleInstance> instances;
 			instances.resize(app.entities.citizens.size());
 
@@ -1287,7 +1287,7 @@ struct OglRenderer : public Renderer {
 				float ang;
 				entity->agent->calc_pos(&center, &ang);
 
-				instances[i].mesh_id = car_renderer.asset2mesh_id[entity->owned_car];
+				instances[i].mesh_id = vehicle_renderer.asset2mesh_id[entity->owned_car];
 				instances[i].instance_id = i;
 				instances[i].tex_id = tex_id;
 				instances[i].pos = center;
@@ -1344,7 +1344,7 @@ struct OglRenderer : public Renderer {
 			ZoneScopedN("assets_reloaded");
 
 			building_renderer.upload_meshes(app.assets.buildings);
-			car_renderer.upload_meshes(app.assets.cars);
+			vehicle_renderer.upload_meshes(app.assets.vehicles);
 			prop_renderer.upload_meshes(app.assets.props);
 		}
 
@@ -1405,8 +1405,8 @@ struct OglRenderer : public Renderer {
 				network_renderer.render(state, textures, true);
 
 				building_renderer.draw(state, textures, textures.house_diff, true);
-				car_renderer.draw(state, textures, textures.house_diff);
-				prop_renderer.draw(state, textures, textures.streetlight_diff, true);
+				vehicle_renderer .draw(state, textures, textures.house_diff);
+				prop_renderer    .draw(state, textures, textures.streetlight_diff, true);
 			});
 		}
 		
@@ -1424,8 +1424,8 @@ struct OglRenderer : public Renderer {
 			network_renderer.render_decals(state, passes.gbuf, textures);
 		
 			building_renderer.draw(state, textures, textures.house_diff);
-			car_renderer.draw(state, textures, textures.house_diff); // dummy tex, get rid of textures in general (building and props need bindless too)
-			prop_renderer.draw(state, textures, textures.streetlight_diff);
+			vehicle_renderer .draw(state, textures, textures.house_diff); // dummy tex, get rid of textures in general (building and props need bindless too)
+			prop_renderer    .draw(state, textures, textures.streetlight_diff);
 
 			// TODO: draw during lighting pass?
 			//  how to draw it without depth buffer? -> could use gbuf_normal == vec3(0) as draw condition?

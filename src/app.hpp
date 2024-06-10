@@ -63,7 +63,7 @@ struct Citizen {
 	std::unique_ptr<network::Agent> agent = nullptr;
 
 
-	CarAsset* owned_car;
+	VehicleAsset* owned_car;
 
 	// random color for better debug visualization
 	lrgb col;
@@ -679,7 +679,7 @@ struct App : public Engine {
 			entities.citizens.resize(_citizens_n);
 
 			Random rand(0);
-			auto rand_car = weighted_choice(assets.cars, [] (std::unique_ptr<CarAsset> const& car) { return car->spawn_weight; });
+			auto rand_car = weighted_choice(assets.vehicles, [] (std::unique_ptr<VehicleAsset> const& car) { return car->spawn_weight; });
 
 			test_rand = Random(0);
 

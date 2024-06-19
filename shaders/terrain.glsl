@@ -11,11 +11,17 @@ VS2FS Vertex {
 #ifdef _VERTEX
 	layout(location = 0) in vec2  attr_pos;
 	
-	//uniform sampler2D heightmap;
+	uniform sampler2D heightmap;
+	uniform sampler2D heightmap_outer;
 	
 	uniform vec2  offset;
 	uniform float quad_size;
-	uniform vec2  inv_max_size;
+	
+	uniform vec2  inv_map_size;
+	uniform vec2  inv_outer_size;
+	
+	uniform float z_min;
+	uniform float z_range;
 	
 	uniform vec2  lod_bound0;
 	uniform vec2  lod_bound1;
@@ -43,9 +49,17 @@ VS2FS Vertex {
 	}
 	
 	float sample_heightmap (vec2 pos) {
-		vec2 uv = pos * inv_max_size;
-		//return textureLod(heightmap, uv, 0.0).r * 1200.0 - 100.0;
-		return 0.0;
+		if (  abs(pos.x * inv_map_size.x) <= 0.5 &&
+			  abs(pos.y * inv_map_size.y) <= 0.5  ) {
+			vec2 uv = pos * inv_map_size + 0.5;
+			//return 0.0;
+			return textureLod(heightmap, uv, 0.0).r * z_range + z_min;
+		}
+		else {
+			vec2 uv = pos * inv_outer_size + 0.5;
+			//return 0.0;
+			return textureLod(heightmap_outer, uv, 0.0).r * z_range + z_min;
+		}
 	}
 	
 	void main () {
@@ -68,7 +82,7 @@ VS2FS Vertex {
 		
 		gl_Position = view.world2clip * vec4(pos, 1.0);
 		v.pos = pos;
-		v.uv  = pos.xy * inv_max_size;
+		v.uv  = pos.xy * inv_map_size;
 	}
 #endif
 #ifdef _FRAGMENT

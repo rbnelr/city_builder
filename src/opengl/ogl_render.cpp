@@ -104,10 +104,27 @@ struct TriRenderer {
 	}
 };
 
+struct Heightmap {
+	float2 map_size       = 16*1024;
+	float2 outer_map_size = 128*1024;
+
+	float z_min = -150;
+	float z_range = (float)UINT16_MAX * 0.05f;
+
+	void imgui () {
+		if (imgui_Header("Heightmap", true)) {
+			ImGui::DragFloat("z_min", &z_min);
+			ImGui::DragFloat("z_range", &z_range);
+
+			ImGui::PopID();
+		}
+	}
+};
+
 struct TerrainRenderer {
-	static constexpr int MAP_SZ = 16*1024;
-	
 	static constexpr int TERRAIN_CHUNK_SZ = 32; // 128 is max with GL_UNSIGNED_SHORT indices
+
+	Heightmap heightmap;
 
 	Shader* shad_terrain = g_shaders.compile("terrain");
 	
@@ -122,19 +139,25 @@ struct TerrainRenderer {
 	int terrain_base_lod = -2;
 	int water_base_lod = -1;
 
+	int max_lod = 10;
+
 	void imgui () {
 		if (imgui_Header("TerrainRenderer", true)) {
+
+			heightmap.imgui();
 
 			ImGui::Checkbox("dbg_lod", &dbg_lod);
 
 			ImGui::Checkbox("draw_terrain", &draw_terrain);
 			//ImGui::Checkbox("draw_water", &draw_water);
 
-			ImGui::DragFloat("lod_offset", &lod_offset, 1, 0, MAP_SZ);
-			ImGui::DragFloat("lod_fac", &lod_fac, 1, 0, MAP_SZ);
+			ImGui::DragFloat("lod_offset", &lod_offset, 1, 0, 4096);
+			ImGui::DragFloat("lod_fac", &lod_fac, 1, 0, 4096);
 
 			ImGui::SliderInt("terrain_base_lod", &terrain_base_lod, -6, 6);
 			ImGui::SliderInt("water_base_lod", &water_base_lod, -6, 6);
+
+			ImGui::SliderInt("max_lod", &max_lod, -6, 15);
 
 			ImGui::Text("drawn_chunks: %4d  (%7d vertices)", drawn_chunks, drawn_chunks * chunk_vertices);
 
@@ -160,7 +183,7 @@ struct TerrainRenderer {
 	int drawn_chunks = 0;
 
 	template <typename FUNC>
-	void lodded_chunks (StateManager& state, Textures& texs, View3D& view, Shader* shad, int base_lod, bool dbg, FUNC chunk) {
+	void lodded_chunks (StateManager& state, Textures& texs, View3D& view, Shader* shad, int base_lod, bool dbg, FUNC draw_chunk) {
 		ZoneScoped;
 
 		float2 lod_center = (float2)view.cam_pos;
@@ -172,18 +195,13 @@ struct TerrainRenderer {
 
 		int2 prev_bound0 = 0;
 		int2 prev_bound1 = 0;
-			
-		if (dbg)
-			g_dbgdraw.wire_quad(float3(0), (float2)MAP_SZ, lrgba(0,0,0,1));
-
+		
 		// iterate lods
-		for (int lod=base_lod;; lod++) {
+		for (int lod=base_lod; lod<=max_lod; lod++) {
 			ZoneScopedN("lod");
 
 			// size of this lod version of a chunk
 			int sz = lod >= 0 ? TERRAIN_CHUNK_SZ << lod : TERRAIN_CHUNK_SZ >> (-lod);
-			if (sz > MAP_SZ)
-				break;
 
 			// parent (next higher res) lod chunk size
 			int parent_sz = sz << 1;
@@ -212,10 +230,6 @@ struct TerrainRenderer {
 				bound1 = max(bound1, (prev_bound1 & parent_mask) + parent_sz);
 			}
 
-			// clamp to heightmap bounds
-			bound0 = clamp(bound0, int2(0), int2(MAP_SZ));
-			bound1 = clamp(bound1, int2(0), int2(MAP_SZ));
-
 			shad->set_uniform("lod_bound0", (float2)bound0);
 			shad->set_uniform("lod_bound1", (float2)bound1);
 
@@ -233,14 +247,19 @@ struct TerrainRenderer {
 				// draw chunk with this lod
 				shad->set_uniform("offset", float2(int2(x,y)));
 				shad->set_uniform("quad_size", quad_size);
-					
-				chunk();
+				
+				draw_chunk();
 
 				drawn_chunks++;
 			}
 
 			prev_bound0 = bound0;
 			prev_bound1 = bound1;
+		}
+
+		if (dbg) {
+			g_dbgdraw.wire_quad(float3(0 - heightmap.map_size      *0.5f, 0), heightmap.map_size,       lrgba(0,0,0,1));
+			g_dbgdraw.wire_quad(float3(0 - heightmap.outer_map_size*0.5f, 0), heightmap.outer_map_size, lrgba(0,0,0,1));
 		}
 	}
 
@@ -322,11 +341,15 @@ struct TerrainRenderer {
 			state.bind_textures(shad_terrain, {
 			//	{"grid_tex", texs.grid, texs.sampler_normal},
 			//	{"clouds", r.textures.clouds, r.textures.sampler_normal},
-			//	{"heightmap", heightmap, r.sampler_heightmap},
+				{"heightmap", texs.heightmap, texs.sampler_heightmap},
+				{"heightmap_outer", texs.heightmap_outer, texs.sampler_heightmap},
 				{"terrain_diffuse", texs.terrain_diffuse, texs.sampler_normal},
 			});
 			
-			shad_terrain->set_uniform("inv_max_size", 1.0f / float2((float)MAP_SZ));
+			shad_terrain->set_uniform("inv_map_size", 1.0f / heightmap.map_size);
+			shad_terrain->set_uniform("inv_outer_size", 1.0f / heightmap.outer_map_size);
+			shad_terrain->set_uniform("z_min", heightmap.z_min);
+			shad_terrain->set_uniform("z_range", heightmap.z_range);
 
 			glBindVertexArray(terrain_chunk.vao);
 			
@@ -427,7 +450,7 @@ struct SkyboxRenderer {
 		glUseProgram(shad->prog);
 
 		state.bind_textures(shad, {
-		//	{ "clouds", r.textures.clouds, r.textures.sampler_normal }
+			{ "clouds", texs.clouds, texs.sampler_normal }
 		});
 		
 		glBindVertexArray(skybox.vao);
@@ -1170,8 +1193,8 @@ struct OglRenderer : public Renderer {
 		lrgb fog_col = srgb(210, 230, 255);
 		//float _pad3;
 
-		float fog_base = 0.20f;
-		float fog_falloff = 30.0f;
+		float fog_base    = 0.00005f;
+		float fog_falloff = 0.0005f;
 
 		void imgui () {
 			if (imgui_Header("Lighting", true)) {
@@ -1180,8 +1203,8 @@ struct OglRenderer : public Renderer {
 				imgui_ColorEdit("sky_col", &sky_col);
 				imgui_ColorEdit("fog_col", &fog_col);
 
-				ImGui::DragFloat("fog_base/100", &fog_base, 0.001f);
-				ImGui::DragFloat("fog_falloff/100", &fog_falloff, 0.01f);
+				ImGui::DragFloat("fog_base",    &fog_base,    0.00001f, 0,0, "%.10f");
+				ImGui::DragFloat("fog_falloff", &fog_falloff, 0.0001f, 0,0, "%.10f");
 
 				ImGui::PopID();
 			}

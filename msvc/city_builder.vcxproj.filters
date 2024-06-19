@@ -47,7 +47,6 @@
       <Filter>engine\tracy</Filter>
     </ClCompile>
     <ClCompile Include="..\src\assets.cpp" />
-    <ClCompile Include="common_PCH.cpp" />
     <ClCompile Include="..\src\network.cpp" />
     <ClCompile Include="..\src\engine\glad\glad.cpp">
       <Filter>engine</Filter>

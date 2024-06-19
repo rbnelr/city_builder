@@ -73,11 +73,11 @@ struct Textures {
 		bindless_textures.load_texture<srgb8>("vehicles/bus.tint.png");
 	}
 
-	//Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR,  GL_REPEAT);
+	Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR, GL_CLAMP_TO_EDGE);
 	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
 
 
-	//Texture2D clouds = load_texture<srgba8>("clouds", "textures/clouds.png");
+	Texture2D clouds = load_texture<srgba8>("clouds", "skybox/clouds.png");
 	Texture2D grid = load_texture<srgba8>("grid", "misc/grid2.png");
 	Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
 	
@@ -85,13 +85,16 @@ struct Textures {
 	Texture2D streetlight_diff = load_texture<srgb8>("streetlight_Diff", "props/streetlight_Diff.png");
 
 	Texture2D cracks = load_texture<srgb8>("cracks", "misc/cracks.png"); // TODO: support single channel
+	
+	Texture2D heightmap = load_texture<uint16_t>("heightmap", "heightmap.png", false);
+	Texture2D heightmap_outer = load_texture<uint16_t>("heightmap_outer", "heightmap_outer.png", false);
 
 	template <typename T>
-	static Texture2D load_texture (std::string_view gl_label, const char* filepath) {
+	static Texture2D load_texture (std::string_view gl_label, const char* filepath, bool mips=true) {
 		ZoneScoped;
 
 		Texture2D tex = {gl_label};
-		if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str()))
+		if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str(), mips))
 			assert(false);
 		return tex;
 	}
@@ -606,10 +609,12 @@ struct RenderPasses {
 				{ "gbuf_col",   { GL_TEXTURE_2D, gbuf.col   }, gbuf.sampler },
 				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, gbuf.sampler },
 
+				{ "clouds", texs.clouds, texs.sampler_normal },
+
 				{ "shadowmap", { GL_TEXTURE_2D_ARRAY, shadowmap.shadow_tex }, shadowmap.sampler },
 				{ "shadowmap2", { GL_TEXTURE_2D_ARRAY, shadowmap.shadow_tex }, shadowmap.sampler2 },
 				
-				{"grid_tex", texs.grid, texs.sampler_normal},
+				{ "grid_tex", texs.grid, texs.sampler_normal },
 			});
 
 			draw_fullscreen_triangle(state);

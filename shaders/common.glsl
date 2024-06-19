@@ -173,20 +173,19 @@ vec3 get_skybox_light (vec3 view_point, vec3 dir_world) {
 	col += sun * 20.0 * c;
 	col *= horizon(dir_world);
 	
-	//{
-	//	float clouds_z = 200.0;
-	//	
-	//	float t = (clouds_z - view_point.z) / dir_world.z;
-	//	if (dir_world.z != 0.0 && t >= 0.0) {
-	//		vec3 pos = view_point + t * dir_world;
-	//		
-	//		pos /= 1024.0;
-	//		vec4 c = texture(clouds, pos.xy);
-	//		c.rgb *= stren;
-	//		
-	//		col = mix(col.rgb, c.rgb, vec3(c.a));
-	//	}
-	//}
+	{
+		const float clouds_z  = 3000.0;
+		const float clouds_sz = 1024.0 * 32.0;
+		
+		float t = (clouds_z - view_point.z) / dir_world.z;
+		if (dir_world.z > 0.0 && t >= 0.0) {
+			vec3 pos = view_point + t * dir_world;
+			
+			vec4 c = texture(clouds, pos.xy / clouds_sz);
+			
+			col = mix(col.rgb, c.rgb * stren, vec3(c.a));
+		}
+	}
 	
 	float bloom_amount = max(dot(dir_world, -lighting.sun_dir) - 0.5, 0.0);
 	col += bloom_amount * sun * 0.3;
@@ -214,16 +213,35 @@ vec3 apply_fog (vec3 pix_col, vec3 pix_pos) {
 	float c = view.cam_pos.z;
 	float d = ray_cam.z;
 	
+	// fog at height z is defined as F(z) = a*exp(-b*z)
+	//  this creates fog density a at z=0 and exponential fallow parameterized by b
+	// height along camera ray is Z(t) = c + d*t
+	// then the fog is integrated along the ray with F(Z(t))
 	// optical depth -> total "amount" of fog encountered
-	// horrible float precision at high camera offsets:
-	//  1.0 - exp(-b*d*10000)  ->  1.0 - 10^-44 -> 1.0, which results in black screen
-	//float od = (a/b) * exp(-b * c) * (1.0 - exp(-b * d * dist)) / d;
-	// this seems to fix it  TODO: better alternative?
-	float od = (a/b) * (exp(-b * c) - exp(-b * c - b * d * dist)) / d;
+	
+	float bd = b * d;
+	const float eps = 1e-6;
+	
+	float fog_amount = a * exp(-b * c);
+	if (abs(bd) > eps) {
+		fog_amount *= (1.0 - exp(-bd * dist)) / bd;
+	}
+	else {
+		// needed to avoid div by zero, apparently it's impossible to avoid this division with this formula
+		// the only way woulb be to turn exp into it's series around 0, allowing you to approximate
+		//  (1.0 - exp(-Tx))/T  as a whole, which gets rid of the division
+		float approx = dist;
+		approx -= bd * (dist*dist) * (1.0 / 2.0);
+		//approx += bd*bd * (dist*dist*dist) * (1.0 / 6.0);
+		//approx -= bd*bd*bd * (dist*dist*dist*dist) * (1.0 / 24.0);
+		
+		fog_amount *= approx;
+	}
 	
 	// get transmittance (% of rays scattered/absorbed) from optical depth
 	// -> missing in iquilezles's code?
-	float t = exp(-od);
+	// I believe if at x fog thickness y% of rays are blocked, then the remaining light will (perhaps unintuitively) follow exponential falloff, resulting in this additional exp
+	float t = exp(-fog_amount);
 	
 	// adjust color to give sun tint like iquilezles
 	float sun_amount = max(dot(ray_cam, -lighting.sun_dir), 0.0);
@@ -235,8 +253,7 @@ vec3 apply_fog (vec3 pix_col, vec3 pix_pos) {
 	//return vec3(1.0 - t);
 	
 	// lerp pixel color to fog color
-	//return mix(col * stren, pix_col, t);
-	return pix_col;
+	return mix(col * stren, pix_col, t);
 }
 
 float fresnel (float dotVN, float F0) {

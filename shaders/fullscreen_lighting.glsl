@@ -102,9 +102,8 @@
 	void main () {
 		GbufResult g;
 		bool valid = decode_gbuf(g);
-		//col = vec3(1);
-		
 		vec3 col = g.albedo;
+		//col = vec3(.4);
 		
 		if (valid) {
 		#if SHADOWMAP
@@ -114,7 +113,7 @@
 		#endif
 			
 			col *= sun_lighting(g.norm_world, shadow);
-			//col = apply_fog(col, pos);
+			col = apply_fog(col, g.pos_world);
 			
 			//col = overlay_grid(col, pos);
 		}

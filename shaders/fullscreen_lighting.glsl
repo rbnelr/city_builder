@@ -112,10 +112,11 @@
 			float shadow = 1.0;
 		#endif
 			
+			//col = overlay_grid(col, g.pos_world);
+			//col = overlay_countour_lines(col, g.pos_world);
+			
 			col *= sun_lighting(g.norm_world, shadow);
 			col = apply_fog(col, g.pos_world);
-			
-			//col = overlay_grid(col, pos);
 		}
 		
 		frag_col = vec4(col, 1.0);

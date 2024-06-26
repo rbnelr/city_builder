@@ -79,6 +79,7 @@ struct Textures {
 
 	Texture2D clouds = load_texture<srgba8>("clouds", "skybox/clouds.png");
 	Texture2D grid = load_texture<srgba8>("grid", "misc/grid2.png");
+	Texture2D contours = load_texture<srgba8>("contours", "misc/contours.png");
 	Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
 	
 	Texture2D house_diff = load_texture<srgb8>("house_Diff", "buildings/house.png");
@@ -615,6 +616,7 @@ struct RenderPasses {
 				{ "shadowmap2", { GL_TEXTURE_2D_ARRAY, shadowmap.shadow_tex }, shadowmap.sampler2 },
 				
 				{ "grid_tex", texs.grid, texs.sampler_normal },
+				{ "contours_tex", texs.contours, texs.sampler_normal },
 			});
 
 			draw_fullscreen_triangle(state);

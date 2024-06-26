@@ -105,8 +105,8 @@ struct TriRenderer {
 };
 
 struct Heightmap {
-	float2 map_size       = 16*1024;
-	float2 outer_map_size = 128*1024;
+	int2 map_size       = 16*1024;
+	int2 outer_map_size = 128*1024;
 
 	float z_min = -150;
 	float z_range = (float)UINT16_MAX * 0.05f;
@@ -195,6 +195,8 @@ struct TerrainRenderer {
 
 		int2 prev_bound0 = 0;
 		int2 prev_bound1 = 0;
+
+		int2 half_map_sz = heightmap.outer_map_size/2;
 		
 		// iterate lods
 		for (int lod=base_lod; lod<=max_lod; lod++) {
@@ -202,6 +204,8 @@ struct TerrainRenderer {
 
 			// size of this lod version of a chunk
 			int sz = lod >= 0 ? TERRAIN_CHUNK_SZ << lod : TERRAIN_CHUNK_SZ >> (-lod);
+			if (sz > max(heightmap.outer_map_size.x, heightmap.outer_map_size.y))
+				break;
 
 			// parent (next higher res) lod chunk size
 			int parent_sz = sz << 1;
@@ -217,8 +221,8 @@ struct TerrainRenderer {
 			radius = sqrt(radius*radius - lod_center_z*lod_center_z); // intersection of sphere with <radius> and z=0 plane to apply lodding at z=0 plane
 
 			// for this lod radius, get the chunk grid bounds, aligned such that the parent lod chunks still fit without holes
-			int2 bound0 =  floori(lod_center - radius) & parent_mask;
-			int2 bound1 = (floori(lod_center + radius) & parent_mask) + parent_sz;
+			int2 bound0 = lod == max_lod ? -half_map_sz :  floori(lod_center - radius) & parent_mask;
+			int2 bound1 = lod == max_lod ?  half_map_sz : (floori(lod_center + radius) & parent_mask) + parent_sz;
 				
 			assert(bound1.x > bound0.x && bound1.y > bound0.y); // needed for next check to work (on prev_bound)
 
@@ -229,6 +233,9 @@ struct TerrainRenderer {
 				bound0 = min(bound0, (prev_bound0 & parent_mask) - parent_sz);
 				bound1 = max(bound1, (prev_bound1 & parent_mask) + parent_sz);
 			}
+			
+			bound0 = clamp(bound0, -half_map_sz, half_map_sz);
+			bound1 = clamp(bound1, -half_map_sz, half_map_sz);
 
 			shad->set_uniform("lod_bound0", (float2)bound0);
 			shad->set_uniform("lod_bound1", (float2)bound1);
@@ -241,12 +248,14 @@ struct TerrainRenderer {
 					  y >= prev_bound0.y && y < prev_bound1.y )
 					continue;
 					
-				if (dbg)
-					g_dbgdraw.wire_quad(float3((float2)int2(x,y), 0), (float2)(float)sz, g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))]);
+				//if (dbg)
+				//	g_dbgdraw.wire_quad(float3((float2)int2(x,y), 0), (float2)(float)sz, g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))]);
 
 				// draw chunk with this lod
 				shad->set_uniform("offset", float2(int2(x,y)));
 				shad->set_uniform("quad_size", quad_size);
+				shad->set_uniform("dbg_tint", dbg ?
+					g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))] : lrgba(0));
 				
 				draw_chunk();
 
@@ -258,8 +267,8 @@ struct TerrainRenderer {
 		}
 
 		if (dbg) {
-			g_dbgdraw.wire_quad(float3(0 - heightmap.map_size      *0.5f, 0), heightmap.map_size,       lrgba(0,0,0,1));
-			g_dbgdraw.wire_quad(float3(0 - heightmap.outer_map_size*0.5f, 0), heightmap.outer_map_size, lrgba(0,0,0,1));
+			g_dbgdraw.wire_quad(float3(0 - (float2)heightmap.map_size      *0.5f, 0), (float2)heightmap.map_size,       lrgba(0,0,0,1));
+			g_dbgdraw.wire_quad(float3(0 - (float2)heightmap.outer_map_size*0.5f, 0), (float2)heightmap.outer_map_size, lrgba(0,0,0,1));
 		}
 	}
 
@@ -344,10 +353,13 @@ struct TerrainRenderer {
 				{"heightmap", texs.heightmap, texs.sampler_heightmap},
 				{"heightmap_outer", texs.heightmap_outer, texs.sampler_heightmap},
 				{"terrain_diffuse", texs.terrain_diffuse, texs.sampler_normal},
+
+				{ "grid_tex", texs.grid, texs.sampler_normal },
+				{ "contours_tex", texs.contours, texs.sampler_normal },
 			});
 			
-			shad_terrain->set_uniform("inv_map_size", 1.0f / heightmap.map_size);
-			shad_terrain->set_uniform("inv_outer_size", 1.0f / heightmap.outer_map_size);
+			shad_terrain->set_uniform("inv_map_size", 1.0f / (float2)heightmap.map_size);
+			shad_terrain->set_uniform("inv_outer_size", 1.0f / (float2)heightmap.outer_map_size);
 			shad_terrain->set_uniform("z_min", heightmap.z_min);
 			shad_terrain->set_uniform("z_range", heightmap.z_range);
 

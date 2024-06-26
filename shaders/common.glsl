@@ -225,6 +225,8 @@ vec3 apply_fog (vec3 pix_col, vec3 pix_pos) {
 	float fog_amount = a * exp(-b * c);
 	if (abs(bd) > eps) {
 		fog_amount *= (1.0 - exp(-bd * dist)) / bd;
+		
+		fog_amount = (a / bd) * (exp(-b * c) - exp(-b * (c + d * dist)));
 	}
 	else {
 		// needed to avoid div by zero, apparently it's impossible to avoid this division with this formula
@@ -281,8 +283,16 @@ vec3 sun_lighting (vec3 normal, float shadow) {
 }
 
 uniform sampler2D grid_tex;
+uniform sampler2D contours_tex;
 
 vec3 overlay_grid (vec3 col, vec3 pix_pos) {
-	float c = texture(grid_tex, pix_pos.xy / 80.0).r;
+	vec2 uv = pix_pos.xy / 80.0;
+	float c = texture(grid_tex, uv).r;
+	return mix(col, vec3(c), vec3(0.5));
+}
+
+vec3 overlay_countour_lines (vec3 col, vec3 pix_pos) {
+	float height = pix_pos.z / 0.1;
+	float c = texture(contours_tex, vec2(height, 0.5)).r;
 	return mix(col, vec3(c), vec3(0.5));
 }

@@ -110,6 +110,7 @@ VS2FS Vertex {
 #endif
 #ifdef _FRAGMENT
 	uniform sampler2D terrain_diffuse;
+	uniform vec4 pbr = vec4(1.0, 0,0,1);
 	
 	GBUF_OUT
 	void main () {
@@ -120,5 +121,6 @@ VS2FS Vertex {
 		
 		frag_col = vec4(col, 1.0);
 		frag_norm = vec4(v.normal, 1.0);
+		frag_pbr = pbr;
 	}
 #endif

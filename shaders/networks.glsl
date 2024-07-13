@@ -59,6 +59,8 @@ VS2FS Vertex {
 		return TBN * norm_sampl;
 	}
 	
+	uniform vec4 pbr = vec4(1.0, 0,0,1);
+	
 	GBUF_OUT
 	void main () {
 		vec3 norm = normal_map(v.uv);
@@ -68,5 +70,6 @@ VS2FS Vertex {
 		
 		frag_col = vec4(col, 1.0);
 		frag_norm = vec4(norm, 1.0);
+		frag_pbr = pbr;
 	}
 #endif

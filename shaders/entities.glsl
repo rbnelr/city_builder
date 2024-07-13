@@ -36,10 +36,12 @@ void main () {
 
 #ifdef _FRAGMENT
 	uniform sampler2D tex;
+	uniform vec4 pbr = vec4(1.0, 0,0,1);
 	
 	GBUF_OUT
 	void main () {
 		frag_col = texture(tex, v.uv) * vec4(v.col, 1.0);
 		frag_norm = vec4(v.world_normal, 1.0);
+		frag_pbr = pbr;
 	}
 #endif

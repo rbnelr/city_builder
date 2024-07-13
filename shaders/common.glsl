@@ -145,37 +145,38 @@ mat3 mat_rotate_eulerXYZ (float x, float y, float z) {
 uniform sampler2D clouds;
 
 float sun_strength () {
-	float a = map(-lighting.sun_dir.z, 0.5, -0.1);
+	float a = map(-lighting.sun_dir.z, 0.5, -0.2);
 	return smoothstep(1.0, 0.0, a);
 }
 vec3 atmos_scattering () {
-	float a = map(-lighting.sun_dir.z, 0.5, -0.05);
-	return vec3(0.0, 0.75, 0.8) * smoothstep(0.0, 1.0, a);
+	float a = map(-lighting.sun_dir.z, 0.5, 0.0);
+	return vec3(0.0, 0.7, 0.9) * smoothstep(0.0, 1.0, a);
 }
 vec3 horizon (vec3 dir_world) {
-	return vec3(clamp(map(dir_world.z, -0.10, 1.0), 0.05, 1.0));
+	return vec3(clamp(map(dir_world.z, -1.0, 1.0), 0.5, 1.0));
 }
 
 vec3 get_skybox_light (vec3 view_point, vec3 dir_world) {
-	float stren = sun_strength();
+	float stren = sun_strength() * 1.0;
 	
-	vec3 col = lighting.sky_col * (stren + 0.008);
+	vec3 col = lighting.sky_col * (stren + 0.001);
 	
 	vec3 sun = lighting.sun_col - atmos_scattering();
-	sun *= stren;
+	{ // sun
+		sun *= stren;
 	
-	// sun
-	float d = dot(dir_world, -lighting.sun_dir);
-	
-	const float sz = 500.0;
-	float c = clamp(d * sz - (sz-1.0), 0.0, 1.0);
-	
-	col += sun * 20.0 * c;
+		float d = dot(dir_world, -lighting.sun_dir);
+		
+		const float sz = 500.0;
+		float c = clamp(d * sz - (sz-1.0), 0.0, 1.0);
+		
+		col += sun * 10.0 * c;
+	}
 	col *= horizon(dir_world);
 	
 	{
-		const float clouds_z  = 3000.0;
-		const float clouds_sz = 1024.0 * 32.0;
+		const float clouds_z  = 5000.0;
+		const float clouds_sz = 1024.0 * 64.0;
 		
 		float t = (clouds_z - view_point.z) / dir_world.z;
 		if (dir_world.z > 0.0 && t >= 0.0) {
@@ -183,7 +184,7 @@ vec3 get_skybox_light (vec3 view_point, vec3 dir_world) {
 			
 			vec4 c = texture(clouds, pos.xy / clouds_sz);
 			
-			col = mix(col.rgb, c.rgb * stren, vec3(c.a));
+			col = mix(col.rgb, c.rgb * stren, vec3(c.a * 0.8));
 		}
 	}
 	

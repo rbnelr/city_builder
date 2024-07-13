@@ -204,26 +204,32 @@ struct TerrainRenderer {
 
 			// size of this lod version of a chunk
 			int sz = lod >= 0 ? TERRAIN_CHUNK_SZ << lod : TERRAIN_CHUNK_SZ >> (-lod);
-			if (sz > max(heightmap.outer_map_size.x, heightmap.outer_map_size.y))
-				break;
 
 			// parent (next higher res) lod chunk size
 			int parent_sz = sz << 1;
 			// mask that removes floors to this chunk size
 			int parent_mask = ~(parent_sz-1);
+			
+			bool final_lod = lod == max_lod ||
+				sz >= max(heightmap.outer_map_size.x, heightmap.outer_map_size.y);
 
 			float quad_size = (float)sz / (float)TERRAIN_CHUNK_SZ;
 
-			// lod radius formula
-			float radius = lod_offset + lod_fac * quad_size;
-			if (lod_center_z >= radius)
-				continue;
-			radius = sqrt(radius*radius - lod_center_z*lod_center_z); // intersection of sphere with <radius> and z=0 plane to apply lodding at z=0 plane
+			int2 bound0 = -half_map_sz;
+			int2 bound1 =  half_map_sz;
 
-			// for this lod radius, get the chunk grid bounds, aligned such that the parent lod chunks still fit without holes
-			int2 bound0 = lod == max_lod ? -half_map_sz :  floori(lod_center - radius) & parent_mask;
-			int2 bound1 = lod == max_lod ?  half_map_sz : (floori(lod_center + radius) & parent_mask) + parent_sz;
-				
+			if (!final_lod) {
+				// lod radius formula
+				float radius = lod_offset + lod_fac * quad_size;
+				if (lod != max_lod && lod_center_z >= radius)
+					continue;
+				radius = sqrt(radius*radius - lod_center_z*lod_center_z); // intersection of sphere with <radius> and z=0 plane to apply lodding at z=0 plane
+
+				// for this lod radius, get the chunk grid bounds, aligned such that the parent lod chunks still fit without holes
+				bound0 =  floori(lod_center - radius) & parent_mask;
+				bound1 = (floori(lod_center + radius) & parent_mask) + parent_sz;
+			}
+
 			assert(bound1.x > bound0.x && bound1.y > bound0.y); // needed for next check to work (on prev_bound)
 
 			// make sure there is always one chunk of buffer between any lod, ie. lod2 does not border lod4 directly

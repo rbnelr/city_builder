@@ -49,12 +49,14 @@ void main () {
 	
 	GBUF_OUT
 	void main () {
-		vec4  diff = texture(bindless_tex(v.tex_id), v.uv);
-		float tint = texture(bindless_tex(v.tex_id+1), v.uv).r;
+		vec4 diff = texture(bindless_tex(v.tex_id), v.uv);
+		vec2 TR = texture(bindless_tex(v.tex_id+1), v.uv).rg;
+		float tint = TR.r;
 		
 		diff.rgb *= mix(vec3(1.0), v.col, tint);
 		
 		frag_col = diff;
 		frag_norm = vec4(v.world_normal, 1.0);
+		frag_pbr  = vec4(TR.g, 0, 0, 0);
 	}
 #endif

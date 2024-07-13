@@ -31,18 +31,21 @@ vec3 depth_to_pos_world (float depth, vec2 screen_uv) {
 
 #define GBUF_OUT \
 	layout(location = 0) out vec4 frag_col; \
-	layout(location = 1) out vec4 frag_norm;
+	layout(location = 1) out vec4 frag_norm; \
+	layout(location = 2) out vec4 frag_pbr;
 	
 struct GbufResult {
-	vec3 pos_world;
-	vec3 norm_world;
-	vec3 albedo;
+	vec3  pos_world;
+	vec3  norm_world;
+	vec3  albedo;
+	float roughness;
 };
 
 #if GBUF_IN
 uniform sampler2D gbuf_depth;
 uniform sampler2D gbuf_col;
 uniform sampler2D gbuf_norm;
+uniform sampler2D gbuf_pbr;
 
 bool decode_gbuf_pos (out vec3 pos_world) {
 	vec2 uv = gl_FragCoord.xy * view.inv_viewport_size;
@@ -59,10 +62,9 @@ bool decode_gbuf (out GbufResult r) {
 	vec2 uv = gl_FragCoord.xy * view.inv_viewport_size;
 	
 	float depth = texture(gbuf_depth, uv).r;
-	vec3 col    = texture(gbuf_col,   uv).rgb;
+	r.albedo    = texture(gbuf_col,   uv).rgb;
 	vec3 normal = texture(gbuf_norm,  uv).rgb;
-	
-	r.albedo = col;
+	r.roughness = texture(gbuf_pbr,   uv).r;
 	
 	if (depth > 0.0) {
 		r.norm_world = normalize(normal);

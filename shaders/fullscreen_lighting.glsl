@@ -112,11 +112,22 @@
 			float shadow = 1.0;
 		#endif
 			
+			// diffuse
+			col *= sun_lighting(g.norm_world, shadow);
+			// specular
+			{
+				vec3 dir = normalize(g.pos_world - view.cam_pos);
+				dir = reflect(dir, g.norm_world);
+				
+				float reflectivity = (1.0 - g.roughness);
+				col += reflectivity * get_skybox_light(g.pos_world, dir);
+			}
+			
+			col = apply_fog(col, g.pos_world);
+			//col = vec3(g.roughness);
+			
 			//col = overlay_grid(col, g.pos_world);
 			//col = overlay_countour_lines(col, g.pos_world);
-			
-			col *= sun_lighting(g.norm_world, shadow);
-			col = apply_fog(col, g.pos_world);
 		}
 		
 		frag_col = vec4(col, 1.0);
@@ -126,5 +137,6 @@
 		//debug_window_shadow(shadowmap, 1.0);
 		//debug_window(gbuf_depth);
 		//debug_window(gbuf_norm);
+		//debug_window(gbuf_pbr);
 	}
 #endif

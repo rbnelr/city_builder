@@ -67,10 +67,10 @@ struct Textures {
 		
 		// TODO: make dynamic so that any texture from json works
 		bindless_textures.load_texture<srgb8>("vehicles/car.diff.png");
-		bindless_textures.load_texture<srgb8>("vehicles/car.tint.png");
+		bindless_textures.load_texture<srgb8>("vehicles/car.TR.png");
 
 		bindless_textures.load_texture<srgb8>("vehicles/bus.diff.png");
-		bindless_textures.load_texture<srgb8>("vehicles/bus.tint.png");
+		bindless_textures.load_texture<srgb8>("vehicles/bus.TR.png");
 	}
 
 	Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR, GL_CLAMP_TO_EDGE);
@@ -116,10 +116,13 @@ struct Gbuffer {
 	// GL_RGB8 requires encoding normals, might be better to have camera space normals without z
 	// seems like 8 bits might be to little for normals
 	static constexpr GLenum norm_format  = GL_RGB16F; // GL_RGB16F
+	// will hold PBR params, roughness, metalicity etc. in the future, just roughness for now
+	static constexpr GLenum pbr_format  = GL_R8;
 
 	Render_Texture depth  = {};
 	Render_Texture col    = {};
 	Render_Texture norm   = {};
+	Render_Texture pbr    = {};
 
 	Sampler sampler = make_sampler("gbuf_sampler", FILTER_NEAREST, GL_CLAMP_TO_EDGE);
 
@@ -129,6 +132,7 @@ struct Gbuffer {
 		depth  = Render_Texture("gbuf.depth", size, depth_format);
 		col    = Render_Texture("gbuf.col",   size, col_format);
 		norm   = Render_Texture("gbuf.norm",  size, norm_format);
+		pbr    = Render_Texture("gbuf.pbr",   size, pbr_format);
 		
 		fbo = Fbo("gbuf.fbo");
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -136,9 +140,10 @@ struct Gbuffer {
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,  GL_TEXTURE_2D, depth, 0);
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, col, 0);
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, norm, 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, pbr, 0);
 		
 		// needed so layout(location = x) out vec3 frag_x; works
-		GLuint bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+		GLuint bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
 		glDrawBuffers(ARRLEN(bufs), bufs);
 		
 		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
@@ -472,6 +477,7 @@ struct DefferedPointLightRenderer {
 				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
 				{ "gbuf_col",   { GL_TEXTURE_2D, gbuf.col   }, gbuf.sampler },
 				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, gbuf.sampler },
+				{ "gbuf_pbr",   { GL_TEXTURE_2D, gbuf.pbr   }, gbuf.sampler },
 			});
 
 			glBindVertexArray(vbo.vao);
@@ -611,6 +617,7 @@ struct RenderPasses {
 				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
 				{ "gbuf_col",   { GL_TEXTURE_2D, gbuf.col   }, gbuf.sampler },
 				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, gbuf.sampler },
+				{ "gbuf_pbr",   { GL_TEXTURE_2D, gbuf.pbr   }, gbuf.sampler },
 
 				{ "clouds", texs.clouds, texs.sampler_normal },
 

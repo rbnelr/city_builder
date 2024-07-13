@@ -36,9 +36,10 @@ vec3 depth_to_pos_world (float depth, vec2 screen_uv) {
 	
 struct GbufResult {
 	vec3  pos_world;
-	vec3  norm_world;
+	vec3  normal_world;
 	vec3  albedo;
 	float roughness;
+	float metallic; // TODO
 };
 
 #if GBUF_IN
@@ -67,7 +68,7 @@ bool decode_gbuf (out GbufResult r) {
 	r.roughness = texture(gbuf_pbr,   uv).r;
 	
 	if (depth > 0.0) {
-		r.norm_world = normalize(normal);
+		r.normal_world = normalize(normal);
 		r.pos_world = depth_to_pos_world(depth, uv);
 		return true;
 	}

@@ -36,7 +36,7 @@ void main () {
 
 #ifdef _FRAGMENT
 	uniform sampler2D tex;
-	uniform vec4 pbr = vec4(1.0, 0,0,1);
+	uniform vec4 pbr = vec4(0.8, 0,0,1);
 	
 	GBUF_OUT
 	void main () {

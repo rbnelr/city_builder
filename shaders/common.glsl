@@ -142,6 +142,42 @@ mat3 mat_rotate_eulerXYZ (float x, float y, float z) {
 	);
 }
 
+// TODO: not sure if this code is wrong, or my curb normals are wrong?
+//  hard to debug normals visually, maybe with indirect dbg arrows?
+vec3 normal_map (vec3 normal, vec3 tangent, vec3 norm_sampl) {
+	// generate bitangent vector orthogonal to both normal and tangent
+	vec3 bitangent = cross(normal, tangent);
+	// regenerate tangent vector in case it was not orthogonal to normal
+	tangent = cross(bitangent, normal);
+	// build matrix that does tangent space -> world space
+	mat3 TBN = mat3(normalize(tangent), normalize(bitangent), normal);
+	
+	//norm_sampl *= 4.0;
+	norm_sampl = pow(norm_sampl, vec3(1.0/2.2)); // gamma correct, is this right?
+	
+	norm_sampl.y = 1.0 - norm_sampl.y;
+	norm_sampl = normalize(norm_sampl * 2.0 - 1.0);
+	
+	// bring normal map vector (tangent space) into world space
+	return TBN * norm_sampl;
+}
+
+// standard dodgy way of coming up with a tangent space based on normal
+//  if no tanget vector is available
+mat3 dodgy_TBN (vec3 normal) {
+	// up is either up if normal to side, or alternatively to the right (this generate discontinuity, which is why this is dodgy) 
+	vec3 up = abs(normal.z) < 0.999 ? vec3(0,0,1) : vec3(1,0,0);
+	// tangent points to right of surface
+	vec3 tangent = normalize( cross(up, normal) );
+	// bitangent points towards up
+	vec3 bitangent = cross(normal, tangent);
+	// regenerate tangent vector in case it was not orthogonal to normal
+	tangent = cross(bitangent, normal);
+	
+	// build matrix that does tangent space -> world space
+	return mat3(normalize(tangent), normalize(bitangent), normal);
+}
+
 uniform sampler2D clouds;
 
 float sun_strength () {

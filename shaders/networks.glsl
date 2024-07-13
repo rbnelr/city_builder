@@ -40,30 +40,12 @@ VS2FS Vertex {
 	}
 #endif
 #ifdef _FRAGMENT
-	vec3 normal_map (vec2 uv) {
-		vec3 normal    = v.norm;
-		vec3 tangent   = v.tang;
-		vec3 bitangent = cross(normal, tangent); // generate bitangent vector orthogonal to both normal and tangent
-		tangent = cross(bitangent, normal); // regenerate tangent vector in case it was not orthogonal to normal
-	
-		mat3 TBN = mat3(normalize(tangent), normalize(bitangent), normal);
-		
-		
-		vec3 norm_sampl = texture(bindless_tex(v.tex_id+1), v.uv).rgb;
-		//norm_sampl *= 4.0;
-		norm_sampl = pow(norm_sampl, vec3(1.0/2.2)); // is this right?
-		
-		norm_sampl.y = 1.0 - norm_sampl.y;
-		norm_sampl = normalize(norm_sampl * 2.0 - 1.0);
-		
-		return TBN * norm_sampl;
-	}
-	
-	uniform vec4 pbr = vec4(1.0, 0,0,1);
+	uniform vec4 pbr = vec4(0.5, 0,0,1);
 	
 	GBUF_OUT
 	void main () {
-		vec3 norm = normal_map(v.uv);
+		vec3 norm = normal_map(v.norm, v.tang,
+		           texture(bindless_tex(v.tex_id+1), v.uv).rgb );
 		//vec3 norm = v.norm;
 		vec3 col = texture(bindless_tex(v.tex_id), v.uv).rgb;
 		//col = vec4(1,1,1,1);

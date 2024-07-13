@@ -14,6 +14,8 @@ struct Renderer {
 	
 	virtual void imgui (App& app) = 0;
 
+	virtual void reload_textures () = 0;
+
 	virtual void begin (App& app) = 0;
 	virtual void end (App& app, View3D& view) = 0;
 
@@ -91,6 +93,7 @@ struct Entities {
 	std::vector<std::unique_ptr<Building>> buildings;
 	std::vector<std::unique_ptr<Citizen>> citizens;
 
+	// building and streets
 	bool buildings_changed = true;
 };
 
@@ -388,6 +391,17 @@ struct App : public Engine {
 		assets.imgui(settings);
 
 		net.imgui();
+	}
+	
+	virtual bool update_files_changed (kiss::ChangedFiles& changed_files) {
+		bool success = true;
+		
+		if (changed_files.any_starts_with("assets")) {
+			//assets.reload_all();
+			//renderer->reload_textures(changed_files);
+		}
+
+		return success;
 	}
 
 	float _test_time = 0;

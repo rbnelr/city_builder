@@ -18,6 +18,9 @@ struct Textures {
 		const char* normal;
 	};
 
+	Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR, GL_CLAMP_TO_EDGE);
+	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
+
 	const char* turn_arrows[7] = {
 		"misc/turn_arrow_R.png"  ,
 		"misc/turn_arrow_S.png"  ,
@@ -32,64 +35,33 @@ struct Textures {
 	DiffNorm pavement = { "misc/street/Flooring_Stone_001_COLOR.png", "misc/street/Flooring_Stone_001_NRM.png" };
 	DiffNorm curb     = { "misc/curb_Diff2.png",                      "misc/curb_Norm.png" };
 	
+
+	Texture2D clouds, grid, contours;
+	Texture2D terrain_diffuse;
+	
+	Texture2D house_diff;
+	Texture2D streetlight_diff;
+
+	Texture2D cracks;
+	
+	Texture2D heightmap, heightmap_outer;
+
+
 	template <typename T>
-	void load (const char* filename) {
+	void load_bindless (const char* filename) {
 		ZoneScoped;
 
 		bindless_textures.load_texture<T>(filename);
 	}
 	
 	template <typename T>
-	void load (DiffNorm& df) {
+	void load_bindless (DiffNorm& df) {
 		ZoneScoped;
 
 		bindless_textures.load_texture<T>(df.diffuse);
 		bindless_textures.load_texture<T>(df.normal);
 	}
-
-	Textures () {
-		ZoneScoped;
-
-		// TODO: don't hardcode these, rather put them into assets and have used assets trigger load of their textures
-
-		load<srgba8>("misc/line.png"          );
-		load<srgba8>("misc/stripe.png"        );
-		load<srgba8>("misc/shark_teeth.png"   );
-		
-		for (auto& fn : turn_arrows)
-			load<srgba8>(fn);
-		
-		load<srgb8>(asphalt);
-		load<srgb8>(pavement);
-		load<srgb8>(curb);
-
-		//bindless_textures.load_texture<srgba8>("misc/turn_arrow_LSR.png");
-		
-		// TODO: make dynamic so that any texture from json works
-		bindless_textures.load_texture<srgb8>("vehicles/car.diff.png");
-		bindless_textures.load_texture<srgb8>("vehicles/car.TR.png");
-
-		bindless_textures.load_texture<srgb8>("vehicles/bus.diff.png");
-		bindless_textures.load_texture<srgb8>("vehicles/bus.TR.png");
-	}
-
-	Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR, GL_CLAMP_TO_EDGE);
-	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
-
-
-	Texture2D clouds = load_texture<srgba8>("clouds", "skybox/clouds.png");
-	Texture2D grid = load_texture<srgba8>("grid", "misc/grid2.png");
-	Texture2D contours = load_texture<srgba8>("contours", "misc/contours.png");
-	Texture2D terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
 	
-	Texture2D house_diff = load_texture<srgb8>("house_Diff", "buildings/house.png");
-	Texture2D streetlight_diff = load_texture<srgb8>("streetlight_Diff", "props/streetlight_Diff.png");
-
-	Texture2D cracks = load_texture<srgb8>("cracks", "misc/cracks.png"); // TODO: support single channel
-	
-	Texture2D heightmap = load_texture<uint16_t>("heightmap", "heightmap.png", false);
-	Texture2D heightmap_outer = load_texture<uint16_t>("heightmap_outer", "heightmap_outer.png", false);
-
 	template <typename T>
 	static Texture2D load_texture (std::string_view gl_label, const char* filepath, bool mips=true) {
 		ZoneScoped;
@@ -102,6 +74,55 @@ struct Textures {
 		return tex;
 	}
 
+	void reload_all () {
+		ZoneScoped;
+
+		// TODO: don't hardcode these, rather put them into assets and have used assets trigger load of their textures
+		
+		bindless_textures.clear();
+
+
+		clouds = load_texture<srgba8>("clouds", "skybox/clouds.png");
+		grid = load_texture<srgba8>("grid", "misc/grid2.png");
+		contours = load_texture<srgba8>("contours", "misc/contours.png");
+		terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
+	
+		house_diff = load_texture<srgb8>("house_Diff", "buildings/house.png");
+		streetlight_diff = load_texture<srgb8>("streetlight_Diff", "props/streetlight_Diff.png");
+
+		cracks = load_texture<srgb8>("cracks", "misc/cracks.png"); // TODO: support single channel
+	
+		heightmap = load_texture<uint16_t>("heightmap", "heightmap.png", false);
+		heightmap_outer = load_texture<uint16_t>("heightmap_outer", "heightmap_outer.png", false);
+
+
+		load_bindless<srgba8>("misc/line.png"          );
+		load_bindless<srgba8>("misc/stripe.png"        );
+		load_bindless<srgba8>("misc/shark_teeth.png"   );
+		
+		for (auto& fn : turn_arrows)
+			load_bindless<srgba8>(fn);
+		
+		load_bindless<srgb8>(asphalt);
+		load_bindless<srgb8>(pavement);
+		load_bindless<srgb8>(curb);
+		
+		// TODO: make dynamic so that any texture from json works
+		load_bindless<srgb8>("vehicles/car.diff.png");
+		load_bindless<srgb8>("vehicles/car.TR.png");
+
+		load_bindless<srgb8>("vehicles/bus.diff.png");
+		load_bindless<srgb8>("vehicles/bus.TR.png");
+	}
+
+	Textures () {
+		reload_all();
+	}
+
+	void imgui () {
+		if (ImGui::Button("Reload All Textures"))
+			reload_all();
+	}
 };
 
 struct Gbuffer {

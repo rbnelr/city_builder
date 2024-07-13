@@ -106,6 +106,12 @@ struct AssetMesh {
 	AABB<float3> aabb;
 };
 
+#define SERIALIZE_ASSET(Type, ...) \
+	friend SERIALIZE_TO_JSON(Type)   { SERIALIZE_TO_JSON_EXPAND(__VA_ARGS__) } \
+	friend SERIALIZE_FROM_JSON(Type) { SERIALIZE_FROM_JSON_EXPAND(__VA_ARGS__) \
+		t.reload(); \
+	}
+
 enum class LaneDir : uint8_t {
 	FORWARD = 0,
 	BACKWARD = 1,
@@ -141,12 +147,7 @@ struct PointLight {
 };
 
 struct NetworkAsset {
-	friend SERIALIZE_TO_JSON(NetworkAsset)   { SERIALIZE_TO_JSON_EXPAND(  name, filename, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit) }
-	friend SERIALIZE_FROM_JSON(NetworkAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
-		//t.mesh = { prints("%s.fbx", t.filename.c_str()).c_str() };
-
-		t.update_cached();
-	}
+	SERIALIZE_ASSET(NetworkAsset, name, filename, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
 
 	struct Lane {
 		SERIALIZE(Lane, shift, width, direction)
@@ -264,6 +265,10 @@ struct NetworkAsset {
 		if (changed) update_cached();
 		return changed;
 	}
+
+	void reload () {
+		update_cached();
+	}
 };
 
 // seperate into lists instead?
@@ -292,10 +297,7 @@ constexpr const char* VEHICLE_BONE_NAMES[] = {
 };
 
 struct BuildingAsset {
-	friend SERIALIZE_TO_JSON(BuildingAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, type, citizens, size) }
-	friend SERIALIZE_FROM_JSON(BuildingAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, type, citizens, size)
-		assimp::load_basic(prints("assets/%s", t.filename.c_str()).c_str(), &t.mesh);
-	}
+	SERIALIZE_ASSET(BuildingAsset, name, filename, type, citizens, size)
 
 	std::string name = "<unnamed>";
 	std::string filename;
@@ -319,12 +321,13 @@ struct BuildingAsset {
 
 		return changed;
 	}
+
+	void reload () {
+		assimp::load_basic(prints("assets/%s", filename.c_str()).c_str(), &mesh);
+	}
 };
 struct VehicleAsset {
-	friend SERIALIZE_TO_JSON(VehicleAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename, tex_filename, spawn_weight) }
-	friend SERIALIZE_FROM_JSON(VehicleAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename, tex_filename, spawn_weight)
-		assimp::load_simple_anim(prints("assets/%s", t.filename.c_str()).c_str(), &t.mesh, t.bone_mats, &t.wheel_r);
-	}
+	SERIALIZE_ASSET(VehicleAsset, name, filename, tex_filename, spawn_weight)
 
 	std::string name = "<unnamed>";
 	std::string filename;
@@ -338,18 +341,34 @@ struct VehicleAsset {
 	float wheel_r = 0.5f;
 
 	AssetMesh<SimpleAnimVertex> mesh;
+
+	void reload () {
+		assimp::load_simple_anim(prints("assets/%s", filename.c_str()).c_str(), &mesh, bone_mats, &wheel_r);
+	}
 };
 struct PropAsset {
-	friend SERIALIZE_TO_JSON(PropAsset)   { SERIALIZE_TO_JSON_EXPAND(name, filename) }
-	friend SERIALIZE_FROM_JSON(PropAsset) { SERIALIZE_FROM_JSON_EXPAND(name, filename)
-		assimp::load_basic(prints("assets/%s", t.filename.c_str()).c_str(), &t.mesh);
-	}
+	SERIALIZE_ASSET(PropAsset, name, filename)
 
 	std::string name = "<unnamed>";
 	std::string filename;
 
 	AssetMesh<BasicVertex> mesh;
+
+	void reload () {
+		assimp::load_basic(prints("assets/%s", filename.c_str()).c_str(), &mesh);
+	}
 };
+
+// Asset loading scheme:
+//  Assets class and each object is always constructed empty
+//  debug.json contains all parameters for all asset objects
+//  On app start json is loaded, this creates asset objects which call their reload() (through SERIALIZE_ASSET)
+//  Each asset stores the data needed to reload without involving the json (eg. filenames, which usually would not be needed after load)
+//   so that each object can be reloaded as desired (through UI, based on file changes or through json reload)
+//  Assets class keeps assets_reloaded flag, and application has the responsibility of updating itself (stale asset pointers or stale data, meshes etc.)
+//  NOTE: json load does not preserve anything inside containers, and any unique ptr is always recreated as well, so you always have to update anything using a asset ptr
+//        but asset reload() does keep the asset ptr valid, but you might have to decide case by case what can stay, ex. lane changes in roads have to despawn cars etc.
+//  TODO: the reload could possibly be handled better?, but probably fast enough for now, as it is mostly a dev thing
 
 struct Assets {
 	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(networks, buildings, vehicles, props) }
@@ -357,7 +376,7 @@ struct Assets {
 		t.assets_reloaded = true;
 	}
 
-	bool assets_reloaded = true;
+	bool assets_reloaded = false;
 
 	// use a vector of pointers for now, asset pointers stay valid on edit, but need ordered data for gpu-side data
 	template <typename T>
@@ -368,8 +387,19 @@ struct Assets {
 	Collection<VehicleAsset>  vehicles;
 	Collection<PropAsset>     props;
 	
+	void reload_all () {
+		for (auto& a : networks ) a->reload();
+		for (auto& a : buildings) a->reload();
+		for (auto& a : vehicles ) a->reload();
+		for (auto& a : props    ) a->reload();
+		assets_reloaded = true;
+	}
+
 	void imgui (Settings& settings) {
 		if (!ImGui::TreeNode("Assets")) return;
+
+		if (ImGui::Button("Reload All"))
+			reload_all();
 		
 		imgui_edit_vector("networks", networks, [&] (std::unique_ptr<NetworkAsset>& network) {
 			network->imgui(settings);
@@ -382,5 +412,4 @@ struct Assets {
 
 		ImGui::TreePop();
 	}
-	
 };

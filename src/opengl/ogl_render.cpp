@@ -1175,6 +1175,7 @@ struct OglRenderer : public Renderer {
 		if (ImGui::Begin("Renderer")) {
 			
 			passes.imgui();
+			textures.imgui();
 
 		#if OGL_USE_REVERSE_DEPTH
 			ImGui::Checkbox("reverse_depth", &ogl::reverse_depth);
@@ -1256,25 +1257,7 @@ struct OglRenderer : public Renderer {
 			upload(offsetof(Common, view), sizeof(view), &view);
 		}
 	};
-	struct BindlessTexLUT {
-
-		Ssbo ssbo = {"bindless_ssbo"};
-
-		void update (BindlessTextureManager& bindless) {
-			std::vector<GLuint64> data;
-			data.resize(bindless.loaded_textures.size());
-			for (int i=0; i<(int)data.size(); ++i)
-				data[i] = bindless.loaded_textures[i].tex.handle;
-
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint64_t)*data.size(), nullptr, GL_STREAM_DRAW);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint64_t)*data.size(), data.data(), GL_STREAM_DRAW);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDLESS_TEX_SSBO_BINDING, ssbo);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-		}
-	};
 	CommonUniforms common_ubo;
-	BindlessTexLUT bindless_tex_lut;
 	
 	RenderPasses passes;
 
@@ -1301,6 +1284,10 @@ struct OglRenderer : public Renderer {
 
 	OglRenderer () {
 		
+	}
+
+	virtual void reload_textures () {
+		textures.reload_all();
 	}
 	
 	void upload_static_instances (App& app) {
@@ -1417,7 +1404,7 @@ struct OglRenderer : public Renderer {
 			{
 				common_ubo.begin();
 				common_ubo.set_lighting(lighting);
-				bindless_tex_lut.update(textures.bindless_textures);
+				textures.bindless_textures.update_lut(BINDLESS_TEX_SSBO_BINDING);
 
 				//glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, gl_dbgdraw.indirect_vbo);
 

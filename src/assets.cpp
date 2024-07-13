@@ -195,6 +195,8 @@ namespace assimp {
 	}
 	
 	bool load_basic (char const* filename, AssetMesh<BasicVertex, uint16_t>* out_mesh) {
+		printf("Loading basic mesh \"%s\"...\n", filename);
+
 		Assimp::Importer importer;
 
 		importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS,
@@ -208,7 +210,7 @@ namespace assimp {
 			return false;
 		}
 
-		print_scene(scene, filename);
+		//print_scene(scene, filename);
 
 		auto transform = get_base_transform(scene);
 		
@@ -238,6 +240,8 @@ namespace assimp {
 
 	bool load_simple_anim (char const* filename, AssetMesh<SimpleAnimVertex, uint16_t>* out_mesh,
 			BoneMats* out_mats, float* out_wheel_r) {
+		printf("Loading simple animated mesh \"%s\"...\n", filename);
+
 		Assimp::Importer importer;
 
 		importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS,
@@ -250,7 +254,7 @@ namespace assimp {
 			return false;
 		}
 
-		print_scene(scene, filename);
+		//print_scene(scene, filename);
 
 		auto transform = get_base_transform(scene);
 		
@@ -317,6 +321,8 @@ namespace assimp {
 	}
 	
 	bool load_simple (char const* filename, SimpleMesh* out_mesh) {
+		printf("Loading simple mesh \"%s\"...\n", filename);
+
 		Assimp::Importer importer;
 		// Drop everything except vertex position to avoid aiProcess_JoinIdenticalVertices not producing optimal mesh
 		importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS,
@@ -332,7 +338,7 @@ namespace assimp {
 			return false;
 		}
 
-		print_scene(scene, filename);
+		//print_scene(scene, filename);
 
 		auto transform = get_base_transform(scene);
 		

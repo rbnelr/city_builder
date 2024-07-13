@@ -1165,7 +1165,8 @@ struct OglRenderer : public Renderer {
 	}
 	
 	virtual void imgui (App& app) {
-		if (imgui_Header("Renderer", true)) {
+		//if (imgui_Header("Renderer", true)) {
+		if (ImGui::Begin("Renderer")) {
 			
 			passes.imgui();
 
@@ -1180,8 +1181,8 @@ struct OglRenderer : public Renderer {
 			lighting.imgui();
 			terrain_renderer.imgui();
 
-			ImGui::PopID();
 		}
+		ImGui::End();
 	}
 
 	StateManager state;

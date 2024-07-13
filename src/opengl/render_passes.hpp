@@ -93,6 +93,8 @@ struct Textures {
 	template <typename T>
 	static Texture2D load_texture (std::string_view gl_label, const char* filepath, bool mips=true) {
 		ZoneScoped;
+		
+		printf("loading texture \"%s\"...\n", filepath);
 
 		Texture2D tex = {gl_label};
 		if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str(), mips))

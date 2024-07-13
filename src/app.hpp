@@ -347,7 +347,7 @@ struct CameraTrack {
 
 struct App : public Engine {
 
-	App (): Engine{"Kiss-Framework Project"} {}
+	App (): Engine{"City Builder"} {}
 	virtual ~App () {}
 	
 	friend SERIALIZE_TO_JSON(App) {

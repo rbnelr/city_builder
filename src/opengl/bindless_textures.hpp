@@ -87,6 +87,8 @@ struct BindlessTextureManager {
 			return;
 		}
 
+		printf("loading bindless texture \"%s\"...\n", filepath);
+
 		Image<T> img;
 		if (!Image<T>::load_from_file(prints("assets/%s", filepath).c_str(), &img)) {
 			fprintf(stderr, "Error! Could not load texture \"%s\"", filepath);

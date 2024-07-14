@@ -18,7 +18,6 @@ struct Textures {
 		const char* normal;
 	};
 
-	Sampler sampler_heightmap = make_sampler("sampler_heightmap", FILTER_BILINEAR, GL_CLAMP_TO_EDGE);
 	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
 
 	const char* turn_arrows[7] = {
@@ -44,8 +43,45 @@ struct Textures {
 
 	Texture2D cracks;
 	
-	Texture2D heightmap, heightmap_outer;
+	struct HeightmapTextures {
+		Texture2D inner, outer;
 
+		Sampler sampler = make_sampler("sampler_heightmap", FILTER_BILINEAR, GL_CLAMP_TO_EDGE);
+	
+		void upload (Heightmap const& heightmap) {
+			inner = upload_image<uint16_t>("heightmap.inner", heightmap.inner, false);
+			outer = upload_image<uint16_t>("heightmap.outer", heightmap.outer, false);
+		}
+		
+		TextureBinds textures () {
+			return {{
+				{"heightmap_inner", inner, sampler},
+				{"heightmap_outer", outer, sampler},
+			}};
+		}
+	};
+
+	HeightmapTextures heightmap;
+
+	template <typename T>
+	static Texture2D upload_image (std::string_view gl_label, Image<T> const& img, bool mips=true) {
+		ZoneScoped;
+
+		Texture2D tex = {gl_label};
+		upload_image2D<T>(tex, img, mips);
+		return tex;
+	}
+	template <typename T>
+	static Texture2D load_texture (std::string_view gl_label, const char* filepath, bool mips=true) {
+		ZoneScoped;
+		
+		printf("loading texture \"%s\"...\n", filepath);
+
+		Texture2D tex = {gl_label};
+		if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str(), mips))
+			assert(false);
+		return tex;
+	}
 
 	template <typename T>
 	void load_bindless (const char* filename) {
@@ -60,18 +96,6 @@ struct Textures {
 
 		bindless_textures.load_texture<T>(df.diffuse);
 		bindless_textures.load_texture<T>(df.normal);
-	}
-	
-	template <typename T>
-	static Texture2D load_texture (std::string_view gl_label, const char* filepath, bool mips=true) {
-		ZoneScoped;
-		
-		printf("loading texture \"%s\"...\n", filepath);
-
-		Texture2D tex = {gl_label};
-		if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str(), mips))
-			assert(false);
-		return tex;
 	}
 
 	void reload_all () {
@@ -91,9 +115,6 @@ struct Textures {
 		streetlight_diff = load_texture<srgb8>("streetlight_Diff", "props/streetlight_Diff.png");
 
 		cracks = load_texture<srgb8>("cracks", "misc/cracks.png"); // TODO: support single channel
-	
-		heightmap = load_texture<uint16_t>("heightmap", "heightmap.png", false);
-		heightmap_outer = load_texture<uint16_t>("heightmap_outer", "heightmap_outer.png", false);
 
 
 		load_bindless<srgba8>("misc/line.png"          );
@@ -173,6 +194,15 @@ struct Gbuffer {
 		}
 		
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+
+	TextureBinds textures () {
+		return TextureBinds{{
+			{ "gbuf_depth", { GL_TEXTURE_2D, depth }, sampler },
+			{ "gbuf_col",   { GL_TEXTURE_2D, col   }, sampler },
+			{ "gbuf_norm",  { GL_TEXTURE_2D, norm  }, sampler },
+			{ "gbuf_pbr",   { GL_TEXTURE_2D, pbr   }, sampler },
+		}};
 	}
 };
 
@@ -303,6 +333,17 @@ struct DirectionalCascadedShadowmap {
 		tex_changed = false;
 
 		resize(int2(shadow_res,shadow_res));
+	}
+
+	void prepare_shadowmap_use (Shader* shad, TextureBinds& textures) {
+		shad->set_uniform("shadowmap_mat", view_casc0.world2clip);
+		shad->set_uniform("shadowmap_dir", (float3x3)view_casc0.cam2world * float3(0,0,-1));
+		shad->set_uniform("shadowmap_bias_fac", bias_fac);
+		shad->set_uniform("shadowmap_bias_max", bias_max);
+		shad->set_uniform("shadowmap_cascade_factor", cascade_factor);
+
+		textures += { "shadowmap", { GL_TEXTURE_2D_ARRAY, shadow_tex }, sampler };
+		textures += { "shadowmap2", { GL_TEXTURE_2D_ARRAY, shadow_tex }, sampler2 };
 	}
 
 	template <typename FUNC>
@@ -470,7 +511,7 @@ struct DefferedPointLightRenderer {
 		instance_count = (GLsizei)instances.size();
 	}
 
-	void draw (StateManager& state, Gbuffer& gbuf) {
+	void draw (StateManager& state, Gbuffer& gbuf, TextureBinds const& tex) {
 		if (shad->prog) {
 			ZoneScoped;
 			OGL_TRACE("draw lights");
@@ -494,12 +535,7 @@ struct DefferedPointLightRenderer {
 
 			glUseProgram(shad->prog);
 
-			state.bind_textures(shad, {
-				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
-				{ "gbuf_col",   { GL_TEXTURE_2D, gbuf.col   }, gbuf.sampler },
-				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, gbuf.sampler },
-				{ "gbuf_pbr",   { GL_TEXTURE_2D, gbuf.pbr   }, gbuf.sampler },
-			});
+			state.bind_textures(shad, tex);
 
 			glBindVertexArray(vbo.vao);
 			glDrawElementsInstanced(GL_TRIANGLES, index_count, GL_UNSIGNED_SHORT, (void*)0, instance_count);
@@ -578,7 +614,6 @@ struct RenderPasses {
 	
 	void imgui () {
 		renderscale.imgui();
-
 		shadowmap.imgui();
 
 		if (ImGui::TreeNode("Postprocessing")) {
@@ -628,31 +663,20 @@ struct RenderPasses {
 			
 			glUseProgram(shad_fullscreen_lighting->prog);
 
-			shad_fullscreen_lighting->set_uniform("shadowmap_mat", shadowmap.view_casc0.world2clip);
-			shad_fullscreen_lighting->set_uniform("shadowmap_dir", (float3x3)shadowmap.view_casc0.cam2world * float3(0,0,-1));
-			shad_fullscreen_lighting->set_uniform("shadowmap_bias_fac", shadowmap.bias_fac);
-			shad_fullscreen_lighting->set_uniform("shadowmap_bias_max", shadowmap.bias_max);
-			shad_fullscreen_lighting->set_uniform("shadowmap_cascade_factor", shadowmap.cascade_factor);
-			
-			state.bind_textures(shad_fullscreen_lighting, {
-				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
-				{ "gbuf_col",   { GL_TEXTURE_2D, gbuf.col   }, gbuf.sampler },
-				{ "gbuf_norm",  { GL_TEXTURE_2D, gbuf.norm  }, gbuf.sampler },
-				{ "gbuf_pbr",   { GL_TEXTURE_2D, gbuf.pbr   }, gbuf.sampler },
+			TextureBinds tex;
+			tex += gbuf.textures();
 
-				{ "clouds", texs.clouds, texs.sampler_normal },
+			tex += { "clouds", texs.clouds, texs.sampler_normal };
+			tex += { "grid_tex", texs.grid, texs.sampler_normal };
+			tex += { "contours_tex", texs.contours, texs.sampler_normal };
 
-				{ "shadowmap", { GL_TEXTURE_2D_ARRAY, shadowmap.shadow_tex }, shadowmap.sampler },
-				{ "shadowmap2", { GL_TEXTURE_2D_ARRAY, shadowmap.shadow_tex }, shadowmap.sampler2 },
-				
-				{ "grid_tex", texs.grid, texs.sampler_normal },
-				{ "contours_tex", texs.contours, texs.sampler_normal },
-			});
+			shadowmap.prepare_shadowmap_use(shad_fullscreen_lighting, tex);
 
+			state.bind_textures(shad_fullscreen_lighting, tex);
 			draw_fullscreen_triangle(state);
 		}
 
-		light_renderer.draw(state, gbuf);
+		light_renderer.draw(state, gbuf, gbuf.textures());
 	}
 	void end_lighting_pass () {
 		ZoneScoped;

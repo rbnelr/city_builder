@@ -236,6 +236,7 @@
     <ClInclude Include="..\src\opengl\bindless_textures.hpp">
       <Filter>opengl</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\heightmap.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\shaders\common.glsl">

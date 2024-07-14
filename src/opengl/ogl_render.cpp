@@ -104,27 +104,8 @@ struct TriRenderer {
 	}
 };
 
-struct Heightmap {
-	int2 map_size       = 16*1024;
-	int2 outer_map_size = 128*1024;
-
-	float z_min = -150;
-	float z_range = (float)UINT16_MAX * 0.05f;
-
-	void imgui () {
-		if (imgui_Header("Heightmap", true)) {
-			ImGui::DragFloat("z_min", &z_min);
-			ImGui::DragFloat("z_range", &z_range);
-
-			ImGui::PopID();
-		}
-	}
-};
-
 struct TerrainRenderer {
 	static constexpr int TERRAIN_CHUNK_SZ = 32; // 128 is max with GL_UNSIGNED_SHORT indices
-
-	Heightmap heightmap;
 
 	Shader* shad_terrain = g_shaders.compile("terrain");
 	
@@ -143,8 +124,6 @@ struct TerrainRenderer {
 
 	void imgui () {
 		if (imgui_Header("TerrainRenderer", true)) {
-
-			heightmap.imgui();
 
 			ImGui::Checkbox("dbg_lod", &dbg_lod);
 
@@ -183,7 +162,8 @@ struct TerrainRenderer {
 	int drawn_chunks = 0;
 
 	template <typename FUNC>
-	void lodded_chunks (StateManager& state, Textures& texs, View3D& view, Shader* shad, int base_lod, bool dbg, FUNC draw_chunk) {
+	void lodded_chunks (StateManager& state, Heightmap& heightmap, Textures& texs,
+			View3D& view, Shader* shad, int base_lod, bool dbg, FUNC draw_chunk) {
 		ZoneScoped;
 
 		float2 lod_center = (float2)view.cam_pos;
@@ -329,7 +309,7 @@ struct TerrainRenderer {
 		chunk_vertices = vert_count;
 		chunk_indices  = idx_count;
 	}
-	void render_terrain (StateManager& state, Textures& texs, View3D& view, bool shadow_pass=false) {
+	void render_terrain (StateManager& state, Heightmap& heightmap, Textures& texs, View3D& view, bool shadow_pass=false) {
 		ZoneScoped;
 		OGL_TRACE("render_terrain");
 
@@ -353,16 +333,12 @@ struct TerrainRenderer {
 
 			glUseProgram(shad_terrain->prog);
 
-			state.bind_textures(shad_terrain, {
-			//	{"grid_tex", texs.grid, texs.sampler_normal},
-			//	{"clouds", r.textures.clouds, r.textures.sampler_normal},
-				{"heightmap", texs.heightmap, texs.sampler_heightmap},
-				{"heightmap_outer", texs.heightmap_outer, texs.sampler_heightmap},
+			state.bind_textures(shad_terrain, texs.heightmap.textures() + TextureBinds{{
 				{"terrain_diffuse", texs.terrain_diffuse, texs.sampler_normal},
 
 				{ "grid_tex", texs.grid, texs.sampler_normal },
 				{ "contours_tex", texs.contours, texs.sampler_normal },
-			});
+			}});
 			
 			shad_terrain->set_uniform("inv_map_size", 1.0f / (float2)heightmap.map_size);
 			shad_terrain->set_uniform("inv_outer_size", 1.0f / (float2)heightmap.outer_map_size);
@@ -371,7 +347,7 @@ struct TerrainRenderer {
 
 			glBindVertexArray(terrain_chunk.vao);
 			
-			lodded_chunks(state, texs, view, shad_terrain, terrain_base_lod, dbg_lod, [this] () {
+			lodded_chunks(state, heightmap, texs, view, shad_terrain, terrain_base_lod, dbg_lod, [this] () {
 				glDrawElements(GL_TRIANGLES, chunk_indices, GL_UNSIGNED_SHORT, (void*)0);
 			});
 		}
@@ -1369,6 +1345,11 @@ struct OglRenderer : public Renderer {
 
 		lighting.sun_dir = float4(app.time_of_day.sun_dir, 0.0);
 
+		if (app.heightmap.textures_changed) {
+			textures.heightmap.upload(app.heightmap);
+			app.heightmap.textures_changed = false;
+		}
+
 		if (app.assets.assets_reloaded) {
 			ZoneScopedN("assets_reloaded");
 
@@ -1429,12 +1410,12 @@ struct OglRenderer : public Renderer {
 			passes.shadowmap.draw_cascades(app, view, state, [&] (View3D& view) {
 				common_ubo.set_view(view);
 				
-				terrain_renderer.render_terrain(state, textures, view, true);
+				terrain_renderer.render_terrain(state, app.heightmap, textures, view, true);
 		
 				network_renderer.render(state, textures, true);
 
 				building_renderer.draw(state, textures, textures.house_diff, true);
-				vehicle_renderer .draw(state, textures, textures.house_diff);
+				vehicle_renderer .draw(state, textures, textures.house_diff); // TODO: house_diff ??? please just make all entities use bindless!
 				prop_renderer    .draw(state, textures, textures.streetlight_diff, true);
 			});
 		}
@@ -1447,7 +1428,7 @@ struct OglRenderer : public Renderer {
 			
 			passes.begin_geometry_pass(state);
 
-			terrain_renderer.render_terrain(state, textures, view);
+			terrain_renderer.render_terrain(state, app.heightmap, textures, view);
 
 			network_renderer.render(state, textures);
 			network_renderer.render_decals(state, passes.gbuf, textures);

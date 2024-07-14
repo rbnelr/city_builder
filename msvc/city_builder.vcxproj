@@ -256,6 +256,7 @@
     <ClInclude Include="..\src\engine\dear_imgui_custom\imconfig.hpp" />
     <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_glfw.h" />
     <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.h" />
+    <ClInclude Include="..\src\heightmap.hpp" />
     <ClInclude Include="..\src\network.hpp" />
     <ClInclude Include="..\src\engine\camera.hpp" />
     <ClInclude Include="..\src\engine\agnostic_render.hpp" />

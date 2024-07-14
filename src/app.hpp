@@ -5,6 +5,7 @@
 #include "assets.hpp"
 #include "util.hpp"
 #include "network.hpp"
+#include "heightmap.hpp"
 
 struct App;
 
@@ -24,7 +25,6 @@ struct Renderer {
 };
 
 std::unique_ptr<Renderer> create_ogl_backend ();
-
 
 inline int length2int (float len) {
 	return ceili(len * 100.0f);
@@ -389,7 +389,8 @@ struct App : public Engine {
 		ImGui::SliderFloat("sim_speed", &sim_speed, 0, 10);
 
 		assets.imgui(settings);
-
+		
+		heightmap.imgui();
 		net.imgui();
 	}
 	
@@ -409,6 +410,7 @@ struct App : public Engine {
 	Settings settings;
 	
 	Assets assets;
+	Heightmap heightmap;
 	Entities entities;
 	network::Network net;
 

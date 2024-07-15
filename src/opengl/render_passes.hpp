@@ -158,8 +158,8 @@ struct Gbuffer {
 	// GL_RGB8 requires encoding normals, might be better to have camera space normals without z
 	// seems like 8 bits might be to little for normals
 	static constexpr GLenum norm_format  = GL_RGB16F; // GL_RGB16F
-	// will hold PBR params, roughness, metalicity etc. in the future, just roughness for now
-	static constexpr GLenum pbr_format  = GL_R8;
+	// PBR roughness, metallic
+	static constexpr GLenum pbr_format   = GL_RG8;
 
 	Render_Texture depth  = {};
 	Render_Texture col    = {};
@@ -202,6 +202,144 @@ struct Gbuffer {
 			{ "gbuf_col",   { GL_TEXTURE_2D, col   }, sampler },
 			{ "gbuf_norm",  { GL_TEXTURE_2D, norm  }, sampler },
 			{ "gbuf_pbr",   { GL_TEXTURE_2D, pbr   }, sampler },
+		}};
+	}
+};
+
+struct PBR_Render {
+	Shader* shad_integrate_brdf = g_shaders.compile("pbr_integrate_brdf");
+	Shader* shad_prefilter_env  = g_shaders.compile("pbr_prefilter_env");
+
+	Texture2D brdf_LUT;
+	int brdf_LUT_res = 256; // Seems to be enough
+	bool update_brdf_lut = true;
+	
+	TextureCubemap spec_env;
+	int spec_env_res = 256;
+	bool update_spec_env = true;
+
+	void imgui () {
+		if (ImGui::TreeNode("PBR")) {
+			update_brdf_lut = ImGui::SliderInt("brdf_LUT_res", &brdf_LUT_res, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic) || update_brdf_lut;
+			update_spec_env = ImGui::SliderInt("spec_env_res", &spec_env_res, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic) || update_spec_env;
+			ImGui::TreePop();
+		}
+	}
+
+	template <typename FUNC>
+	static auto draw_into_texture_with_temp_fbo (GLuint textarget, GLuint tex, int2 size, FUNC draw) {
+		auto fbo = Fbo("tmp_fbo");
+		// assume texture bound
+		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, textarget, tex, 0);
+		GLuint bufs[] = { GL_COLOR_ATTACHMENT0 };
+		glDrawBuffers(ARRLEN(bufs), bufs);
+		
+		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE) {
+			//fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
+		}
+		
+		glViewport(0, 0, size.x, size.y);
+
+		draw();
+		
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+	void recreate_brdf_lut (StateManager& state) {
+		ZoneScoped;
+		OGL_TRACE("recreate_brdf_lut");
+			
+		// recreate texture
+		brdf_LUT = {"PBR.brdf_LUT"};
+		glBindTexture(GL_TEXTURE_2D, brdf_LUT);
+
+		glTexStorage2D(GL_TEXTURE_2D, 1, GL_RG16, brdf_LUT_res, brdf_LUT_res);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		draw_into_texture_with_temp_fbo(GL_TEXTURE_2D, brdf_LUT, brdf_LUT_res, [&] () {
+			// clear for good measure
+			glClearColor(0,0,0,0);
+			glClear(GL_COLOR_BUFFER_BIT);
+				
+			glUseProgram(shad_integrate_brdf->prog);
+			shad_integrate_brdf->set_uniform("resolution", float2((float)brdf_LUT_res));
+				
+			state.bind_textures(shad_integrate_brdf, {});
+			draw_fullscreen_triangle(state);
+		});
+
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+	
+	void recreate_spec_env (StateManager& state, Textures& texs) {
+		ZoneScoped;
+		OGL_TRACE("recreate_spec_env");
+			
+		// recreate texture
+		spec_env = {"PBR.spec_env"};
+		glBindTexture(GL_TEXTURE_CUBE_MAP, spec_env);
+
+		// allocates all faces in a single call
+		int mips = calc_mipmaps(spec_env_res, spec_env_res);
+		glTexStorage2D(GL_TEXTURE_CUBE_MAP, mips, GL_RGB16F, spec_env_res, spec_env_res);
+
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, mips-1);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+		
+
+		glUseProgram(shad_prefilter_env->prog);
+		state.bind_textures(shad_prefilter_env, {
+			{ "clouds", texs.clouds, texs.sampler_normal }
+		});
+		shad_prefilter_env->set_uniform("resolution", float2((float)spec_env_res));
+
+		for (int i=0; i<6; ++i) {
+			draw_into_texture_with_temp_fbo(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, spec_env, spec_env_res, [&] () {
+				// clear for good measure
+				glClearColor(0,0,0,0);
+				glClear(GL_COLOR_BUFFER_BIT);
+				
+				shad_prefilter_env->set_uniform("face_i", i);
+				
+				draw_fullscreen_triangle(state);
+			});
+		}
+		
+		// need to rebind because bind_textures() clobbers this!!
+		glBindTexture(GL_TEXTURE_CUBE_MAP, spec_env);
+		glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+	}
+
+	void update (StateManager& state, Textures& texs) {
+		if (update_brdf_lut) {
+			recreate_brdf_lut(state);
+			update_brdf_lut = false;
+		}
+
+		if (update_spec_env) {
+			recreate_spec_env(state, texs);
+			//update_spec_env = false;
+		}
+	}
+
+	TextureBinds textures () {
+		return TextureBinds{{
+			// no samplers, just use texture params instead
+			{ "pbr_brdf_LUT", brdf_LUT },
+			{ "pbr_spec_env", spec_env },
 		}};
 	}
 };
@@ -470,22 +608,20 @@ struct DefferedPointLightRenderer {
 
 	Shader* shad = g_shaders.compile("point_lights");
 
-	struct MeshInstance {
+	struct LightInstance {
 		//int    type;
 		float3 pos;
 		float  radius;
 		float3 col;
 
 		VERTEX_CONFIG(
-			ATTRIB(FLT,3, MeshInstance, pos),
-			ATTRIB(FLT,1, MeshInstance, radius),
-			ATTRIB(FLT,3, MeshInstance, col),
+			ATTRIB(FLT,3, LightInstance, pos),
+			ATTRIB(FLT,1, LightInstance, radius),
+			ATTRIB(FLT,3, LightInstance, col),
 		)
 	};
 
-	// All meshes/lods vbo (indexed) GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER
-	// All entities instance data GL_ARRAY_BUFFER
-	VertexBufferInstancedI vbo = vertex_buffer_instancedI<vert_t, MeshInstance>("point_lights");
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<vert_t, LightInstance>("point_lights");
 
 	GLsizei index_count = 0;
 	GLsizei instance_count = 0;
@@ -498,6 +634,10 @@ struct DefferedPointLightRenderer {
 
 		vbo.upload_mesh(mesh.vertices, mesh.indices);
 		index_count = (GLsizei)mesh.indices.size();
+	}
+
+	static void imgui () {
+
 	}
 
 	template <typename FUNC>
@@ -606,6 +746,8 @@ struct RenderPasses {
 	Sampler& get_renderscale_sampler () {
 		return renderscale.nearest ? renderscale_sampler_nearest : renderscale_sampler;
 	}
+
+	PBR_Render pbr;
 	
 	Shader* shad_fullscreen_lighting = g_shaders.compile("fullscreen_lighting");
 	Shader* shad_postprocess = g_shaders.compile("postprocess");
@@ -615,6 +757,7 @@ struct RenderPasses {
 	void imgui () {
 		renderscale.imgui();
 		shadowmap.imgui();
+		pbr.imgui();
 
 		if (ImGui::TreeNode("Postprocessing")) {
 			ImGui::SliderFloat("exposure", &exposure, 0.02f, 20.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
@@ -622,10 +765,11 @@ struct RenderPasses {
 		}
 	}
 	
-	void update (int2 window_size) {
+	void update (StateManager& state, Textures& texs, int2 window_size) {
 		ZoneScoped;
 
 		shadowmap.update();
+		pbr.update(state, texs);
 
 		if (renderscale.update(window_size)) {
 			gbuf.resize(renderscale.size);
@@ -655,16 +799,11 @@ struct RenderPasses {
 			ZoneScoped;
 			OGL_TRACE("fullscreen_lighting");
 
-			PipelineState s;
-			s.depth_test = false;
-			s.depth_write = false;
-			s.blend_enable = false;
-			state.set(s);
-			
 			glUseProgram(shad_fullscreen_lighting->prog);
 
 			TextureBinds tex;
 			tex += gbuf.textures();
+			tex += pbr.textures();
 
 			tex += { "clouds", texs.clouds, texs.sampler_normal };
 			tex += { "grid_tex", texs.grid, texs.sampler_normal };
@@ -676,7 +815,7 @@ struct RenderPasses {
 			draw_fullscreen_triangle(state);
 		}
 
-		light_renderer.draw(state, gbuf, gbuf.textures());
+		light_renderer.draw(state, gbuf, gbuf.textures() + pbr.textures());
 	}
 	void end_lighting_pass () {
 		ZoneScoped;

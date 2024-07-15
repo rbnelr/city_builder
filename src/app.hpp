@@ -410,6 +410,9 @@ struct App : public Engine {
 	Settings settings;
 	
 	Assets assets;
+
+	std::unique_ptr<Renderer> renderer = create_ogl_backend();
+
 	Heightmap heightmap;
 	Entities entities;
 	network::Network net;
@@ -467,10 +470,13 @@ struct App : public Engine {
 	};
 	TimeOfDay time_of_day;
 
-	std::unique_ptr<Renderer> renderer = create_ogl_backend();
 
 	bool sim_paused = false;
 	float sim_speed = 1;
+
+	float sim_dt () {
+		return sim_paused ? 0 : input.dt * sim_speed;
+	}
 
 	Random test_rand;
 

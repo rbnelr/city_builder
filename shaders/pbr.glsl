@@ -1,3 +1,6 @@
+
+#include "procedural_sky.glsl"
+
 //// PBR dev:
 // based on Epic's Real Shading in Unreal Engine 4
 // https://cdn2.unrealengine.com/Resources/files/2013SiggraphPresentationsNotes-26915738.pdf
@@ -70,7 +73,7 @@ float geometry_schlick_IBL (float roughness, float dotVN, float dotLN) {
 	return a * b;
 }
 
-vec3 importance_sample_GGX (vec2 sampl, float roughness, vec3 normal) {
+vec3 importance_sample_GGX (vec2 sampl, float roughness) {
 	// roughness is remapped for some reason (to better distribute 'glossyness' over the parameter?)
 	float a = roughness * roughness;
 	
@@ -95,35 +98,152 @@ vec3 importance_sample_GGX (vec2 sampl, float roughness, vec3 normal) {
 				cos_theta);
 }
 
-vec3 pbr_reference_env_light (in GbufResult g, vec3 view_dir) {
+vec3 prefilter_env_map_accurate (float roughness, vec3 ref_point, vec3 view, vec3 normal) {
+	const int NUM_SAMPLES = 1024;
+	
+	mat3 TBN = dodgy_TBN(normal);
+	
+	vec3 light_sum = vec3(0);
+	float total_weight = 0;
+	
+	for (int i=0; i<NUM_SAMPLES; i++) {
+		vec2 sampl = hammersley(i, NUM_SAMPLES);
+		vec3 half_dir = TBN * importance_sample_GGX(sampl, roughness);
+		vec3 light_dir = reflect(-view, half_dir);
+		
+		float dotLN = dot(light_dir, normal);
+		if (dotLN > 0.0) {
+			light_sum += procedural_sky(ref_point, light_dir) * dotLN;
+			total_weight += dotLN;
+		}
+	}
+	
+	return light_sum / total_weight;
+}
+vec3 prefilter_env_map (float roughness, vec3 ref_point, vec3 refl) {
+	const int NUM_SAMPLES = 1024;
+	
+	vec3 normal = refl;
+	vec3 view = refl;
+	
+	mat3 TBN = dodgy_TBN(normal);
+	
+	vec3 light_sum = vec3(0);
+	float total_weight = 0;
+	
+	for (int i=0; i<NUM_SAMPLES; i++) {
+		vec2 sampl = hammersley(i, NUM_SAMPLES);
+		vec3 half_dir = TBN * importance_sample_GGX(sampl, roughness);
+		vec3 light_dir = reflect(-view, half_dir);
+		
+		float dotLN = dot(light_dir, normal);
+		if (dotLN > 0.0) {
+			light_sum += procedural_sky(ref_point, light_dir) * dotLN;
+			total_weight += dotLN;
+		}
+	}
+	
+	return light_sum / total_weight;
+}
+
+vec2 integrate_brdf (float dotVN, float roughness) {
+	const int NUM_SAMPLES = 1024;
+	
+	// F0 factored out of integral (turns into two 1d integral sums) -> brdf.x * F0 + brdf.y;
+	// all calculations moved to tangent space (which is equivalent) -> normal = vec3(0,0,1)
+	// brdf is rotationally symmetric, ie importance_sample_GGX produces just as many -x as +x or +y etc.
+	// so view_tang.xy can actually be inferred from view_tang.z alone (losing z axis rotation which does not matter)
+	// -> eliminates view_tang.y, could allow for more explicit optimizations
+	
+	//mat3 TBN = dodgy_TBN(normal);
+	//mat3 iTBN = inverse(TBN);
+	//
+	//vec3 view_tang = iTBN * view;
+	//vec3 norm_tang = vec3(0,0,1);
+	
+	// Not needed for brdf LUT preintegration, (since no texel has 0 uvs)
+	// but still do this for more accurate comparisons
+	dotVN = max(dotVN, 0.000001);
+	
+	//float dotVN = dot(view, normal);
+	vec3 view_tang = vec3(
+		sqrt(1.0 - dotVN*dotVN),
+		0,
+		dotVN);
+	
+	vec2 brdf = vec2(0);
+	for (int i=0; i<NUM_SAMPLES; i++) {
+		vec2 sampl = hammersley(i, NUM_SAMPLES);
+		vec3 half_dir = importance_sample_GGX(sampl, roughness);
+		//vec3 light_dir = reflect(-view_tang, half_dir);
+		//
+		//float dotLN = max(dot(light_dir, norm_tang), 0.005);
+		//float dotVN = max(dot( view_tang, norm_tang), 0.005);
+		//float dotHN = max(dot( half_dir, norm_tang), 0.005);
+		//float dotVH = max(dot( view_tang,       half_dir), 0.005);
+		
+		float light_dir_z = 2.0 * dot(view_tang, half_dir) * half_dir.z - view_tang.z;
+		
+		float dotLN = max(light_dir_z, 0.0);
+		//float dotVN = max(view_tang.z, 0.0);
+		float dotHN = max( half_dir.z, 0.0);
+		float dotVH = max(dot(view_tang, half_dir), 0.0);
+		
+		if (dotLN > 0.0) {
+			
+			float G = geometry_schlick_IBL(roughness, dotVN, dotLN);
+			
+			float tmp = G * dotVH / (dotHN * dotVN);
+			
+			// Fresnel
+			//float Fc = pow(1.0 - dotVH, 5.0);
+			float e = 1.0 - dotVH;
+			float e2 = e*e;
+			float Fc = e2*e2*e;
+			
+			brdf.x += tmp * (1.0 - Fc);
+			brdf.y += tmp * Fc;
+		}
+	}
+	
+	brdf *= 1.0 / float(NUM_SAMPLES);
+	return brdf;
+}
+
+#if PBR_RENDER
+uniform sampler2D   pbr_brdf_LUT;
+uniform samplerCube pbr_spec_env;
+
+vec3 pbr_reference_env_light (in GbufResult g) {
 	
 	vec3 ambient_col = lighting.sky_col * (sun_strength() + 0.001);
 	
 	
 	mat3 TBN = dodgy_TBN(g.normal_world);
 	
-	const int NUM_SAMPLES = 256;
+	const int NUM_SAMPLES = 1024;
 	
 	vec3 light = vec3(0);
 	for (int i=0; i<NUM_SAMPLES; i++) {
+		
 		// importance sample the hemisphere using hammersley
 		vec2 sampl = hammersley(i, NUM_SAMPLES);
 		// distributed according to roughness adjusted GGX D() function (I think)
-		vec3 half_dir = TBN * importance_sample_GGX(sampl, g.roughness, g.normal_world);
+		vec3 half_dir = TBN * importance_sample_GGX(sampl, g.roughness);
 		// based on microfacet normal (half_dir), get reflection dir
-		vec3 light_dir = reflect(-view_dir, half_dir);
+		vec3 light_dir = reflect(g.view_dir, half_dir);
 		
 		// angle cosines clamped to avoid backfacing surfaces being black due to normal mapping
 		// TODO: not sure if this is a good solution or not
-		float dotLN = max(dot(light_dir, g.normal_world), 0.005);
-		float dotVN = max(dot( view_dir, g.normal_world), 0.005);
-		float dotHN = max(dot( half_dir, g.normal_world), 0.005);
-		float dotVH = max(dot( view_dir,       half_dir), 0.005);
+		float dotLN = max(dot(  light_dir, g.normal_world), 0.000001);
+		float dotVN = max(dot(-g.view_dir, g.normal_world), 0.005);
+		float dotHN = max(dot(   half_dir, g.normal_world), 0.005);
+		float dotVH = max(dot(-g.view_dir,       half_dir), 0.005);
 		
-		//if (dotLN > 0.0) {
+		if (dotLN > 0.0) {
 			// sample skybox, ie IBL, though currently I fake some scatter procedurally instead of a cubemap
-			vec3 direct_light = get_skybox_light(g.pos_world, light_dir);
-			vec3 indirect_light = direct_light;
+			vec3 direct_light = readCubemap(pbr_spec_env, light_dir).rgb;
+			//vec3 direct_light = procedural_sky(g.pos_world, light_dir);
 			
 			// compute geometric attenuation G, fresnel F
 			// distribution D is implicit through importance sampling
@@ -139,25 +259,49 @@ vec3 pbr_reference_env_light (in GbufResult g, vec3 view_dir) {
 			vec3 kDiff = mix(vec3(1) - F, vec3(0), vec3(g.metallic));
 			vec3 diffuse = kDiff * g.albedo * (1.0 / PI);
 			light += ambient_col * diffuse; // TODO: fix fake diffuse env light
-			
-			//light += brdf;
-		//}
+		}
 	}
 	
 	return light / float(NUM_SAMPLES);
 }
 
-vec3 pbr_directional_light (in GbufResult g, vec3 view_dir,
-		vec3 light_radiance, vec3 light_dir) {
+vec3 pbr_approx_env_light_test (in GbufResult g) {
+	//vec3 ambient_col = lighting.sky_col * (sun_strength() + 0.001);
 	
-	vec3 half_dir = normalize(view_dir + light_dir);
+	vec3 specular_color = mix(vec3(DIELECTRIC_F0), g.albedo, g.metallic);
+	
+	float dotVN = max(dot(-g.view_dir, g.normal_world), 0.0);
+	vec3 refl = reflect(g.view_dir, g.normal_world);
+	
+	vec3 env_light = prefilter_env_map(g.roughness, g.pos_world, refl);
+	//vec3 env_light = prefilter_env_map_accurate(g.roughness, g.pos_world, -g.view_dir, g.normal_world);
+	
+	vec2 brdf = integrate_brdf(dotVN, g.roughness);
+	
+	return env_light * (brdf.x * specular_color + brdf.y);
+}
+vec3 pbr_approx_env_light (in GbufResult g) {
+	vec3 specular_color = mix(vec3(DIELECTRIC_F0), g.albedo, g.metallic);
+	
+	float dotVN = max(dot(-g.view_dir, g.normal_world), 0.0);
+	vec3 refl = reflect(g.view_dir, g.normal_world);
+	vec3 env_light = readCubemap(pbr_spec_env, refl).rgb;
+	
+	vec2 brdf = textureLod(pbr_brdf_LUT, vec2(dotVN, g.roughness), 0.0).rg;
+	
+	return env_light * (brdf.x * specular_color + brdf.y);
+}
+
+vec3 pbr_directional_light (in GbufResult g, vec3 light_radiance, vec3 light_dir) {
+	
+	vec3 half_dir = normalize(-g.view_dir + light_dir);
 	
 	// angle cosines clamped to avoid backfacing surfaces being black due to normal mapping
 	// TODO: not sure if this is a good solution or not
-	float dotLN =     dot(light_dir, g.normal_world);
-	float dotVN = max(dot( view_dir, g.normal_world), 0.005);
-	float dotHN = max(dot( half_dir, g.normal_world), 0.005);
-	float dotVH = max(dot( view_dir,       half_dir), 0.005);
+	float dotLN =     dot(  light_dir, g.normal_world);
+	float dotVN = max(dot(-g.view_dir, g.normal_world), 0.005);
+	float dotHN = max(dot(   half_dir, g.normal_world), 0.005);
+	float dotVH = max(dot(-g.view_dir,       half_dir), 0.005);
 	
 	if (dotLN <= 0.0) {
 		return vec3(0);
@@ -181,23 +325,4 @@ vec3 pbr_directional_light (in GbufResult g, vec3 view_dir,
 	
 	return (specular_brdf + diffuse) * (light_radiance * dotLN);
 }
-
-float specular_D_ggx (float dotHN, float roughness) {
-	float a = roughness*roughness;
-	float a2 = a*a;
-	
-	float denom = (dotHN*dotHN) * (a2 - 1.0) + 1.0;
-	return a2 / (PI * (denom*denom));
-}
-float specular_G_schlick (float dotVN, float dotLN, float roughness) {
-	float r = roughness + 1.0;
-	float k = r * r * 0.125;
-	
-	float v = dotVN / (dotVN * (1.0-k) + k);
-	float l = dotLN / (dotLN * (1.0-k) + k);
-	return v * l;
-}
-float specular_F_schlick (float dotVH, float F0) {
-	float ex = (-5.55473 * dotVH - 6.98316) * dotVH;
-	return F0 + (1.0 - F0) * pow(2.0, ex);
-}
+#endif

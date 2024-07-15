@@ -615,7 +615,7 @@ struct EntityRenderer {
 		entities_count = (uint32_t)instances.size();
 	}
 
-	void draw (StateManager& state, Textures& texs, Texture2D& tex, bool shadow_pass=false, float time=0) {
+	void draw (StateManager& state, Textures& texs, Texture2D& tex, bool shadow_pass=false) {
 		ZoneScoped;
 		OGL_TRACE("draw entities");
 		
@@ -668,7 +668,8 @@ struct EntityRenderer {
 			state.bind_textures(shad, {
 				{"tex", tex, texs.sampler_normal},
 			});
-			shad->set_uniform("time", time);
+			if ((GLuint)tex == (GLuint)texs.streetlight_diff) // Hack for now to get streetlights to be shiny metallic
+				shad->set_uniform("pbr", float4(0.3f, 1.0f));
 
 			glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, entities_count, 0);
 				
@@ -760,7 +761,7 @@ struct Mesher {
 	
 	std::vector<StaticEntityInstance> building_instances;
 	std::vector<StaticEntityInstance> prop_instances;
-	std::vector<DefferedPointLightRenderer::MeshInstance>    light_instances;
+	std::vector<DefferedPointLightRenderer::LightInstance> light_instances;
 	
 	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
 	std::vector<DecalRenderer::Instance> decals;
@@ -1192,6 +1193,20 @@ struct OglRenderer : public Renderer {
 		float fog_base    = 0.00005f;
 		float fog_falloff = 0.0005f;
 
+		float clouds_z  = 5000.0;								// cloud height in m
+		float clouds_sz = 1024.0 * 64.0;						// cloud texture size in m
+		float2 clouds_offset = 0;								// cloud uv offset for movement (wraps in [0,1))
+		// 15m/s is realistic but seems very slow visually
+		float2 clouds_vel = rotate2(deg(30)) * float2(100.0);	// current cloud velocity in m/s
+
+		void update (App& app) {
+			sun_dir = float4(app.time_of_day.sun_dir, 0.0);
+			
+			// TODO: move this to app?
+			clouds_offset += (1.0f / clouds_sz) * clouds_vel * app.sim_dt();
+			clouds_offset = wrap(clouds_offset, 1.0f);
+		}
+
 		void imgui () {
 			if (imgui_Header("Lighting", true)) {
 
@@ -1343,7 +1358,7 @@ struct OglRenderer : public Renderer {
 	virtual void end (App& app, View3D& view) {
 		ZoneScoped;
 
-		lighting.sun_dir = float4(app.time_of_day.sun_dir, 0.0);
+		lighting.update(app);
 
 		if (app.heightmap.textures_changed) {
 			textures.heightmap.upload(app.heightmap);
@@ -1393,7 +1408,7 @@ struct OglRenderer : public Renderer {
 			}
 		}
 
-		passes.update(app.input.window_size);
+		passes.update(state, textures, app.input.window_size);
 
 		auto update_view_resolution = [&] (int2 res) {
 			
@@ -1439,7 +1454,7 @@ struct OglRenderer : public Renderer {
 
 			// TODO: draw during lighting pass?
 			//  how to draw it without depth buffer? -> could use gbuf_normal == vec3(0) as draw condition?
-			skybox.render_skybox_last(state, textures);
+			//skybox.render_skybox_last(state, textures);
 		}
 
 		{

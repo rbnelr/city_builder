@@ -30,6 +30,7 @@ void main () {
 #ifdef _FRAGMENT
 	#define GBUF_IN 1
 	#include "gbuf.glsl"
+	#define PBR_RENDER 1
 	#include "pbr.glsl"
 	
 	float attenuation (float dist) {
@@ -62,11 +63,10 @@ void main () {
 		//frag_col = vec4(light, 1.0);
 		
 		{
-			vec3 view_dir = normalize(view.cam_pos - g.pos_world);
 			vec3 light = atten * v.light_col * 3.5; // TODO: fix light brightnesses (epic uses lumen)
 			
-			vec3 col = pbr_directional_light(g, view_dir, light, frag2light);
-			frag_col = vec4(col, 1.0);
+			vec3 col = pbr_directional_light(g, light, frag2light);
+			//frag_col = vec4(col, 1.0);
 		}
 		//frag_col = vec4(frag2light, 1.0);
 		//frag_col = vec4(0.1,0.0,0.0, 1.0);

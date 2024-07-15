@@ -64,6 +64,11 @@ struct Lighting {
 	
 	float fog_base;
 	float fog_falloff;
+	
+	float clouds_z;      // cloud height in m
+	float clouds_sz;     // cloud texture size in m
+	vec2  clouds_offset; // cloud uv offset for movement (wraps in [0,1))
+	vec2  clouds_vel;    // current cloud velocity in m/s
 };
 
 // layout(std140, binding = 0) only in #version 420
@@ -79,6 +84,32 @@ layout(std430, binding = 1) buffer BindlessTextures {
 
 sampler2D bindless_tex (int tex_id) {
 	return sampler2D(bindless_LUT.handles[tex_id]);
+}
+
+
+struct CubemapFace {
+	vec3 world_dir; // direction this cubemap face is in
+	vec3 world_u;   // where the cubemap face U points in the world
+	vec3 world_v;   // where the cubemap face V points in the world
+};
+const CubemapFace _cubemap_faces[6] = {
+	// GL_TEXTURE_CUBE_MAP_POSITIVE_X, right in opengl and in my world
+	CubemapFace( vec3(+1,0,0), vec3(0,-1,0), vec3(0,0,+1) ),
+	// GL_TEXTURE_CUBE_MAP_NEGATIVE_X
+	CubemapFace( vec3(-1,0,0), vec3(0,+1,0), vec3(0,0,+1) ),
+	// GL_TEXTURE_CUBE_MAP_POSITIVE_Y, supposedly up in opengl, but nsight puts it on the bottom, so this face becomes down for me
+	CubemapFace( vec3(0,0,-1), vec3(+1,0,0), vec3(0,+1,0) ),
+	// GL_TEXTURE_CUBE_MAP_NEGATIVE_Y
+	CubemapFace( vec3(0,0,+1), vec3(+1,0,0), vec3(0,-1,0) ),
+	// GL_TEXTURE_CUBE_MAP_POSITIVE_Z // forwad in opengl
+	CubemapFace( vec3(0,+1,0), vec3(+1,0,0), vec3(0,0,+1) ),
+	// GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
+	CubemapFace( vec3(0,-1,0), vec3(-1,0,0), vec3(0,0,+1) ),
+};
+// Map opengl/nsight's cubemap orientation to my z-up system
+vec4 readCubemap (samplerCube cubemap, vec3 dir_world) {
+	return texture(cubemap, vec3(dir_world.x, -dir_world.z, dir_world.y));
+	//return textureLod(cubemap, vec3(dir_world.x, -dir_world.z, dir_world.y), 0.0);
 }
 
 //#include "dbg_indirect_draw.glsl"
@@ -176,147 +207,6 @@ mat3 dodgy_TBN (vec3 normal) {
 	
 	// build matrix that does tangent space -> world space
 	return mat3(normalize(tangent), normalize(bitangent), normal);
-}
-
-uniform sampler2D clouds;
-
-float sun_strength () {
-	float a = map(-lighting.sun_dir.z, 0.5, -0.2);
-	return smoothstep(1.0, 0.0, a);
-}
-vec3 atmos_scattering () {
-	float a = map(-lighting.sun_dir.z, 0.5, 0.0);
-	return vec3(0.0, 0.7, 0.9) * smoothstep(0.0, 1.0, a);
-}
-vec3 horizon (vec3 dir_world) {
-	return vec3(clamp(map(dir_world.z, -1.0, 1.0), 0.5, 1.0));
-}
-
-vec3 get_skybox_light (vec3 view_point, vec3 dir_world) {
-	float stren = sun_strength() * 1.0;
-	
-	vec3 col = lighting.sky_col * (stren + 0.001);
-	
-	vec3 sun = lighting.sun_col - atmos_scattering();
-	{ // sun
-		sun *= stren;
-	
-		float d = dot(dir_world, -lighting.sun_dir);
-		
-		const float sz = 500.0;
-		float c = clamp(d * sz - (sz-1.0), 0.0, 1.0);
-		
-		col += sun * 10.0 * c;
-	}
-	col *= horizon(dir_world);
-	
-	{
-		const float clouds_z  = 5000.0;
-		const float clouds_sz = 1024.0 * 64.0;
-		
-		float t = (clouds_z - view_point.z) / dir_world.z;
-		if (dir_world.z > 0.0 && t >= 0.0) {
-			vec3 pos = view_point + t * dir_world;
-			
-			vec4 c = texture(clouds, pos.xy / clouds_sz);
-			
-			col = mix(col.rgb, c.rgb * stren, vec3(c.a * 0.8));
-		}
-	}
-	
-	float bloom_amount = max(dot(dir_world, -lighting.sun_dir) - 0.5, 0.0);
-	col += bloom_amount * sun * 0.3;
-	
-	return col;
-} 
-
-vec3 apply_fog (vec3 pix_col, vec3 pix_pos) {
-	// from https://iquilezles.org/articles/fog/
-	// + my own research and derivation
-	
-	// TODO: properly compute extinction (out-scattering + absoption) and in-scattering
-	// seperating in-scattering may allow for more blue tint at distance
-	
-	vec3 ray_cam = pix_pos - view.cam_pos;
-	float dist = length(ray_cam);
-	ray_cam = normalize(ray_cam);
-	
-	float stren = sun_strength();
-	
-	// exponential height fog parameters
-	float a = lighting.fog_base;
-	float b = lighting.fog_falloff;
-	// view parameters
-	float c = view.cam_pos.z;
-	float d = ray_cam.z;
-	
-	// fog at height z is defined as F(z) = a*exp(-b*z)
-	//  this creates fog density a at z=0 and exponential fallow parameterized by b
-	// height along camera ray is Z(t) = c + d*t
-	// then the fog is integrated along the ray with F(Z(t))
-	// optical depth -> total "amount" of fog encountered
-	
-	float bd = b * d;
-	const float eps = 1e-6;
-	
-	float fog_amount = a * exp(-b * c);
-	if (abs(bd) > eps) {
-		fog_amount *= (1.0 - exp(-bd * dist)) / bd;
-		
-		fog_amount = (a / bd) * (exp(-b * c) - exp(-b * (c + d * dist)));
-	}
-	else {
-		// needed to avoid div by zero, apparently it's impossible to avoid this division with this formula
-		// the only way woulb be to turn exp into it's series around 0, allowing you to approximate
-		//  (1.0 - exp(-Tx))/T  as a whole, which gets rid of the division
-		float approx = dist;
-		approx -= bd * (dist*dist) * (1.0 / 2.0);
-		//approx += bd*bd * (dist*dist*dist) * (1.0 / 6.0);
-		//approx -= bd*bd*bd * (dist*dist*dist*dist) * (1.0 / 24.0);
-		
-		fog_amount *= approx;
-	}
-	
-	// get transmittance (% of rays scattered/absorbed) from optical depth
-	// -> missing in iquilezles's code?
-	// I believe if at x fog thickness y% of rays are blocked, then the remaining light will (perhaps unintuitively) follow exponential falloff, resulting in this additional exp
-	float t = exp(-fog_amount);
-	
-	// adjust color to give sun tint like iquilezles
-	float sun_amount = max(dot(ray_cam, -lighting.sun_dir), 0.0);
-	//vec3  col = mix(lighting.fog_col, lighting.sun_col, pow(sun_amount, 8.0) * 0.5);
-	vec3 sun = lighting.sun_col - atmos_scattering();
-	
-	vec3 col = mix(lighting.fog_col, sun, pow(sun_amount, 8.0) * 0.7);
-	
-	//return vec3(1.0 - t);
-	
-	// lerp pixel color to fog color
-	return mix(col * stren, pix_col, t);
-}
-
-float fresnel (float dotVN, float F0) {
-	float x = clamp(1.0 - dotVN, 0.0, 1.0);
-	float x2 = x*x;
-	return F0 + ((1.0 - F0) * x2 * x2 * x);
-}
-float fresnel_roughness (float dotVN, float F0, float roughness) {
-	float x = clamp(1.0 - dotVN, 0.0, 1.0);
-	float x2 = x*x;
-	return F0 + ((max((1.0 - roughness), F0) - F0) * x2 * x2 * x);
-}
-
-vec3 sun_lighting (vec3 normal, float shadow) {
-	float stren = sun_strength();
-	
-	vec3 sun = lighting.sun_col - atmos_scattering();
-	
-	float d = max(dot(-lighting.sun_dir, normal), 0.0);
-	vec3 diffuse =
-		(stren        ) * sun * vec3(d * shadow) +
-		(stren + 0.008) * lighting.sky_col*0.18;
-	
-	return vec3(diffuse);
 }
 
 uniform sampler2D grid_tex;

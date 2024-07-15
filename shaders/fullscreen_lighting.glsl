@@ -2,77 +2,16 @@
 #include "common.glsl"
 #include "fullscreen_triangle.glsl"
 
+#define SHADOWMAP 1
+
 #ifdef _FRAGMENT
 	#define GBUF_IN 1
 	#include "gbuf.glsl"
+	#define PBR_RENDER 1
 	#include "pbr.glsl"
-
-#define SHADOWMAP 1
-#if SHADOWMAP
-	uniform sampler2DArray shadowmap;
-	uniform sampler2DArrayShadow shadowmap2;
-	uniform mat4 shadowmap_mat;
-	uniform vec3 shadowmap_dir; // light dir of sun
-	uniform float shadowmap_bias_fac = 0.0005;
-	uniform float shadowmap_bias_max = 0.004;
-	uniform float shadowmap_cascade_factor;
 	
-	float sun_shadowmap (vec3 pos_world, vec3 normal) {
-		vec2 texelSize = 1.0 / textureSize(shadowmap, 0).xy;
-		int cascades = int(textureSize(shadowmap, 0).z);
-		
-		
-		float bias = shadowmap_bias_fac * tan(acos(dot(normal, -shadowmap_dir)));
-		bias = clamp(bias, 0.0, shadowmap_bias_max);
-		
-		vec4 shadow_clip = shadowmap_mat * vec4(pos_world, 1.0);
-		vec3 shadow_ndc = shadow_clip.xyz / shadow_clip.w;
-		// [0,1] -> [-1,+1] because else the cascade logic becomes harder
-		shadow_ndc.z = shadow_ndc.z*2.0 - 1.0;
-		
-		float m = max(max(abs(shadow_ndc.x), abs(shadow_ndc.y)),
-			abs(shadow_ndc.z));
-		m = log(m) / log(shadowmap_cascade_factor);
-		float cascade = max(ceil(m), 0.0);
-		
-		float scale = pow(shadowmap_cascade_factor, cascade);
-		
-		if (cascade >= cascades)
-			return 1.0;
-		
-		shadow_ndc /= scale;
-		
-		vec2 shadow_uv = shadow_ndc.xy * 0.5 + 0.5;
-		
-		// TODO: fix this function wihout reverse_depth?
-		// ndc is [-1,1] except for with z with reverse depth which is [0,1]
-		// NOTE: not to be confused, shadow rendering uses ortho camera which uses a linear depth range unlike normal camera!
-		// could use [-1,1] range here
-		
-		shadow_ndc.z = shadow_ndc.z*0.5 + 0.5; // [-1,+1] -> [0,1]
-		if (shadow_ndc.z < 0.0)
-			return 1.0;
-		
-		// TODO: need different bias for other cascades?
-		float compare = shadow_ndc.z + bias;
-		
-		float shadow_fac = 0.0;
-		
-		// PCF
-		int sum = 0;
-		for (int x=-1; x<=1; ++x)
-		for (int y=-1; y<=1; ++y) {
-			vec2 uv = shadow_uv + vec2(x,y) * texelSize;
-			
-			float fac = texture(shadowmap2, vec4(uv, cascade, compare)).r;
-			//float fac = compare > texture(shadowmap, vec3(uv, float(cascade))).r ? 1.0 : 0.0;
-			shadow_fac += fac;
-			sum++;
-		}
-		shadow_fac /= float(sum);
-		
-		return shadow_fac;
-	}
+#if SHADOWMAP
+	#include "shadowmap.glsl"
 #endif
 	
 	out vec4 frag_col;
@@ -100,10 +39,20 @@
 		}
 	}
 	
+	vec3 draw_skybox (in GbufResult g) {
+	#if 1
+		vec3 col = procedural_sky(view.cam_pos, g.view_dir);
+		col = apply_fog(col, view.cam_pos + g.view_dir * 1000000.0);
+		return col;
+	#else
+		return readCubemap(pbr_spec_env, g.view_dir).rgb;
+	#endif
+	}
+	
 	void main () {
 		GbufResult g;
 		bool valid = decode_gbuf(g);
-		vec3 col = g.albedo;
+		vec3 col = vec3(0);
 		//col = vec3(.4);
 		
 		if (valid) {
@@ -113,37 +62,34 @@
 			float shadow = 1.0;
 		#endif
 			
-			//// diffuse
-			//col *= sun_lighting(g.normal_world, shadow);
-			//// specular
-			//{
-			//	vec3 view_dir = normalize(view.cam_pos - g.pos_world);
-			//	vec3 refl_dir = reflect(-view_dir, g.normal_world);
-			//	float dotVN = dot(view_dir, g.normal_world);
-			//	
-			//	float reflectivity = (1.0 - g.roughness);
-			//	col += reflectivity *
-			//		fresnel_roughness(dotVN, 0.8, g.roughness) *
-			//		get_skybox_light(g.pos_world, refl_dir);
-			//}
-			
-			g.metallic = 0.0;
+			//g.albedo = vec3(1);
+			//g.roughness *= 1.5;
+			//g.metallic = 0.0;
 			
 			{
-				vec3 view_dir = normalize(view.cam_pos - g.pos_world);
-				
-				col = pbr_reference_env_light(g, view_dir);
+				//if (gl_FragCoord.x > 950) {
+				//if (bool(1)) {
+					//col = pbr_reference_env_light(g);
+					//col = pbr_approx_env_light(g);
+				//}
+				//else {
+					col = pbr_approx_env_light(g);
+					//col = pbr_approx_env_light_test(g);
+				//}
 				
 				vec3 sun_light = lighting.sun_col - atmos_scattering();
-				sun_light *= sun_strength() * 3.0;
-				col += pbr_directional_light(g, view_dir, sun_light, -lighting.sun_dir);
+				sun_light *= sun_strength() * 2.0;
+				//col += pbr_directional_light(g, sun_light, -lighting.sun_dir);
 			}
 			
-			//col = apply_fog(col, g.pos_world);
+			col = apply_fog(col, g.pos_world);
 			//col = vec3(g.roughness);
 			
 			//col = overlay_grid(col, g.pos_world);
 			//col = overlay_countour_lines(col, g.pos_world);
+		}
+		else {
+			col = draw_skybox(g);
 		}
 		
 		frag_col = vec4(col, 1.0);
@@ -154,5 +100,6 @@
 		//debug_window(gbuf_depth);
 		//debug_window(gbuf_norm);
 		//debug_window(gbuf_pbr);
+		//debug_window(pbr_brdf_LUT);
 	}
 #endif

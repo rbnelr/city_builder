@@ -45,18 +45,18 @@ void main () {
 #ifdef _FRAGMENT
 	uniform sampler2D tex;
 	
-	uniform float time = 0;
-	
 	GBUF_OUT
 	void main () {
 		vec4 diff = texture(bindless_tex(v.tex_id), v.uv);
-		vec2 TR = texture(bindless_tex(v.tex_id+1), v.uv).rg;
-		float tint = TR.r;
+		vec3 TRM = texture(bindless_tex(v.tex_id+1), v.uv).rgb;
+		float tint = TRM.r;
+		vec2 pbr = TRM.gb;
+		pbr.g = 0; // hardcode for now, while textuer is not final
 		
 		diff.rgb *= mix(vec3(1.0), v.col, tint);
 		
 		frag_col = diff;
 		frag_norm = vec4(v.world_normal, 1.0);
-		frag_pbr  = vec4(TR.g, 0, 0, 0);
+		frag_pbr  = vec4(pbr, 0,1);
 	}
 #endif

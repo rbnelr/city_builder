@@ -35,11 +35,12 @@ vec3 depth_to_pos_world (float depth, vec2 screen_uv) {
 	layout(location = 2) out vec4 frag_pbr;
 	
 struct GbufResult {
+	vec3  view_dir; // camera to point, or just pixel ray dir if !valid
 	vec3  pos_world;
 	vec3  normal_world;
 	vec3  albedo;
 	float roughness;
-	float metallic; // TODO
+	float metallic;
 };
 
 #if GBUF_IN
@@ -65,11 +66,17 @@ bool decode_gbuf (out GbufResult r) {
 	float depth = texture(gbuf_depth, uv).r;
 	r.albedo    = texture(gbuf_col,   uv).rgb;
 	vec3 normal = texture(gbuf_norm,  uv).rgb;
-	r.roughness = texture(gbuf_pbr,   uv).r;
+	vec2 pbr    = texture(gbuf_pbr,   uv).rg;
+	r.roughness = pbr.r;
+	r.metallic  = pbr.g;
 	
+	// TODO: find a better way of doing this, including finding pos_world
+	// probably by just getting a vector per pixel that, multiplied by a depth value, gives the position, but with reverse depth I might have to first remap reverse depth to 'real' depth
+	vec3 fake_pos_world = depth_to_pos_world(0.01, uv);
+	r.view_dir = normalize(fake_pos_world - view.cam_pos);
 	if (depth > 0.0) {
-		r.normal_world = normalize(normal);
 		r.pos_world = depth_to_pos_world(depth, uv);
+		r.normal_world = normalize(normal);
 		return true;
 	}
 	return false;

@@ -40,7 +40,8 @@ VS2FS Vertex {
 	}
 #endif
 #ifdef _FRAGMENT
-	uniform vec4 pbr = vec4(0.85, 0,0,1);
+	//uniform vec4 pbr = vec4(0.85, 0,0,1);
+	uniform vec4 pbr = vec4(0.8,0.0, 0,1);
 	
 	GBUF_OUT
 	void main () {

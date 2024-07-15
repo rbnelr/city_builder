@@ -4,6 +4,8 @@
 
 namespace network {
 
+// Pathfinding ignores lanes other than checking if any lane allows the turn to a node being visited
+// Note: lane selection happens later during car path follwing, a few segments into the future
 bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 	ZoneScoped;
 	// use dijkstra
@@ -105,6 +107,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 		for (auto& lane : cur_node->out_lanes) {
 			Node* other_node = lane.seg->get_other_node(cur_node);
 
+			// check if turn to this node is actually allowed
 			auto turn = classify_turn(cur_node, cur_node->_pred_seg, lane.seg);
 			if ((allowed & turn) == 0) {
 				// turn not allowed
@@ -1199,7 +1202,7 @@ void Network::simulate (App& app) {
 
 	pathing_count = 0;
 
-	float dt = app.sim_paused ? 0 : app.input.dt * app.sim_speed;
+	float dt = app.sim_dt();
 	app._test_time += dt;
 
 	auto do_pathfind = [&] (Citizen* cit) {

@@ -46,7 +46,7 @@ VS2FS Vertex {
 	
 	uniform sampler2DArray tex;
 	uniform sampler2D cracks;
-	uniform vec4 pbr = vec4(0.65, 0,0,1);
+	uniform vec4 pbr = vec4(0.45,0.0, 0,1);
 	
 	GBUF_OUT
 	void main () {

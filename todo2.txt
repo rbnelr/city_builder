@@ -1,0 +1,46 @@
+Todays Agenda:
+
+===================== Actual Progress ==========================================
+
+Lane selection
+ -> keep track of next turn (next intersection where we don't go straight)
+     then somehow use that to determine which lane should be on?
+	 as in, forward scan for turn, select lane there (left/rightmost? based on turn)
+	 then backwards scan to 'follow' this lane through straight travel -> need map in->out lanes
+	 this should inform us if we want to switch lanes, then simply decide based on some rules at which intersection to actually switch lanes
+ 
+Traffic lights
+ -> add props for traffic light poles etc.
+ -> make them actually glow (emmisive with bloom?)
+ -> add simple cycle logic
+
+===================== Graphics, so not really progress =========================
+
+!!!!!
+create car roughness tex
+!!!!!
+
+finish PBR impl, if it's kinda wip that's fine, but need performant code
+
+Make shadows disableable, I want all resources to be deallocated in this case
+
+Bloom?
+
+===================== Nice to have =============================================
+make imgui nicely configurable using custom sections?  
+
+rework asset system to allow for individual reloading?
+ -> possibly add flags to each asset to tell when it changed (through ui or json)
+ -> actually make textures configurable inside json and have renderer load them on demand (most of them anyway)
+
+add loading screen for texture and mesh loading?
+ maybe come up with a simple threadpool job system for loading?
+ 
+ 
+ 
+fix lodding for roads and props, add lods for vehicles, at least one low res lod?
+ -> make lod level thresholds + (if last level should always get drawn or not) configurable per asset
+   (lod func computes visible feature size based on projection (fov) and user configurable lod resolution (default 500-1000 vertical?))
+
+add actual culling (based on chunks?)
+ -> this should net resonable shadow rendering performance

@@ -383,6 +383,7 @@ struct TerrainRenderer {
 	//	}
 	//}
 };
+#if 0
 struct SkyboxRenderer {
 	
 	Shader* shad = g_shaders.compile("skybox");
@@ -454,6 +455,7 @@ struct SkyboxRenderer {
 		glDisable(GL_DEPTH_CLAMP);
 	}
 };
+#endif
 
 struct StaticEntityInstance {
 	int    mesh_id;
@@ -1267,7 +1269,7 @@ struct OglRenderer : public Renderer {
 
 	DefferedPointLightRenderer light_renderer;
 
-	SkyboxRenderer skybox;
+	//SkyboxRenderer skybox;
 	
 	LOD_Func lod;
 

@@ -39,13 +39,14 @@
 		}
 	}
 	
+	uniform float _visualize_roughness;
+
 	vec3 draw_skybox (in GbufResult g) {
-	#if 1
+	#if 0
 		vec3 col = procedural_sky(view.cam_pos, g.view_dir);
-		col = apply_fog(col, view.cam_pos + g.view_dir * 1000000.0);
 		return col;
 	#else
-		return readCubemap(pbr_spec_env, g.view_dir).rgb;
+		return pbr_sample_env_map(g.view_dir, _visualize_roughness).rgb;
 	#endif
 	}
 	
@@ -63,7 +64,7 @@
 		#endif
 			
 			//g.albedo = vec3(1);
-			//g.roughness *= 1.5;
+			//g.roughness *= 0.2;
 			//g.metallic = 0.0;
 			
 			{
@@ -73,13 +74,13 @@
 					//col = pbr_approx_env_light(g);
 				//}
 				//else {
-					col = pbr_approx_env_light(g);
-					//col = pbr_approx_env_light_test(g);
+					col = pbr_IBL(g);
+					//col = pbr_IBL_test(g);
 				//}
 				
 				vec3 sun_light = lighting.sun_col - atmos_scattering();
-				sun_light *= sun_strength() * 2.0;
-				//col += pbr_directional_light(g, sun_light, -lighting.sun_dir);
+				sun_light *= sun_strength() * 1.0;
+				//col += pbr_analytical_light(g, sun_light, -lighting.sun_dir);
 			}
 			
 			col = apply_fog(col, g.pos_world);

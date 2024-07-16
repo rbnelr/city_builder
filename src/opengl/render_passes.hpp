@@ -212,27 +212,43 @@ struct PBR_Render {
 
 	Texture2D brdf_LUT;
 	int brdf_LUT_res = 256; // Seems to be enough
-	bool update_brdf_lut = true;
+	bool recreate_brdf = true;
 	
-	TextureCubemap spec_env;
-	int spec_env_res = 256;
-	bool update_spec_env = true;
+	TextureCubemap env_map;
+	int env_res = 512;
+	int env_mips = 7;
+	// adjust roughness with  roughness_mip = pow(roughness, env_roughness_curve)
+	// to squeeze more of the low roughness into the lower mips, so we waste less blurry high roughness on the high-res mips
+	// Note: technically makes interpolation non-linear (wrong), but probably is still more correct than a too blurry mip
+	float env_roughness_curve = 0.6f;
+	bool recreate_env_map = true;
+	bool redraw_env_map = true;
+
+	std::vector<std::array<Fbo, 6>> env_fbos;
 
 	void imgui () {
 		if (ImGui::TreeNode("PBR")) {
-			update_brdf_lut = ImGui::SliderInt("brdf_LUT_res", &brdf_LUT_res, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic) || update_brdf_lut;
-			update_spec_env = ImGui::SliderInt("spec_env_res", &spec_env_res, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic) || update_spec_env;
+			recreate_brdf = ImGui::SliderInt("brdf_LUT_res", &brdf_LUT_res, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic) || recreate_brdf;
+
+			recreate_env_map = ImGui::SliderInt("env_res", &env_res, 1, 2048, "%d", ImGuiSliderFlags_Logarithmic) || recreate_env_map;
+			
+			int mips = calc_mipmaps(env_res, env_res);
+			recreate_env_map = ImGui::SliderInt("env_mips", &env_mips, 1, mips, "%d") || recreate_env_map;
+			
+			int lowest_res = env_res >> (env_mips-1);
+			ImGui::Text("Env map lowest mip: %dx%d pixels", lowest_res, lowest_res);
+
 			ImGui::TreePop();
 		}
 	}
 
 	template <typename FUNC>
-	static auto draw_into_texture_with_temp_fbo (GLuint textarget, GLuint tex, int2 size, FUNC draw) {
+	static auto draw_into_texture_with_temp_fbo (GLuint textarget, GLuint tex, int2 size, int mip, FUNC draw) {
 		auto fbo = Fbo("tmp_fbo");
 		// assume texture bound
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, textarget, tex, 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, textarget, tex, mip);
 		GLuint bufs[] = { GL_COLOR_ATTACHMENT0 };
 		glDrawBuffers(ARRLEN(bufs), bufs);
 		
@@ -247,9 +263,27 @@ struct PBR_Render {
 		
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
-	void recreate_brdf_lut (StateManager& state) {
+	static Fbo create_fbo (GLuint textarget, GLuint tex, int mip) {
+		auto fbo = Fbo("PBR.env_fbo");
+		// assume texture bound
+		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, textarget, tex, mip);
+		GLuint bufs[] = { GL_COLOR_ATTACHMENT0 };
+		glDrawBuffers(ARRLEN(bufs), bufs);
+		
+		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE) {
+			//fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		return fbo;
+	}
+
+	void create_brdf_lut (StateManager& state) {
 		ZoneScoped;
-		OGL_TRACE("recreate_brdf_lut");
+		OGL_TRACE("create_brdf_lut");
 			
 		// recreate texture
 		brdf_LUT = {"PBR.brdf_LUT"};
@@ -263,7 +297,7 @@ struct PBR_Render {
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-		draw_into_texture_with_temp_fbo(GL_TEXTURE_2D, brdf_LUT, brdf_LUT_res, [&] () {
+		draw_into_texture_with_temp_fbo(GL_TEXTURE_2D, brdf_LUT, brdf_LUT_res, 0, [&] () {
 			// clear for good measure
 			glClearColor(0,0,0,0);
 			glClear(GL_COLOR_BUFFER_BIT);
@@ -278,70 +312,160 @@ struct PBR_Render {
 		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 	
-	void recreate_spec_env (StateManager& state, Textures& texs) {
+	void create_env_map () {
 		ZoneScoped;
-		OGL_TRACE("recreate_spec_env");
+		OGL_TRACE("create_env_map");
 			
 		// recreate texture
-		spec_env = {"PBR.spec_env"};
-		glBindTexture(GL_TEXTURE_CUBE_MAP, spec_env);
+		env_map = {"PBR.env_map"};
+		glBindTexture(GL_TEXTURE_CUBE_MAP, env_map);
 
 		// allocates all faces in a single call
-		int mips = calc_mipmaps(spec_env_res, spec_env_res);
-		glTexStorage2D(GL_TEXTURE_CUBE_MAP, mips, GL_RGB16F, spec_env_res, spec_env_res);
+		env_mips = min(env_mips, calc_mipmaps(env_res, env_res));
+		glTexStorage2D(GL_TEXTURE_CUBE_MAP, env_mips, GL_RGB16F, env_res, env_res);
+
+		env_fbos.resize(env_mips);
+		for (int mip=0; mip<env_mips; ++mip) {
+			for (int face=0; face<6; ++face) {
+				env_fbos[mip][face] = create_fbo(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, env_map, mip);
+			}
+		}
 
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, mips-1);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, env_mips-1);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-		
+			
+		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+	}
+	void draw_env_map (StateManager& state, Textures& texs) {
+		ZoneScoped;
+		OGL_TRACE("draw_env_map");
 
 		glUseProgram(shad_prefilter_env->prog);
 		state.bind_textures(shad_prefilter_env, {
 			{ "clouds", texs.clouds, texs.sampler_normal }
 		});
-		shad_prefilter_env->set_uniform("resolution", float2((float)spec_env_res));
 
-		for (int i=0; i<6; ++i) {
-			draw_into_texture_with_temp_fbo(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, spec_env, spec_env_res, [&] () {
+		int2 res = env_res;
+		for (int mip=0; mip<env_mips; ++mip) {
+			for (int face=0; face<6; ++face) {
+				glViewport(0, 0, res.x, res.y);
+				glBindFramebuffer(GL_FRAMEBUFFER, env_fbos[mip][face]);
+
 				// clear for good measure
 				glClearColor(0,0,0,0);
 				glClear(GL_COLOR_BUFFER_BIT);
-				
-				shad_prefilter_env->set_uniform("face_i", i);
+					
+				float roughness = 0.0f;
+				if (env_mips > 1) {
+					float t = (float)mip / (float)(env_mips-1);
+					roughness = powf(t, 1.0f / env_roughness_curve);
+				}
+
+				shad_prefilter_env->set_uniform("resolution", (float2)res);
+				shad_prefilter_env->set_uniform("face_i", face);
+				shad_prefilter_env->set_uniform("mip_i", mip);
+				shad_prefilter_env->set_uniform("roughness", roughness);
 				
 				draw_fullscreen_triangle(state);
-			});
+			}
+			res = max(res / 2, 1);
 		}
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		
-		// need to rebind because bind_textures() clobbers this!!
-		glBindTexture(GL_TEXTURE_CUBE_MAP, spec_env);
-		glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+		// Maybe actually generate mips for the raw env map and put prefiltered in a seperate cubemap?
+		// mips could help reduce the sample counts
+		//glBindTexture(GL_TEXTURE_CUBE_MAP, env_map);
+		//glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
 	}
 
 	void update (StateManager& state, Textures& texs) {
-		if (update_brdf_lut) {
-			recreate_brdf_lut(state);
-			update_brdf_lut = false;
+		if (recreate_brdf) {
+			create_brdf_lut(state);
+			recreate_brdf = false;
 		}
-
-		if (update_spec_env) {
-			recreate_spec_env(state, texs);
-			//update_spec_env = false;
+		if (recreate_env_map) {
+			create_env_map();
+			recreate_env_map = false;
+		}
+		if (redraw_env_map) {
+			draw_env_map(state, texs);
+			// redraw_env_map = false;
 		}
 	}
 
-	TextureBinds textures () {
-		return TextureBinds{{
-			// no samplers, just use texture params instead
-			{ "pbr_brdf_LUT", brdf_LUT },
-			{ "pbr_spec_env", spec_env },
-		}};
+	void prepare_uniforms_and_textures (Shader* shad, TextureBinds& tex) {
+		shad->set_uniform("pbr_env_map_last_mip", (float)(env_mips-1));
+		shad->set_uniform("pbr_env_roughness_curve", env_roughness_curve);
+		
+		// no samplers, just use texture params instead
+		tex += { "pbr_brdf_LUT", brdf_LUT };
+		tex += { "pbr_env_map", env_map };
 	}
+
+#if 0
+	void visualize_hemisphere_sampling () {
+		static int _test_samples = 1000;
+		static float _test_size = 0.05f;
+		static int _test_scheme = 0;
+		static float _roughness = 0.2f;
+		ImGui::SliderInt("_test_samples", &_test_samples, 0, 2000);
+		ImGui::SliderFloat("_test_size", &_test_size, 0, 1);
+		ImGui::SliderInt("_test_scheme", &_test_scheme, 0, 3);
+		ImGui::SliderFloat("_roughness", &_roughness, 0, 1);
+
+		auto radical_inverse_VdC = [&] (uint32_t bits) {
+			bits = ( bits                << 16u) | ( bits                >> 16u);
+			bits = ((bits & 0x00FF00FFu) <<  8u) | ((bits & 0xFF00FF00u) >>  8u);
+			bits = ((bits & 0x0F0F0F0Fu) <<  4u) | ((bits & 0xF0F0F0F0u) >>  4u);
+			bits = ((bits & 0x33333333u) <<  2u) | ((bits & 0xCCCCCCCCu) >>  2u);
+			bits = ((bits & 0x55555555u) <<  1u) | ((bits & 0xAAAAAAAAu) >>  1u);
+			return float(bits) * 2.3283064365386963e-10f; // 1.0 / 0x100000000
+		};
+		auto hammersley = [&] (int i, int N) {
+			return float2(float(i)/float(N), radical_inverse_VdC(uint32_t(i)));
+		};
+		auto sample_distribution = [&] (int i, int count) {
+			float2 u = hammersley(i, count);
+
+			float phi   = 2.0f * PI * u.x;
+
+			float theta = 0;
+			if      (_test_scheme == 0) theta = 0.5f * PI * u.y;
+			else if (_test_scheme == 1) theta = acosf(u.y);
+			else if (_test_scheme == 2) theta = acosf(sqrt(u.y));
+			
+			float cos_theta = 0;
+			float sin_theta = 0;
+			if (_test_scheme < 3) {
+				sin_theta = sin(theta);
+				cos_theta = cos(theta);
+			}
+			else {
+				float a = _roughness*_roughness;
+
+				cos_theta = sqrtf( (1.0f - u.y) / (1.0f + (a*a - 1.0f) * u.y) );
+				sin_theta = sqrtf( 1.0f - cos_theta * cos_theta );
+			}
+
+					
+			return float3(sin_theta * cos(phi),
+			              sin_theta * sin(phi),
+			              cos_theta);
+		};
+
+		float3 base = float3(-1000, 0, 0);
+		for (int i=0; i<_test_samples; ++i) {
+			float3 point = sample_distribution(i, _test_samples);
+
+			g_dbgdraw.point(base + point*10, _test_size, lrgba(1,0,0,1));
+		}
+	}
+#endif
 };
 
 struct DirectionalCascadedShadowmap {
@@ -473,7 +597,7 @@ struct DirectionalCascadedShadowmap {
 		resize(int2(shadow_res,shadow_res));
 	}
 
-	void prepare_shadowmap_use (Shader* shad, TextureBinds& textures) {
+	void prepare_uniforms_and_textures (Shader* shad, TextureBinds& textures) {
 		shad->set_uniform("shadowmap_mat", view_casc0.world2clip);
 		shad->set_uniform("shadowmap_dir", (float3x3)view_casc0.cam2world * float3(0,0,-1));
 		shad->set_uniform("shadowmap_bias_fac", bias_fac);
@@ -651,7 +775,7 @@ struct DefferedPointLightRenderer {
 		instance_count = (GLsizei)instances.size();
 	}
 
-	void draw (StateManager& state, Gbuffer& gbuf, TextureBinds const& tex) {
+	void draw (StateManager& state, Gbuffer& gbuf, PBR_Render& pbr) {
 		if (shad->prog) {
 			ZoneScoped;
 			OGL_TRACE("draw lights");
@@ -674,7 +798,10 @@ struct DefferedPointLightRenderer {
 			state.set(s);
 
 			glUseProgram(shad->prog);
-
+			
+			TextureBinds tex;
+			tex += gbuf.textures();
+			pbr.prepare_uniforms_and_textures(shad, tex);
 			state.bind_textures(shad, tex);
 
 			glBindVertexArray(vbo.vao);
@@ -803,19 +930,25 @@ struct RenderPasses {
 
 			TextureBinds tex;
 			tex += gbuf.textures();
-			tex += pbr.textures();
+			pbr.prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
 
 			tex += { "clouds", texs.clouds, texs.sampler_normal };
 			tex += { "grid_tex", texs.grid, texs.sampler_normal };
 			tex += { "contours_tex", texs.contours, texs.sampler_normal };
 
-			shadowmap.prepare_shadowmap_use(shad_fullscreen_lighting, tex);
+			shadowmap.prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
+			
+			static float _visualize_roughness = 0;
+			ImGui::SliderFloat("_visualize_roughness", &_visualize_roughness, 0, 1);
+			shad_fullscreen_lighting->set_uniform("_visualize_roughness", _visualize_roughness);
+
+			//pbr.visualize_hemisphere_sampling();
 
 			state.bind_textures(shad_fullscreen_lighting, tex);
 			draw_fullscreen_triangle(state);
 		}
-
-		light_renderer.draw(state, gbuf, gbuf.textures() + pbr.textures());
+		
+		light_renderer.draw(state, gbuf, pbr);
 	}
 	void end_lighting_pass () {
 		ZoneScoped;

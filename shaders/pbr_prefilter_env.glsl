@@ -7,8 +7,10 @@
 	
 	uniform vec2 resolution;
 	uniform int face_i;
+	uniform int mip_i;
+	uniform float roughness;
 	
-	out vec4 frag_col;
+	out vec3 frag_col;
 	void main () {
 		// Cubemap code
 		vec2 uv = gl_FragCoord.xy / resolution;
@@ -25,10 +27,23 @@
 		//}
 		
 		vec3 ref_point = view.cam_pos;
-		
-		vec3 col = procedural_sky(ref_point, dir_world);
-		col = apply_fog(col, ref_point + dir_world * 1000000.0);
-		
-		frag_col = vec4(col, 1.0);
+
+		if (mip_i == 0) {
+			// prefilter_env_map is equivalent to procedural_sky at roughness = 0
+			// skip integration entirely, later mip passes can also access this which should be faster
+			frag_col = procedural_sky(ref_point, dir_world);
+		}
+		else {
+			// Optimize performance by reducing samples in low-roughness versions where sample count seems to be less important
+			// samples are tightly clustered around the normal anyway
+			// though there should be rare samples in other directions, but these are less important
+			// But we really can't afford 4k samples at the higher resolutions in real time
+			// and this code is supposed to run every frame to bake current time of day into the env map
+			int num_samples = 512;
+			if (roughness > 0.3) num_samples = 1024;
+			if (roughness > 0.75) num_samples = 1024*4;
+
+			frag_col = prefilter_env_map(roughness, ref_point, dir_world, num_samples);
+		}
 	}
 #endif

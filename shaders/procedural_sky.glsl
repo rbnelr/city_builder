@@ -6,46 +6,11 @@ float sun_strength () {
 }
 vec3 atmos_scattering () {
 	float a = map(-lighting.sun_dir.z, 0.5, 0.0);
-	return vec3(0.0, 0.7, 0.9) * smoothstep(0.0, 1.0, a);
+	return vec3(0.0, 0.85, 0.9)*0.85 * smoothstep(0.0, 1.0, a);
 }
 vec3 horizon (vec3 dir_world) {
 	return vec3(clamp(map(dir_world.z, -1.0, 1.0), 0.5, 1.0));
 }
-
-vec3 procedural_sky (vec3 view_point, vec3 dir_world) {
-	float stren = sun_strength() * 1.0;
-	
-	vec3 col = lighting.sky_col * (stren + 0.001);
-	
-	vec3 sun = lighting.sun_col - atmos_scattering();
-	{ // sun
-		sun *= stren;
-	
-		float d = dot(dir_world, -lighting.sun_dir);
-		
-		const float sz = 500.0;
-		float c = clamp(d * sz - (sz-1.0), 0.0, 1.0);
-		
-		col += sun * 10.0 * c;
-	}
-	col *= horizon(dir_world);
-	
-	{
-		float t = (lighting.clouds_z - view_point.z) / dir_world.z;
-		if (dir_world.z > 0.0 && t >= 0.0) {
-			vec3 pos = view_point + t * dir_world;
-			
-			vec4 c = texture(clouds, pos.xy / lighting.clouds_sz + lighting.clouds_offset);
-			
-			col = mix(col.rgb, c.rgb * stren, vec3(c.a * 0.8));
-		}
-	}
-	
-	float bloom_amount = max(dot(dir_world, -lighting.sun_dir) - 0.5, 0.0);
-	col += bloom_amount * sun * 0.3;
-	
-	return col;
-} 
 
 vec3 apply_fog (vec3 pix_col, vec3 pix_pos) {
 	// from https://iquilezles.org/articles/fog/
@@ -102,7 +67,7 @@ vec3 apply_fog (vec3 pix_col, vec3 pix_pos) {
 	// adjust color to give sun tint like iquilezles
 	float sun_amount = max(dot(ray_cam, -lighting.sun_dir), 0.0);
 	//vec3  col = mix(lighting.fog_col, lighting.sun_col, pow(sun_amount, 8.0) * 0.5);
-	vec3 sun = lighting.sun_col - atmos_scattering();
+	vec3 sun = (lighting.sun_col - atmos_scattering()) * 5;
 	
 	vec3 col = mix(lighting.fog_col, sun, pow(sun_amount, 8.0) * 0.7);
 	
@@ -111,3 +76,56 @@ vec3 apply_fog (vec3 pix_col, vec3 pix_pos) {
 	// lerp pixel color to fog color
 	return mix(col * stren, pix_col, t);
 }
+
+vec3 procedural_sky (vec3 view_point, vec3 dir_world) {
+	float stren = sun_strength() * 1.0;
+	
+	vec3 col = lighting.sky_col * (stren + 0.001);
+	
+	vec3 sun = lighting.sun_col - atmos_scattering();
+	{ // sun
+		sun *= stren;
+	
+		float deg = acos(dot(dir_world, -lighting.sun_dir));
+		
+		const float sun_ang_size = 2.0 * (PI/180.0); // 0.53 degrees in real life!
+		const float sun_falloff = sun_ang_size * 0.5;
+		float c = 1.0 - clamp(map(deg, sun_ang_size, sun_ang_size + sun_falloff), 0.0, 1.0);
+		c = c*c;
+
+		col += sun * 100.0 * c;
+	}
+	col *= horizon(dir_world);
+	
+	{
+		float t = (lighting.clouds_z - view_point.z) / dir_world.z;
+		if (dir_world.z > 0.0 && t >= 0.0) {
+			vec3 pos = view_point + t * dir_world;
+			
+			vec4 c = texture(clouds, pos.xy / lighting.clouds_sz + lighting.clouds_offset);
+			
+			col = mix(col.rgb, c.rgb * stren * 1.5, vec3(c.a * 0.8));
+		}
+	}
+	
+	float bloom_amount = max(dot(dir_world, -lighting.sun_dir) - 0.5, 0.0);
+	col += bloom_amount * sun * 0.3;
+	
+	// sublely green ground color
+	vec3 ground_col = vec3(0.24, 0.25, 0.24) * stren;
+	col = mix(col, ground_col, vec3(clamp(map(dir_world.z, 0.0, -0.01), 0.0, 1.0)));
+	
+	// fake ground plane to get fog kinda over ground at horizon
+	float ground_z = -300;
+	float fog_dist = 1000000.0;
+	{
+		float t = (ground_z - view_point.z) / dir_world.z;
+		if (dir_world.z < 0.0 && t >= 0.0) {
+			fog_dist = t;
+		}
+	}
+	
+	col = apply_fog(col, view_point + dir_world * fog_dist);
+	return col;
+} 
+

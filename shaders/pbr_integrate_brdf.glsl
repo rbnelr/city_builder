@@ -11,7 +11,7 @@
 	void main () {
 		vec2 uv = gl_FragCoord.xy / resolution;
 		
-		vec2 brdf = integrate_brdf(uv.x, uv.y);
+		vec2 brdf = integrate_brdf(uv.x, uv.y, 4096);
 		
 		frag_col = vec4(brdf, 0.0, 1.0);
 	}

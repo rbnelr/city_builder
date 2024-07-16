@@ -109,7 +109,9 @@ const CubemapFace _cubemap_faces[6] = {
 // Map opengl/nsight's cubemap orientation to my z-up system
 vec4 readCubemap (samplerCube cubemap, vec3 dir_world) {
 	return texture(cubemap, vec3(dir_world.x, -dir_world.z, dir_world.y));
-	//return textureLod(cubemap, vec3(dir_world.x, -dir_world.z, dir_world.y), 0.0);
+}
+vec4 readCubemapLod (samplerCube cubemap, vec3 dir_world, float lod) {
+	return textureLod(cubemap, vec3(dir_world.x, -dir_world.z, dir_world.y), lod);
 }
 
 //#include "dbg_indirect_draw.glsl"

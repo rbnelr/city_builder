@@ -65,7 +65,7 @@ void main () {
 		{
 			vec3 light = atten * v.light_col * 3.5; // TODO: fix light brightnesses (epic uses lumen)
 			
-			vec3 col = pbr_directional_light(g, light, frag2light);
+			//vec3 col = pbr_analytical_light(g, light, frag2light);
 			//frag_col = vec4(col, 1.0);
 		}
 		//frag_col = vec4(frag2light, 1.0);

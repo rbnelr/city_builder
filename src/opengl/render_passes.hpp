@@ -208,7 +208,8 @@ struct Gbuffer {
 
 struct PBR_Render {
 	Shader* shad_integrate_brdf = g_shaders.compile("pbr_integrate_brdf");
-	Shader* shad_prefilter_env  = g_shaders.compile("pbr_prefilter_env");
+	Shader* shad_prefilter_env  = g_shaders.compile("pbr_prefilter_env", {},
+		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER });
 
 	Texture2D brdf_LUT;
 	int brdf_LUT_res = 256; // Seems to be enough
@@ -263,12 +264,13 @@ struct PBR_Render {
 		
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
-	static Fbo create_fbo (GLuint textarget, GLuint tex, int mip) {
+	static Fbo create_fbo_for_cubemap_mip_level (GLuint tex, int mip) {
 		auto fbo = Fbo("PBR.env_fbo");
-		// assume texture bound
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, textarget, tex, mip);
+		// attaches entire cubemap as "layered image" which using a geometry shader, can be draw to in a single drawcall
+		// NOTE: glFramebufferTextureLayer seems to attach a particular layer of the cubemap as single image, just like glFramebufferTexture2D(.., GL_TEXTURE_CUBE_MAP_POSITIVE_X, ...)
+		glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, tex, mip);
 		GLuint bufs[] = { GL_COLOR_ATTACHMENT0 };
 		glDrawBuffers(ARRLEN(bufs), bufs);
 		
@@ -292,10 +294,10 @@ struct PBR_Render {
 		glTexStorage2D(GL_TEXTURE_2D, 1, GL_RG16, brdf_LUT_res, brdf_LUT_res);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
 		draw_into_texture_with_temp_fbo(GL_TEXTURE_2D, brdf_LUT, brdf_LUT_res, 0, [&] () {
 			// clear for good measure
@@ -324,11 +326,13 @@ struct PBR_Render {
 		env_mips = min(env_mips, calc_mipmaps(env_res, env_res));
 		glTexStorage2D(GL_TEXTURE_CUBE_MAP, env_mips, GL_RGB16F, env_res, env_res);
 
+		env_fbos.clear(); // delete old first
 		env_fbos.resize(env_mips);
 		for (int mip=0; mip<env_mips; ++mip) {
-			for (int face=0; face<6; ++face) {
-				env_fbos[mip][face] = create_fbo(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, env_map, mip);
-			}
+			//for (int face=0; face<6; ++face) {
+			//	env_fbos[mip][face] = create_fbo(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, env_map, mip);
+			//}
+			env_fbos[mip][0] = create_fbo_for_cubemap_mip_level(env_map, mip);
 		}
 
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
@@ -350,29 +354,35 @@ struct PBR_Render {
 			{ "clouds", texs.clouds, texs.sampler_normal }
 		});
 
+		glBindVertexArray(state.dummy_vao);
+
 		int2 res = env_res;
 		for (int mip=0; mip<env_mips; ++mip) {
-			for (int face=0; face<6; ++face) {
-				glViewport(0, 0, res.x, res.y);
-				glBindFramebuffer(GL_FRAMEBUFFER, env_fbos[mip][face]);
+			glViewport(0, 0, res.x, res.y);
+			glBindFramebuffer(GL_FRAMEBUFFER, env_fbos[mip][0]);
 
-				// clear for good measure
-				glClearColor(0,0,0,0);
-				glClear(GL_COLOR_BUFFER_BIT);
+			// clear for good measure
+			glClearColor(0,0,0,0);
+			glClear(GL_COLOR_BUFFER_BIT);
 					
-				float roughness = 0.0f;
-				if (env_mips > 1) {
-					float t = (float)mip / (float)(env_mips-1);
-					roughness = powf(t, 1.0f / env_roughness_curve);
-				}
-
-				shad_prefilter_env->set_uniform("resolution", (float2)res);
-				shad_prefilter_env->set_uniform("face_i", face);
-				shad_prefilter_env->set_uniform("mip_i", mip);
-				shad_prefilter_env->set_uniform("roughness", roughness);
-				
-				draw_fullscreen_triangle(state);
+			float roughness = 0.0f;
+			if (env_mips > 1) {
+				float t = (float)mip / (float)(env_mips-1);
+				roughness = powf(t, 1.0f / env_roughness_curve);
 			}
+
+			shad_prefilter_env->set_uniform("mip_i", mip);
+			shad_prefilter_env->set_uniform("roughness", roughness);
+				
+			PipelineState s;
+			s.depth_test   = false;
+			s.depth_write  = false;
+			s.blend_enable = false;
+			state.set_no_override(s);
+		
+			// Draw all 6 faces at once using geometry shader and fbo layers
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+			
 			res = max(res / 2, 1);
 		}
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);

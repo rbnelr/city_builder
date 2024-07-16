@@ -51,7 +51,8 @@ uniform sampler2D gbuf_pbr;
 
 bool decode_gbuf_pos (out vec3 pos_world) {
 	vec2 uv = gl_FragCoord.xy * view.inv_viewport_size;
-	
+
+	// v.uv from fullscreen_triangle.glsl
 	float depth = texture(gbuf_depth, uv).r;
 	
 	if (depth > 0.0) {

@@ -1,31 +1,58 @@
 #version 430
 #include "common.glsl"
-#include "fullscreen_triangle.glsl"
 
+#ifdef _VERTEX
+	layout(location = 0) out vec2 vs_uv;
+
+	out vec2 v_uv;
+
+	void main () {
+		// 2
+		// | \
+		// |  \
+		// 0---1
+		vec2 p = vec2(gl_VertexID & 1, (gl_VertexID >> 1) & 1);
+		
+		// triangle covers [-1, 3]
+		// such that the result is a quad that fully covers [-1,+1]
+		gl_Position = vec4(p * 4.0 - 1.0, 0.0, 1.0);
+		v_uv        = vec2(p * 2.0);
+	}
+#endif
+#ifdef _GEOMETRY
+	layout(triangles) in;
+	layout(triangle_strip, max_vertices = 18) out; // 3*6=18
+
+	in vec2 v_uv[];
+	out vec3 gs_dir_world;
+
+	void main () {
+		for (int face=0; face<6; ++face) {
+			CubemapFace f = _cubemap_faces[face];
+			for (int i=0; i<3; ++i) {
+				gs_dir_world = f.world_dir +
+				               f.world_u * (2.0*v_uv[i].x - 1.0) +
+				               f.world_v * (2.0*v_uv[i].y - 1.0);
+
+				gl_Layer = face;
+				gl_Position = gl_in[i].gl_Position;
+				EmitVertex();
+			}
+			EndPrimitive();
+		}
+	}
+#endif
 #ifdef _FRAGMENT
 	#include "pbr.glsl"
+
+	in vec3 gs_dir_world;
 	
-	uniform vec2 resolution;
-	uniform int face_i;
 	uniform int mip_i;
 	uniform float roughness;
 	
 	out vec3 frag_col;
 	void main () {
-		// Cubemap code
-		vec2 uv = gl_FragCoord.xy / resolution;
-		
-		CubemapFace face = _cubemap_faces[face_i];
-		vec3 dir_world = normalize(
-			face.world_dir +
-			face.world_u*(2.0*uv.x - 1.0) +
-			face.world_v*(2.0*uv.y - 1.0)
-		);
-		//vec2 test = uv * 15;
-		//if (int(test.y) == 1 && int(test.x) % 2 == 0 && int(test.x)/2 <= _face) {
-		//	frag_col = vec4(1,0,0,1);
-		//}
-		
+		vec3 dir_world = normalize(gs_dir_world);
 		vec3 ref_point = view.cam_pos;
 
 		if (mip_i == 0) {

@@ -42,7 +42,7 @@
 	uniform float _visualize_roughness;
 
 	vec3 draw_skybox (in GbufResult g) {
-	#if 0
+	#if 1
 		vec3 col = procedural_sky(view.cam_pos, g.view_dir);
 		return col;
 	#else
@@ -61,26 +61,25 @@
 			float shadow = sun_shadowmap(g.pos_world, g.normal_world);
 		#else
 			float shadow = 1.0;
-		#endif
+		#endif 
 			
 			//g.albedo = vec3(1);
-			//g.roughness *= 0.2;
-			//g.metallic = 0.0;
+			g.roughness *= 0.7;
+			//g.metallic = 1.0;
 			
 			{
 				//if (gl_FragCoord.x > 950) {
 				//if (bool(1)) {
-					//col = pbr_reference_env_light(g);
+				//	col = pbr_reference_env_light(g);
 					//col = pbr_approx_env_light(g);
-				//}
-				//else {
+				//} else {
 					col = pbr_IBL(g);
 					//col = pbr_IBL_test(g);
 				//}
 				
 				vec3 sun_light = lighting.sun_col - atmos_scattering();
 				sun_light *= sun_strength() * 1.0;
-				//col += pbr_analytical_light(g, sun_light, -lighting.sun_dir);
+				col += pbr_analytical_light(g, sun_light, -lighting.sun_dir);
 			}
 			
 			col = apply_fog(col, g.pos_world);

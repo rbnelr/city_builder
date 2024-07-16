@@ -1,10 +1,14 @@
 #extension GL_ARB_gpu_shader5 : enable
 #extension GL_ARB_gpu_shader_int64 : enable
 
+// VS2FS does not work when using other shader stages (GEOMERY SHADER)
+// manaully put things in the particular shaders?
 #if defined(_VERTEX)
 	#define VS2FS out
 #elif defined(_FRAGMENT)
 	#define VS2FS in
+#else
+	#define VS2FS struct // this at least avoid generating confusing error, but creates garbage global struct instance that's not used in other stages
 #endif
 
 float map (float x, float a, float b) {

@@ -333,7 +333,8 @@ struct TerrainRenderer {
 
 			glUseProgram(shad_terrain->prog);
 
-			state.bind_textures(shad_terrain, texs.heightmap.textures() + TextureBinds{{
+			state.bind_textures(shad_terrain,
+				texs.heightmap.textures() + TextureBinds{{
 				{"terrain_diffuse", texs.terrain_diffuse, texs.sampler_normal},
 
 				{ "grid_tex", texs.grid, texs.sampler_normal },

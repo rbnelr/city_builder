@@ -50,6 +50,14 @@ vec3 fresnel_schlick_approx (vec3 albedo, float metallic, float dotVH) {
 	return F0 * (1.0 - Fc) + Fc;
 }
 
+vec3 fresnel_schlick_fast (vec3 F0, float dotVH) {
+	// same as F0 + (1-F0)*(1.0 - dotVH)^5, but uses slightly less ops due to vec3 vs float
+	float x = 1.0 - dotVH;
+	float x2 = x*x;
+	float Fc = x2*x2*x;
+	return F0 * (1.0 - Fc) + Fc;
+}
+
 // Differing G term for analytical and IBL light, I don't understand this, epic paper said this is better
 
 float geometry_schlick_analytical (float roughness, float dotVN, float dotLN) {
@@ -215,9 +223,12 @@ uniform samplerCube pbr_env_map;
 uniform float       pbr_env_map_last_mip;
 uniform float       pbr_env_roughness_curve;
 
-vec3 pbr_sample_env_map (vec3 direction, float roughness) {
+vec3 pbr_sample_specular_env_map (vec3 direction, float roughness) {
 	float lod = pow(roughness, pbr_env_roughness_curve) * pbr_env_map_last_mip;
 	return readCubemapLod(pbr_env_map, direction, lod).rgb;
+}
+vec3 pbr_sample_diffuse_env_map (vec3 direction) {
+	return readCubemapLod(pbr_env_map, direction, pbr_env_map_last_mip).rgb;
 }
 
 // Accurate reference implementation for specular brdf for comparison, using one loop
@@ -254,7 +265,8 @@ vec3 pbr_reference_env_light (in GbufResult g) {
 			
 			// compute geometric attenuation G, fresnel F
 			// distribution D is implicit through importance sampling
-			vec3 F = fresnel_schlick_approx(g.albedo, g.metallic, dotVH);
+			vec3 F0 = mix(vec3(DIELECTRIC_F0), g.albedo, g.metallic);
+			vec3 F = fresnel_schlick_fast(F0, dotVH);
 			float G = geometry_schlick_IBL(g.roughness, dotVN, dotLN); // geometry_schlick_IBL here looks way better?
 			
 			// no idea why this uses dotVH and is missing the 4, maybe implicit as well?
@@ -275,35 +287,47 @@ vec3 pbr_reference_env_light (in GbufResult g) {
 // Approximation for comparison, but not baked into textures, so just as slow still
 // (split sum + using the math that can be baked into textures)
 vec3 pbr_IBL_test (in GbufResult g) {
-	//vec3 ambient_col = lighting.sky_col * (sun_strength() + 0.001);
-	
-	vec3 F0 = mix(vec3(DIELECTRIC_F0), g.albedo, g.metallic);
-	
-	float dotVN = max(dot(-g.view_dir, g.normal_world), 0.0);
 	vec3 refl = reflect(g.view_dir, g.normal_world);
+	float dotVN = max(dot(-g.view_dir, g.normal_world), 0.0);
+
+	vec3 F0 = mix(vec3(DIELECTRIC_F0), g.albedo, g.metallic);
+	vec3 F = fresnel_schlick_fast(F0, dotVN);
 	
-	vec3 env_light = prefilter_env_map(g.roughness, g.pos_world, refl, 1024);
+	vec3 spec_light = prefilter_env_map(g.roughness, g.pos_world, refl, 1024);
 	//vec3 env_light = prefilter_env_map_accurate(g.roughness, g.pos_world, -g.view_dir, g.normal_world, 1024);
+	vec3 diff_light = prefilter_env_map(1.0, g.pos_world, g.normal_world, 1024);
 	
 	vec2 brdf = integrate_brdf(dotVN, g.roughness, 1024);
-	
-	return env_light * (brdf.x * F0 + brdf.y);
+	// evaluate final IBL
+	vec3 specular = (brdf.x * F0 + brdf.y);
+	vec3 diffuse = g.albedo * (1.0/PI) * (1.0 - F) * (1.0 - g.metallic);
+	return spec_light * specular + diff_light * diffuse;
 }
 // Optimized specular approximation using textures, extremely fast
 vec3 pbr_IBL (in GbufResult g) {
+	vec3 refl = reflect(g.view_dir, g.normal_world);
+	float dotVN = max(dot(-g.view_dir, g.normal_world), 0.0);
+
 	// specular color from albedo and metallic
 	// non-metals have F0 of DIELECTRIC_F0, metals have F0 of albedo
 	// NOTE: non-metlas will use albedo for diffuse light, metals do not have diffuse
 	vec3 F0 = mix(vec3(DIELECTRIC_F0), g.albedo, g.metallic);
-	
-	float dotVN = max(dot(-g.view_dir, g.normal_world), 0.0);
+	vec3 F = fresnel_schlick_fast(F0, dotVN);
+
 	// Sample specular env cubemap (with baked in roughness D_GGX term) using reflection vector
-	vec3 refl = reflect(g.view_dir, g.normal_world);
-	vec3 env_light = pbr_sample_env_map(refl, g.roughness).rgb;
+	vec3 spec_light = pbr_sample_specular_env_map(refl, g.roughness).rgb;
+	// Sample specular env cubemap with roughness=1, which is a simple cosine weighted distribution
+	// using normal vector as diffuse IBL
+	vec3 diff_light = pbr_sample_diffuse_env_map(g.normal_world).rgb;
+
 	// Sample precomputed brdf LUT
 	vec2 brdf = textureLod(pbr_brdf_LUT, vec2(dotVN, g.roughness), 0.0).rg;
-	// evaluate final specular IBL
-	return env_light * (brdf.x * F0 + brdf.y);
+	// evaluate final IBL
+	vec3 specular = (brdf.x * F0 + brdf.y);
+	vec3 diffuse = g.albedo * (1.0/PI) * (1.0 - F) * (1.0 - g.metallic);
+	return spec_light * specular + diff_light * diffuse;
+	//return diff_light * diffuse;
+	//return spec_light * specular;
 }
 
 // non-IBL, ie analytical brdf, which is resonably fast and does not need the optimizations above
@@ -333,9 +357,10 @@ vec3 pbr_analytical_light (in GbufResult g, vec3 light_radiance, vec3 light_dir)
 	vec3 specular_brdf = F * (D * G / (4.0 * dotLN * dotVN + 0.000001));
 	
 	// inverse of Fresnel is how much is absorbed, that modified by albedo (and pi) is diffuse light, which pulls light from all directions
-	vec3 kDiff = mix(vec3(1) - F, vec3(0), vec3(g.metallic));
-	vec3 diffuse = kDiff * g.albedo * (1.0 / PI);
+	vec3 diffuse = g.albedo * (1.0 / PI) * (1.0 - F) * (1.0 - g.metallic);
 	
 	return (specular_brdf + diffuse) * (light_radiance * dotLN);
+	//return (diffuse) * (light_radiance * dotLN);
+	//return (specular_brdf) * (light_radiance * dotLN);
 }
 #endif

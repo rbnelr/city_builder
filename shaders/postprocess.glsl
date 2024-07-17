@@ -67,7 +67,7 @@
 		
 		col *= exposure;
 		
-		col = tonemap_reinhard2(col);
+		col = tonemap_ACESFilmic(col);
 		
 		frag_col = vec4(col, 1.0);
 	}

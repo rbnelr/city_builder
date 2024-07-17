@@ -52,7 +52,7 @@
 	
 	out vec3 frag_col;
 	
-#if FIRST_MIP
+#if MODE == 0
 	void main () {
 		vec3 dir_world = normalize(gs_dir_world);
 		vec3 ref_point = view.cam_pos;
@@ -60,14 +60,24 @@
 		// skip integration entirely, later mip passes can also access this which should be faster
 		frag_col = procedural_sky(ref_point, dir_world);
 	}
+#elif MODE == 1
+	uniform samplerCube base_env_map;
+	void main () {
+		vec3 dir_world = normalize(gs_dir_world);
+		frag_col = readCubemapLod(base_env_map, dir_world, 0.0).rgb;
+	}
 #else
 	uniform samplerCube base_env_map;
 	
 	uniform float roughness;
 	uniform int additive_layers;
 	
-	vec3 prefilter_env_map_test (samplerCube base_env_map, float roughness, vec3 refl,
-			int first_sample, int layer_samples, int num_samples) {
+	// 128-512 have smilght speckling even with the mipmap sampling, but only around the sun if the sun is way brighter than the sky around it
+	// With the sun having a brightness of 100 it looks mostly fine with 512
+	const int NUM_SAMPLES = 512;
+	
+	vec3 convolve_env_map_test (samplerCube base_env_map, float roughness, vec3 refl,
+			int first_sample, int layer_samples) {
 		// just use incoming light vector as both normal and view, which is not accurate
 		vec3 normal = refl;
 		vec3 view = refl;
@@ -78,15 +88,33 @@
 		float total_weight = 0;
 		
 		for (int i=first_sample; i < first_sample + layer_samples; i++) {
-			vec2 sampl = hammersley(i, num_samples);
+			vec2 sampl = hammersley(i, NUM_SAMPLES);
 			vec3 half_dir = TBN * importance_sample_GGX(sampl, roughness);
 			vec3 light_dir = reflect(-view, half_dir);
 			
 			float dotLN = dot(light_dir, normal);
+			float dotHN = dot(half_dir, normal);
+			float dotVH = dot(view, half_dir);
 			if (dotLN > 0.0) {
+			#if 0
+				light_sum += readCubemapLod(base_env_map, light_dir, 0.0).rgb * dotLN;
+			#else
+				// From https://learnopengl.com/PBR/IBL/Specular-IBL
+				// Sample mipmap instead of high-res env map, to eliminate light speckling artefact
+				// This should allow lower sample count and boost filtering speed even more by improving caching at the same time
+				float D   = distribution_GGX(roughness, dotHN);
+				float pdf = D * dotHN / (4.0 * dotVH) + 0.0001;
+
+				float resolution = float(textureSize(base_env_map, 0).x);
+				float saTexel  = 4.0 * PI / (6.0 * resolution * resolution);
+				float saSample = 1.0 / (float(NUM_SAMPLES) * pdf + 0.0001);
+
+				float mipLevel = roughness == 0.0 ? 0.0 : 0.5 * log2(saSample / saTexel); 
+				
+				light_sum += readCubemapLod(base_env_map, light_dir, mipLevel).rgb * dotLN;
+			#endif
 				// weight light by dotLN, (but then divide it out of the sum in the end)
 				// I don't quite understand this, but like the paper says, it looks more correct
-				light_sum += readCubemapLod(base_env_map, light_dir, 0.0).rgb * dotLN;
 				total_weight += dotLN;
 			}
 		}
@@ -97,19 +125,9 @@
 	void main () {
 		vec3 dir_world = normalize(gs_dir_world);
 		
-		// Optimize performance by reducing samples in low-roughness versions where sample count seems to be less important
-		// samples are tightly clustered around the normal anyway
-		// though there should be rare samples in other directions, but these are less important
-		// But we really can't afford 4k samples at the higher resolutions in real time
-		// and this code is supposed to run every frame to bake current time of day into the env map
-		int num_samples = 512;
-		if (roughness > 0.3) num_samples = 1024;
-		if (roughness > 0.75) num_samples = 1024*4;
-		
-		int layer_samples = num_samples / additive_layers;
+		int layer_samples = NUM_SAMPLES / additive_layers;
 		int first_sample = layer_samples * gs_additive_layer_id;
-		
-		frag_col = prefilter_env_map_test(base_env_map, roughness, dir_world, first_sample, layer_samples, num_samples);
+		frag_col = convolve_env_map_test(base_env_map, roughness, dir_world, first_sample, layer_samples);
 	}
 #endif
 #endif

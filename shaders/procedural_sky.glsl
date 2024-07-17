@@ -88,7 +88,7 @@ vec3 procedural_sky (vec3 view_point, vec3 dir_world) {
 	
 		float deg = acos(dot(dir_world, -lighting.sun_dir));
 		
-		const float sun_ang_size = 2.0 * (PI/180.0); // 0.53 degrees in real life!
+		const float sun_ang_size = 0.53*2.0 * (PI/180.0); // 0.53 degrees in real life!
 		const float sun_falloff = sun_ang_size * 0.5;
 		float c = 1.0 - clamp(map(deg, sun_ang_size, sun_ang_size + sun_falloff), 0.0, 1.0);
 		c = c*c;

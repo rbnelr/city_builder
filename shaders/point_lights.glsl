@@ -57,8 +57,6 @@ void main () {
 		float atten = attenuation(dist);
 		atten *= max(dot(g.normal_world, frag2light), 0.0);
 		
-		g.metallic = 0.0;
-		
 		//vec3 light = g.albedo * v.light_col * atten;
 		//frag_col = vec4(light, 1.0);
 		

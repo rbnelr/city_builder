@@ -209,26 +209,27 @@ struct Gbuffer {
 struct PBR_Render {
 	Shader* shad_integrate_brdf = g_shaders.compile("pbr_integrate_brdf");
 
-	Shader* shad_prefilter_env_mip0 = g_shaders.compile("pbr_prefilter_env", {{"FIRST_MIP","1"}},
+	Shader* shad_gen_env      = g_shaders.compile("pbr_convolve_env_map", {{"MODE","0"}},
 		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER });
-	Shader* shad_prefilter_env      = g_shaders.compile("pbr_prefilter_env", {{"FIRST_MIP","0"}},
+	Shader* shad_copy_env     = g_shaders.compile("pbr_convolve_env_map", {{"MODE","1"}},
+		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER });
+	Shader* shad_convolve_env = g_shaders.compile("pbr_convolve_env_map", {{"MODE","2"}},
 		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER });
 
 	Texture2D brdf_LUT;
 	int brdf_LUT_res = 256; // Seems to be enough
 	bool recreate_brdf = true;
 	
-	TextureCubemap env_map;
-	int env_res = 512;
-	int env_mips = 7;
+	GLenum env_map_format = GL_RGB16F;
+	TextureCubemap base_env_map, pbr_env_convolved;
+	int env_res = 384;
+	int env_mips = 8; // env_res=384 -> 3x3
 	// adjust roughness with  roughness_mip = pow(roughness, env_roughness_curve)
 	// to squeeze more of the low roughness into the lower mips, so we waste less blurry high roughness on the high-res mips
 	// Note: technically makes interpolation non-linear (wrong), but probably is still more correct than a too blurry mip
 	float env_roughness_curve = 0.6f;
 	bool recreate_env_map = true;
 	bool redraw_env_map = true;
-
-	std::vector<std::array<Fbo, 6>> env_fbos;
 
 	void imgui () {
 		if (ImGui::TreeNode("PBR")) {
@@ -238,52 +239,13 @@ struct PBR_Render {
 			
 			int mips = calc_mipmaps(env_res, env_res);
 			recreate_env_map = ImGui::SliderInt("env_mips", &env_mips, 1, mips, "%d") || recreate_env_map;
+			env_mips = min(env_mips, calc_mipmaps(env_res, env_res));
 			
 			int lowest_res = env_res >> (env_mips-1);
 			ImGui::Text("Env map lowest mip: %dx%d pixels", lowest_res, lowest_res);
 
 			ImGui::TreePop();
 		}
-	}
-
-	template <typename FUNC>
-	static auto draw_into_texture_with_temp_fbo (GLuint textarget, GLuint tex, int2 size, int mip, FUNC draw) {
-		auto fbo = Fbo("tmp_fbo");
-		// assume texture bound
-		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, textarget, tex, mip);
-		GLuint bufs[] = { GL_COLOR_ATTACHMENT0 };
-		glDrawBuffers(ARRLEN(bufs), bufs);
-		
-		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-		if (status != GL_FRAMEBUFFER_COMPLETE) {
-			//fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
-		}
-		
-		glViewport(0, 0, size.x, size.y);
-
-		draw();
-		
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	}
-	static Fbo create_fbo_for_cubemap_mip_level (GLuint tex, int mip) {
-		auto fbo = Fbo("PBR.env_fbo");
-		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-		// attaches entire cubemap as "layered image" which using a geometry shader, can be draw to in a single drawcall
-		// NOTE: glFramebufferTextureLayer seems to attach a particular layer of the cubemap as single image, just like glFramebufferTexture2D(.., GL_TEXTURE_CUBE_MAP_POSITIVE_X, ...)
-		glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, tex, mip);
-		GLuint bufs[] = { GL_COLOR_ATTACHMENT0 };
-		glDrawBuffers(ARRLEN(bufs), bufs);
-		
-		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-		if (status != GL_FRAMEBUFFER_COMPLETE) {
-			//fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
-		}
-
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		return fbo;
 	}
 
 	void create_brdf_lut (StateManager& state) {
@@ -302,7 +264,8 @@ struct PBR_Render {
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-		draw_into_texture_with_temp_fbo(GL_TEXTURE_2D, brdf_LUT, brdf_LUT_res, 0, [&] () {
+		{
+			auto fbo = make_and_bind_temp_fbo(GL_TEXTURE_2D, brdf_LUT, 0);
 			// clear for good measure
 			glClearColor(0,0,0,0);
 			glClear(GL_COLOR_BUFFER_BIT);
@@ -312,41 +275,38 @@ struct PBR_Render {
 				
 			state.bind_textures(shad_integrate_brdf, {});
 			draw_fullscreen_triangle(state);
-		});
-
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
-	
-	void create_env_map () {
-		ZoneScoped;
-		OGL_TRACE("create_env_map");
-			
-		// recreate texture
-		env_map = {"PBR.env_map"};
-		glBindTexture(GL_TEXTURE_CUBE_MAP, env_map);
-
-		// allocates all faces in a single call
-		env_mips = min(env_mips, calc_mipmaps(env_res, env_res));
-		glTexStorage2D(GL_TEXTURE_CUBE_MAP, env_mips, GL_RGB16F, env_res, env_res);
-
-		env_fbos.clear(); // delete old first
-		env_fbos.resize(env_mips);
-		for (int mip=0; mip<env_mips; ++mip) {
-			//for (int face=0; face<6; ++face) {
-			//	env_fbos[mip][face] = create_fbo(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, env_map, mip);
-			//}
-			env_fbos[mip][0] = create_fbo_for_cubemap_mip_level(env_map, mip);
 		}
 
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+	
+	TextureCubemap create_cubemap (int res, int mips, std::string_view lbl) {
+		ZoneScoped;
+		OGL_TRACE("create_cubemap");
+			
+		// recreate texture
+		TextureCubemap tex = {lbl};
+		glBindTexture(GL_TEXTURE_CUBE_MAP, tex);
+
+		// allocates all faces in a single call
+		glTexStorage2D(GL_TEXTURE_CUBE_MAP, mips, env_map_format, res,res);
+
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, env_mips-1);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, mips-1);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-			
+		
 		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+		return tex;
+	}
+
+	void create_env_map () {
+		base_env_map = create_cubemap(env_res, calc_mipmaps(env_res, env_res), "PBR.env_map");
+		pbr_env_convolved = create_cubemap(env_res, env_mips, "PBR.pbr_env_convolved");
 	}
 	void draw_env_map (StateManager& state, Textures& texs) {
 		ZoneScoped;
@@ -354,64 +314,100 @@ struct PBR_Render {
 
 		glBindVertexArray(state.dummy_vao);
 		
+		static int additive_layers = 1;
+		ImGui::SliderInt("additive_layers", &additive_layers, 1, 8);
+		
 		PipelineState s;
 		s.depth_test   = false;
 		s.depth_write  = false;
-		//s.blend_enable = false;
-		// Additive writing
-		s.blend_enable = true;
-		s.blend_func.dfactor = GL_ONE;
-		s.blend_func.sfactor = GL_ONE;
-		s.blend_func.equation = GL_FUNC_ADD;
+		s.blend_enable = false;
 		state.set_no_override(s);
-		
-		static int additive_layers = 4;
-		ImGui::SliderInt("additive_layers", &additive_layers, 1, 8);
-				
+
 		int2 res = env_res;
-		for (int mip=0; mip<env_mips; ++mip) {
-			Shader* shad = mip == 0 ? shad_prefilter_env_mip0 : shad_prefilter_env;
-			
-			glUseProgram(shad->prog);
-			if (mip == 0) {
-				state.bind_textures(shad, {
-					{ "clouds", texs.clouds, texs.sampler_normal },
-				});
-			} else {
-				state.bind_textures(shad, {
-					{ "base_env_map", env_map },
-				});
-			}
+		{
+			OGL_TRACE("gen_env");
 
+			glUseProgram(shad_gen_env->prog);
+			state.bind_textures(shad_gen_env, {
+				{ "clouds", texs.clouds, texs.sampler_normal },
+			});
+
+			auto fbo = make_and_bind_temp_fbo_layered(base_env_map, 0);
 			glViewport(0, 0, res.x, res.y);
-			glBindFramebuffer(GL_FRAMEBUFFER, env_fbos[mip][0]);
 
-			// clear for good measure
-			glClearColor(0,0,0,0);
-			glClear(GL_COLOR_BUFFER_BIT);
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+		}
+		{
+			OGL_TRACE("gen mips");
+			// Generate mipmaps for more optimized filtering
+			glBindTexture(GL_TEXTURE_CUBE_MAP, base_env_map);
+			glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+		}
+
+		{
+			OGL_TRACE("copy mip0");
+
+			// spawn a raster drawcall to copy memory, because copying textures is not something the opengl API can do
+			// (glBlitFramebuffer is ungodly slow for some reason)
+			glUseProgram(shad_copy_env->prog);
+			state.bind_textures(shad_copy_env, {
+				{ "base_env_map", base_env_map },
+			});
+
+			auto fbo = make_and_bind_temp_fbo_layered(pbr_env_convolved, 0);
+			glViewport(0, 0, res.x, res.y);
+
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+		}
+		
+		{
+			OGL_TRACE("convolve");
+
+			// Additive blending
+			s.blend_func.dfactor = GL_ONE;
+			s.blend_func.sfactor = GL_ONE;
+			s.blend_func.equation = GL_FUNC_ADD;
+			state.set_no_override(s);
+		
+			for (int mip=1; mip<env_mips; ++mip) {
+				res = max(res / 2, 1);
+
+				glUseProgram(shad_convolve_env->prog);
+				state.bind_textures(shad_convolve_env, {
+					{ "base_env_map", base_env_map },
+				});
+
+				auto fbo = make_and_bind_temp_fbo_layered(pbr_env_convolved, mip);
+				glViewport(0, 0, res.x, res.y);
+
+				// clear for good measure
+				glClearColor(0,0,0,0);
+				glClear(GL_COLOR_BUFFER_BIT);
 			
-			if (mip == 0) {
-				glDrawArrays(GL_TRIANGLES, 0, 3);
-			} else {
 				float t = (float)mip / (float)(env_mips-1);
 				float roughness = powf(t, 1.0f / env_roughness_curve);
-				shad->set_uniform("roughness", roughness);
+				shad_convolve_env->set_uniform("roughness", roughness);
 
 				// Test: don't draw once per texel with many samples, but draw multiple times with less samples and blend additively, for better gpu utilization
-				shad->set_uniform("additive_layers", additive_layers);
+				shad_convolve_env->set_uniform("additive_layers", additive_layers);
 			
 				// Draw all 6 faces at once using geometry shader and fbo layers
 				glDrawArrays(GL_TRIANGLES, 0, 3*additive_layers);
 			}
-
-			res = max(res / 2, 1);
 		}
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		
-		// Maybe actually generate mips for the raw env map and put prefiltered in a seperate cubemap?
-		// mips could help reduce the sample counts
-		//glBindTexture(GL_TEXTURE_CUBE_MAP, env_map);
-		//glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+		//res = env_res;
+		//for (int mip=1; mip<env_mips; ++mip) {
+		//	res = max(res / 2, 1);
+		//	for (int face=0; face<6; ++face) {
+		//		copy_texels(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face,
+		//			env_tmp, mip-1, 0,res,
+		//			env_map, mip  , 0,res);
+		//	}
+		//}
+
+		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
 	void update (StateManager& state, Textures& texs) {
@@ -435,7 +431,7 @@ struct PBR_Render {
 		
 		// no samplers, just use texture params instead
 		tex += { "pbr_brdf_LUT", brdf_LUT };
-		tex += { "pbr_env_map", env_map };
+		tex += { "pbr_env_map", pbr_env_convolved };
 	}
 
 #if 0

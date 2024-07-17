@@ -64,7 +64,7 @@
 		#endif 
 			
 			//g.albedo = vec3(1);
-			g.roughness *= 0.7;
+			g.roughness *= 0.6;
 			//g.metallic = 1.0;
 			
 			{
@@ -79,7 +79,7 @@
 				
 				vec3 sun_light = lighting.sun_col - atmos_scattering();
 				sun_light *= sun_strength() * 1.0;
-				col += pbr_analytical_light(g, sun_light, -lighting.sun_dir);
+				//col += pbr_analytical_light(g, sun_light, -lighting.sun_dir);
 			}
 			
 			col = apply_fog(col, g.pos_world);

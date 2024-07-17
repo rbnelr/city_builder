@@ -42,19 +42,18 @@ vec3 fresnel_schlick (vec3 albedo, float metallic, float dotVH) {
 	float Fc = pow(1.0 - dotVH, 5.0);
 	return F0 * (1.0 - Fc) + Fc;
 }
+vec3 fresnel_schlick_fast (vec3 F0, float dotVH) {
+	// TODO: is this even faster than pow(1.0 - dotVH, 5.0)?
+	float x = 1.0 - dotVH;
+	float x2 = x*x;
+	float Fc = x2*x2*x;
+	return F0 * (1.0 - Fc) + Fc;
+}
 vec3 fresnel_schlick_approx (vec3 albedo, float metallic, float dotVH) {
 	vec3 F0 = mix(vec3(DIELECTRIC_F0), albedo, metallic);
 	
 	float exp = (-5.55473 * dotVH - 6.98316) * dotVH;
 	float Fc = pow(2.0, exp);
-	return F0 * (1.0 - Fc) + Fc;
-}
-
-vec3 fresnel_schlick_fast (vec3 F0, float dotVH) {
-	// same as F0 + (1-F0)*(1.0 - dotVH)^5, but uses slightly less ops due to vec3 vs float
-	float x = 1.0 - dotVH;
-	float x2 = x*x;
-	float Fc = x2*x2*x;
 	return F0 * (1.0 - Fc) + Fc;
 }
 
@@ -113,7 +112,7 @@ vec3 importance_sample_GGX (vec2 sampl, float roughness) {
 
 // This is the accurate way of integrating the incoming light, where the light and view direction are known,
 // but in practice we don't use this, because the power of the split sum opt ist that we can precompute both parts into textures, this particular texture ends up as a cubemap, which can only take in one direction, not two
-vec3 prefilter_env_map_accurate (float roughness, vec3 ref_point, vec3 view, vec3 normal, int num_samples) {
+vec3 convolve_env_map_accurate (float roughness, vec3 ref_point, vec3 view, vec3 normal, int num_samples) {
 	mat3 TBN = dodgy_TBN(normal);
 	
 	vec3 light_sum = vec3(0);
@@ -134,7 +133,7 @@ vec3 prefilter_env_map_accurate (float roughness, vec3 ref_point, vec3 view, vec
 	return light_sum / total_weight;
 }
 // This is the inaccurate version, which unfortunately introduces a noticable visual difference, in that shallow angle reflections are not streched, which looks noticably wrong, BUT in practice we only use this optimization or IBL, ie enviroment lighting, and add analytical light sources on top of this, which do not need integration at all, so specular highlights will usually still be accurate
-vec3 prefilter_env_map_procedural (float roughness, vec3 ref_point, vec3 refl, int num_samples) {
+vec3 convolve_env_map_procedural (float roughness, vec3 ref_point, vec3 refl, int num_samples) {
 	// just use incoming light vector as both normal and view, which is not accurate
 	vec3 normal = refl;
 	vec3 view = refl;
@@ -161,7 +160,7 @@ vec3 prefilter_env_map_procedural (float roughness, vec3 ref_point, vec3 refl, i
 	return light_sum / total_weight;
 }
 // This is the inaccurate version, which unfortunately introduces a noticable visual difference, in that shallow angle reflections are not streched, which looks noticably wrong, BUT in practice we only use this optimization or IBL, ie enviroment lighting, and add analytical light sources on top of this, which do not need integration at all, so specular highlights will usually still be accurate
-vec3 prefilter_env_map (samplerCube base_env_map, float roughness, vec3 refl, int num_samples) {
+vec3 convolve_env_map (samplerCube base_env_map, float roughness, vec3 refl, int num_samples) {
 	// just use incoming light vector as both normal and view, which is not accurate
 	vec3 normal = refl;
 	vec3 view = refl;
@@ -178,9 +177,10 @@ vec3 prefilter_env_map (samplerCube base_env_map, float roughness, vec3 refl, in
 		
 		float dotLN = dot(light_dir, normal);
 		if (dotLN > 0.0) {
-			// weight light by dotLN, (but then divide it out of the sum in the end)
-			// I don't quite understand this, but like the paper says, it looks more correct
 			light_sum += readCubemapLod(base_env_map, light_dir, 0.0).rgb * dotLN;
+			
+			// weight light by dotLN, (but then divide it out of the sum in the end)
+			// I don't quite understand this, but like the paper says, it looks more correct
 			total_weight += dotLN;
 		}
 	}
@@ -320,9 +320,9 @@ vec3 pbr_IBL_test (in GbufResult g) {
 	vec3 F0 = mix(vec3(DIELECTRIC_F0), g.albedo, g.metallic);
 	vec3 F = fresnel_schlick_fast(F0, dotVN);
 	
-	vec3 spec_light = prefilter_env_map_procedural(g.roughness, g.pos_world, refl, 1024);
-	//vec3 env_light = prefilter_env_map_accurate(g.roughness, g.pos_world, -g.view_dir, g.normal_world, 1024);
-	vec3 diff_light = prefilter_env_map_procedural(1.0, g.pos_world, g.normal_world, 1024);
+	vec3 spec_light = convolve_env_map_procedural(g.roughness, g.pos_world, refl, 1024);
+	//vec3 env_light = convolve_env_map_accurate(g.roughness, g.pos_world, -g.view_dir, g.normal_world, 1024);
+	vec3 diff_light = convolve_env_map_procedural(1.0, g.pos_world, g.normal_world, 1024);
 	
 	vec2 brdf = integrate_brdf(dotVN, g.roughness, 1024);
 	// evaluate final IBL

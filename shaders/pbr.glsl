@@ -134,7 +134,7 @@ vec3 prefilter_env_map_accurate (float roughness, vec3 ref_point, vec3 view, vec
 	return light_sum / total_weight;
 }
 // This is the inaccurate version, which unfortunately introduces a noticable visual difference, in that shallow angle reflections are not streched, which looks noticably wrong, BUT in practice we only use this optimization or IBL, ie enviroment lighting, and add analytical light sources on top of this, which do not need integration at all, so specular highlights will usually still be accurate
-vec3 prefilter_env_map (float roughness, vec3 ref_point, vec3 refl, int num_samples) {
+vec3 prefilter_env_map_procedural (float roughness, vec3 ref_point, vec3 refl, int num_samples) {
 	// just use incoming light vector as both normal and view, which is not accurate
 	vec3 normal = refl;
 	vec3 view = refl;
@@ -154,6 +154,33 @@ vec3 prefilter_env_map (float roughness, vec3 ref_point, vec3 refl, int num_samp
 			// weight light by dotLN, (but then divide it out of the sum in the end)
 			// I don't quite understand this, but like the paper says, it looks more correct
 			light_sum += procedural_sky(ref_point, light_dir) * dotLN;
+			total_weight += dotLN;
+		}
+	}
+	
+	return light_sum / total_weight;
+}
+// This is the inaccurate version, which unfortunately introduces a noticable visual difference, in that shallow angle reflections are not streched, which looks noticably wrong, BUT in practice we only use this optimization or IBL, ie enviroment lighting, and add analytical light sources on top of this, which do not need integration at all, so specular highlights will usually still be accurate
+vec3 prefilter_env_map (samplerCube base_env_map, float roughness, vec3 refl, int num_samples) {
+	// just use incoming light vector as both normal and view, which is not accurate
+	vec3 normal = refl;
+	vec3 view = refl;
+	
+	mat3 TBN = dodgy_TBN(normal);
+	
+	vec3 light_sum = vec3(0);
+	float total_weight = 0;
+	
+	for (int i=0; i<num_samples; i++) {
+		vec2 sampl = hammersley(i, num_samples);
+		vec3 half_dir = TBN * importance_sample_GGX(sampl, roughness);
+		vec3 light_dir = reflect(-view, half_dir);
+		
+		float dotLN = dot(light_dir, normal);
+		if (dotLN > 0.0) {
+			// weight light by dotLN, (but then divide it out of the sum in the end)
+			// I don't quite understand this, but like the paper says, it looks more correct
+			light_sum += readCubemapLod(base_env_map, light_dir, 0.0).rgb * dotLN;
 			total_weight += dotLN;
 		}
 	}
@@ -293,9 +320,9 @@ vec3 pbr_IBL_test (in GbufResult g) {
 	vec3 F0 = mix(vec3(DIELECTRIC_F0), g.albedo, g.metallic);
 	vec3 F = fresnel_schlick_fast(F0, dotVN);
 	
-	vec3 spec_light = prefilter_env_map(g.roughness, g.pos_world, refl, 1024);
+	vec3 spec_light = prefilter_env_map_procedural(g.roughness, g.pos_world, refl, 1024);
 	//vec3 env_light = prefilter_env_map_accurate(g.roughness, g.pos_world, -g.view_dir, g.normal_world, 1024);
-	vec3 diff_light = prefilter_env_map(1.0, g.pos_world, g.normal_world, 1024);
+	vec3 diff_light = prefilter_env_map_procedural(1.0, g.pos_world, g.normal_world, 1024);
 	
 	vec2 brdf = integrate_brdf(dotVN, g.roughness, 1024);
 	// evaluate final IBL
@@ -324,7 +351,7 @@ vec3 pbr_IBL (in GbufResult g) {
 	vec2 brdf = textureLod(pbr_brdf_LUT, vec2(dotVN, g.roughness), 0.0).rg;
 	// evaluate final IBL
 	vec3 specular = (brdf.x * F0 + brdf.y);
-	vec3 diffuse = g.albedo * (1.0/PI) * (1.0 - F) * (1.0 - g.metallic);
+	vec3 diffuse = (1.0 - F) * (g.albedo * (1.0/PI) * (1.0 - g.metallic));
 	return spec_light * specular + diff_light * diffuse;
 	//return diff_light * diffuse;
 	//return spec_light * specular;
@@ -357,7 +384,7 @@ vec3 pbr_analytical_light (in GbufResult g, vec3 light_radiance, vec3 light_dir)
 	vec3 specular_brdf = F * (D * G / (4.0 * dotLN * dotVN + 0.000001));
 	
 	// inverse of Fresnel is how much is absorbed, that modified by albedo (and pi) is diffuse light, which pulls light from all directions
-	vec3 diffuse = g.albedo * (1.0 / PI) * (1.0 - F) * (1.0 - g.metallic);
+	vec3 diffuse = (1.0 - F) * (g.albedo * (1.0/PI) * (1.0 - g.metallic));
 	
 	return (specular_brdf + diffuse) * (light_radiance * dotLN);
 	//return (diffuse) * (light_radiance * dotLN);

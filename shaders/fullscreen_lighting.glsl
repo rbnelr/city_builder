@@ -42,11 +42,11 @@
 	uniform float _visualize_roughness;
 
 	vec3 draw_skybox (in GbufResult g) {
-	#if 1
+	#if 0
 		vec3 col = procedural_sky(view.cam_pos, g.view_dir);
 		return col;
 	#else
-		return pbr_sample_env_map(g.view_dir, _visualize_roughness).rgb;
+		return pbr_sample_specular_env_map(g.view_dir, _visualize_roughness).rgb;
 	#endif
 	}
 	

@@ -208,7 +208,10 @@ struct Gbuffer {
 
 struct PBR_Render {
 	Shader* shad_integrate_brdf = g_shaders.compile("pbr_integrate_brdf");
-	Shader* shad_prefilter_env  = g_shaders.compile("pbr_prefilter_env", {},
+
+	Shader* shad_prefilter_env_mip0 = g_shaders.compile("pbr_prefilter_env", {{"FIRST_MIP","1"}},
+		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER });
+	Shader* shad_prefilter_env      = g_shaders.compile("pbr_prefilter_env", {{"FIRST_MIP","0"}},
 		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER });
 
 	Texture2D brdf_LUT;
@@ -349,40 +352,58 @@ struct PBR_Render {
 		ZoneScoped;
 		OGL_TRACE("draw_env_map");
 
-		glUseProgram(shad_prefilter_env->prog);
-		state.bind_textures(shad_prefilter_env, {
-			{ "clouds", texs.clouds, texs.sampler_normal }
-		});
-
 		glBindVertexArray(state.dummy_vao);
-
+		
+		PipelineState s;
+		s.depth_test   = false;
+		s.depth_write  = false;
+		//s.blend_enable = false;
+		// Additive writing
+		s.blend_enable = true;
+		s.blend_func.dfactor = GL_ONE;
+		s.blend_func.sfactor = GL_ONE;
+		s.blend_func.equation = GL_FUNC_ADD;
+		state.set_no_override(s);
+		
+		static int additive_layers = 4;
+		ImGui::SliderInt("additive_layers", &additive_layers, 1, 8);
+				
 		int2 res = env_res;
 		for (int mip=0; mip<env_mips; ++mip) {
+			Shader* shad = mip == 0 ? shad_prefilter_env_mip0 : shad_prefilter_env;
+			
+			glUseProgram(shad->prog);
+			if (mip == 0) {
+				state.bind_textures(shad, {
+					{ "clouds", texs.clouds, texs.sampler_normal },
+				});
+			} else {
+				state.bind_textures(shad, {
+					{ "base_env_map", env_map },
+				});
+			}
+
 			glViewport(0, 0, res.x, res.y);
 			glBindFramebuffer(GL_FRAMEBUFFER, env_fbos[mip][0]);
 
 			// clear for good measure
 			glClearColor(0,0,0,0);
 			glClear(GL_COLOR_BUFFER_BIT);
-					
-			float roughness = 0.0f;
-			if (env_mips > 1) {
+			
+			if (mip == 0) {
+				glDrawArrays(GL_TRIANGLES, 0, 3);
+			} else {
 				float t = (float)mip / (float)(env_mips-1);
-				roughness = powf(t, 1.0f / env_roughness_curve);
+				float roughness = powf(t, 1.0f / env_roughness_curve);
+				shad->set_uniform("roughness", roughness);
+
+				// Test: don't draw once per texel with many samples, but draw multiple times with less samples and blend additively, for better gpu utilization
+				shad->set_uniform("additive_layers", additive_layers);
+			
+				// Draw all 6 faces at once using geometry shader and fbo layers
+				glDrawArrays(GL_TRIANGLES, 0, 3*additive_layers);
 			}
 
-			shad_prefilter_env->set_uniform("mip_i", mip);
-			shad_prefilter_env->set_uniform("roughness", roughness);
-				
-			PipelineState s;
-			s.depth_test   = false;
-			s.depth_write  = false;
-			s.blend_enable = false;
-			state.set_no_override(s);
-		
-			// Draw all 6 faces at once using geometry shader and fbo layers
-			glDrawArrays(GL_TRIANGLES, 0, 3);
-			
 			res = max(res / 2, 1);
 		}
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);

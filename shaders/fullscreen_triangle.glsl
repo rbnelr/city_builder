@@ -9,7 +9,8 @@ VS2FS Vertex {
 		// | \
 		// |  \
 		// 0---1
-		vec2 p = vec2(gl_VertexID & 1, (gl_VertexID >> 1) & 1);
+		int i = gl_VertexID % 3;
+		vec2 p = vec2(i & 1, i >> 1);
 		
 		// triangle covers [-1, 3]
 		// such that the result is a quad that fully covers [-1,+1]

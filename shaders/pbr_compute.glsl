@@ -2,20 +2,30 @@
 #include "common.glsl"
 #include "pbr.glsl"
 
-layout(local_size_x=8, local_size_y=8, local_size_z=1) in;
+#if MODE != 3
+	// usually 8x8 pixels x 1 cubemap face in workgroup
+	layout(local_size_x=8, local_size_y=8, local_size_z=1) in;
+#else
+	#define NUM_BATCHES 32
+	#define GROUP_PIXELS 4
+	
+	layout(local_size_x=NUM_BATCHES, local_size_y=GROUP_PIXELS, local_size_z=1) in;
+#endif
 
 uniform ivec2 resolution;
 
-vec3 get_world_dir () {
-	ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
-	int face = int(gl_GlobalInvocationID.z);
-	
+vec3 _get_world_dir (ivec2 xy, int face) {
 	vec2 uv = (vec2(xy)+0.5) / resolution;
 	
 	CubemapFace f = _cubemap_faces[face];
 	return normalize(f.world_dir +
 	                 f.world_u * (2.0*uv.x - 1.0) +
 	                 f.world_v * (2.0*uv.y - 1.0));
+}
+vec3 get_world_dir () {
+	ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+	int face = int(gl_GlobalInvocationID.z);
+	return _get_world_dir(xy, face);
 }
 
 #if MODE == 0
@@ -100,22 +110,40 @@ vec3 get_world_dir () {
 			}
 		}
 		
-		return light_sum / (total_weight * float(1));
+		return light_sum / (total_weight * float(NUM_BATCHES));
 	}
 
 	uniform samplerCube base_env_map;
 	uniform float roughness;
 	uniform layout(binding=0, r11f_g11f_b10f) restrict writeonly imageCube tex_out;
-
+	
+	shared vec3 colors[GROUP_PIXELS][NUM_BATCHES];
+	
 	void main () {
-		if (gl_GlobalInvocationID.x >= resolution.x || gl_GlobalInvocationID.y >= resolution.y) return;
+		int sample_idx      = int(gl_LocalInvocationID.x);
+		int local_pixel_idx = int(gl_LocalInvocationID.y);
 		
-		vec3 dir_world = get_world_dir();
-		int batch_samples = num_samples;
-		int first_sample = 0;
+		ivec2 xy = ivec2(gl_GlobalInvocationID.y % resolution.x,
+		                 gl_GlobalInvocationID.y / resolution.x);
+		int face = int(gl_GlobalInvocationID.z);
+		if (xy.x >= resolution.x || xy.y >= resolution.y) return;
 		
-		vec3 col = convolve_env_map_test(base_env_map, roughness, dir_world, first_sample, batch_samples);
+		vec3 dir_world = _get_world_dir(xy, face);
+		
+		int samples_per_batch = num_samples / NUM_BATCHES;
+		vec3 col = convolve_env_map_test(base_env_map, roughness, dir_world,
+			sample_idx*samples_per_batch, samples_per_batch);
+		colors[local_pixel_idx][sample_idx] = col;
+		
+		if (sample_idx != 0) return;
+		barrier();
+		
+		vec3 total = vec3(0.0);
+		for (int i=0; i<NUM_BATCHES; ++i) {
+			total += colors[local_pixel_idx][i];
+		}
+		
 		//col = readCubemapLod(base_env_map, dir_world, 0.0).xyz;
-		imageStore(tex_out, ivec3(gl_GlobalInvocationID), vec4(col, 1.0));
+		imageStore(tex_out, ivec3(xy, face), vec4(total, 1.0));
 	}
 #endif

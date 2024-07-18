@@ -448,7 +448,8 @@ struct PBR_Render {
 
 				glBindImageTexture(0, pbr_env_convolved, mip, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
 
-				dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
+				constexpr int BATCH_SIZE = 32;
+				dispatch_compute(int3(BATCH_SIZE,res*res,6), int3(BATCH_SIZE,4,1));
 			#else
 				glUseProgram(shad_convolve_env->prog);
 				state.bind_textures(shad_convolve_env, {

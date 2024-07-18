@@ -73,7 +73,7 @@ struct Citizen {
 	Citizen (Random& r, Building* initial_building) { // TODO: spawn citizens on map edge (on path)
 		target_building = initial_building;
 
-		col = hsv2rgb(r.uniformf(), 1.0f, 0.8f);
+		col = hsv2rgb(r.uniformf(), 1.0f, 0.6f);
 	}
 
 	bool selectable () {

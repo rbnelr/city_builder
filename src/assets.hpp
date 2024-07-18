@@ -228,7 +228,7 @@ struct NetworkAsset {
 
 		changed = ImGui::DragFloat("width", &width, 0.1f) || changed;
 
-		changed = imgui_edit_vector("lanes", lanes, [] (Lane& l) {
+		changed = imgui_edit_vector("lanes", lanes, [] (int i, Lane& l) {
 			bool changed = ImGui::DragFloat("shift", &l.shift, 0.1f);
 			changed = ImGui::DragFloat("width", &l.width, 0.1f) || changed;
 
@@ -239,14 +239,14 @@ struct NetworkAsset {
 			return changed;
 		}) || changed;
 
-		changed = imgui_edit_vector("line_markings", line_markings, [] (LineMarking& l) {
+		changed = imgui_edit_vector("line_markings", line_markings, [] (int i, LineMarking& l) {
 			bool changed = ImGui::Combo("type", (int*)&l.type, "LINE\0STRIPED", 2);
 			changed = ImGui::DragFloat2("shift", &l.shift.x, 0.1f) || changed;
 			changed = ImGui::DragFloat2("scale", &l.scale.x, 0.1f) || changed;
 			return changed;
 		}) || changed;
 
-		changed = imgui_edit_vector("streetlights", streetlights, [] (Streetlight& l) {
+		changed = imgui_edit_vector("streetlights", streetlights, [] (int i, Streetlight& l) {
 			bool changed = ImGui::DragFloat3("shift", &l.shift.x, 0.1f);
 			changed = ImGui::DragFloat("spacing", &l.spacing, 0.1f) || changed;
 			changed = ImGui::SliderAngle("rot", &l.rot, 0, 360) || changed;
@@ -401,11 +401,11 @@ struct Assets {
 		if (ImGui::Button("Reload All"))
 			reload_all();
 		
-		imgui_edit_vector("networks", networks, [&] (std::unique_ptr<NetworkAsset>& network) {
+		imgui_edit_vector("networks", networks, [&] (int i, std::unique_ptr<NetworkAsset>& network) {
 			network->imgui(settings);
 			return false;
 		});
-		imgui_edit_vector("buildings", buildings, [&] (std::unique_ptr<BuildingAsset>& building) {
+		imgui_edit_vector("buildings", buildings, [&] (int i, std::unique_ptr<BuildingAsset>& building) {
 			building->imgui(settings);
 			return false;
 		});

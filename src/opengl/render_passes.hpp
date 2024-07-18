@@ -216,14 +216,29 @@ struct PBR_Render {
 	Shader* shad_convolve_env = g_shaders.compile("pbr_convolve_env_map", {{"MODE","2"}},
 		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER });
 
+	static constexpr int3 COMPUTE_CONVOLVE_WG = int3(8,8,1);
+	Shader* shad_compute_gen_env  = g_shaders.compile("pbr_compute", {{"MODE","0"}}, { shader::COMPUTE_SHADER });
+	Shader* shad_compute_gen_mips = g_shaders.compile("pbr_compute", {{"MODE","1"}}, { shader::COMPUTE_SHADER });
+	Shader* shad_compute_copy     = g_shaders.compile("pbr_compute", {{"MODE","2"}}, { shader::COMPUTE_SHADER });
+	Shader* shad_compute_convolve = g_shaders.compile("pbr_compute", {{"MODE","3"}}, { shader::COMPUTE_SHADER });
+
 	Texture2D brdf_LUT;
 	int brdf_LUT_res = 256; // Seems to be enough
 	bool recreate_brdf = true;
 	
-	GLenum env_map_format = GL_RGB16F;
+	// GL_R11F_G11F_B10F is not noticably different and like 40% faster due to being memory read bottlenecked
+	GLenum env_map_format = GL_R11F_G11F_B10F; // GL_RGB16F
 	TextureCubemap base_env_map, pbr_env_convolved;
 	int env_res = 384;
 	int env_mips = 8; // env_res=384 -> 3x3
+	std::vector<int> sampler_per_res = std::vector<int>({ // num_samples for each resolution
+		512,512,512,512,512,512, // 1,2,4,8,16,32
+		512, // 64
+		256, // 128
+		256, // 256
+		64, // 512
+		64, // 1024
+	});
 	// adjust roughness with  roughness_mip = pow(roughness, env_roughness_curve)
 	// to squeeze more of the low roughness into the lower mips, so we waste less blurry high roughness on the high-res mips
 	// Note: technically makes interpolation non-linear (wrong), but probably is still more correct than a too blurry mip
@@ -234,7 +249,7 @@ struct PBR_Render {
 	void imgui () {
 		if (ImGui::TreeNode("PBR")) {
 			recreate_brdf = ImGui::SliderInt("brdf_LUT_res", &brdf_LUT_res, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic) || recreate_brdf;
-
+			
 			recreate_env_map = ImGui::SliderInt("env_res", &env_res, 1, 2048, "%d", ImGuiSliderFlags_Logarithmic) || recreate_env_map;
 			
 			int mips = calc_mipmaps(env_res, env_res);
@@ -243,6 +258,11 @@ struct PBR_Render {
 			
 			int lowest_res = env_res >> (env_mips-1);
 			ImGui::Text("Env map lowest mip: %dx%d pixels", lowest_res, lowest_res);
+
+			imgui_edit_vector("sampler_per_res", sampler_per_res, [&] (int i, int& item) {
+				ImGui::Text("%4dx%4d mipmap", 1<<i, 1<<i); ImGui::SameLine();
+				return ImGui::DragInt("##sampler_per_res", &sampler_per_res[i], 0.1f, 1,4*1024, "%d", ImGuiSliderFlags_Logarithmic);
+			}, true, false, false);
 
 			ImGui::TreePop();
 		}
@@ -323,10 +343,24 @@ struct PBR_Render {
 		s.blend_enable = false;
 		state.set_no_override(s);
 
-		int2 res = env_res;
+		int res = env_res;
 		{
 			OGL_TRACE("gen_env");
 
+		#if 1
+			glUseProgram(shad_compute_gen_env->prog);
+			shad_compute_gen_env->set_uniform("resolution", int2(res));
+
+			state.bind_textures(shad_compute_gen_mips, {
+				{ "clouds", texs.clouds },
+			});
+
+			glBindImageTexture(0, base_env_map, 0, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
+
+			dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
+
+			glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+		#else
 			glUseProgram(shad_gen_env->prog);
 			state.bind_textures(shad_gen_env, {
 				{ "clouds", texs.clouds, texs.sampler_normal },
@@ -336,17 +370,48 @@ struct PBR_Render {
 			glViewport(0, 0, res.x, res.y);
 
 			glDrawArrays(GL_TRIANGLES, 0, 3);
+		#endif
 		}
 		{
 			OGL_TRACE("gen mips");
+		#if 1
+			for (int mip=1; mip<env_mips; ++mip) {
+				res = max(res / 2, 1);
+
+				glUseProgram(shad_compute_gen_mips->prog);
+				shad_compute_gen_mips->set_uniform("resolution", int2(res));
+				shad_compute_gen_mips->set_uniform("prev_mip", (float)(mip-1));
+
+				state.bind_textures(shad_compute_gen_mips, {
+					{ "base_env_map", base_env_map },
+				});
+
+				glBindImageTexture(0, base_env_map, mip, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
+
+				dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
+				
+				glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+			}
+		#else
 			// Generate mipmaps for more optimized filtering
 			glBindTexture(GL_TEXTURE_CUBE_MAP, base_env_map);
 			glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+		#endif
 		}
-
+		
+		res = env_res;
 		{
 			OGL_TRACE("copy mip0");
 
+		#if 1
+			glUseProgram(shad_compute_copy->prog);
+			shad_compute_copy->set_uniform("resolution", int2(res));
+
+			glBindImageTexture(0, pbr_env_convolved, 0, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
+			glBindImageTexture(1, base_env_map,      0, GL_FALSE, 0, GL_READ_ONLY,  env_map_format);
+
+			dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
+		#else
 			// spawn a raster drawcall to copy memory, because copying textures is not something the opengl API can do
 			// (glBlitFramebuffer is ungodly slow for some reason)
 			glUseProgram(shad_copy_env->prog);
@@ -358,53 +423,60 @@ struct PBR_Render {
 			glViewport(0, 0, res.x, res.y);
 
 			glDrawArrays(GL_TRIANGLES, 0, 3);
+		#endif
 		}
 		
 		{
 			OGL_TRACE("convolve");
-
-			// Additive blending
-			s.blend_func.dfactor = GL_ONE;
-			s.blend_func.sfactor = GL_ONE;
-			s.blend_func.equation = GL_FUNC_ADD;
-			state.set_no_override(s);
-		
 			for (int mip=1; mip<env_mips; ++mip) {
 				res = max(res / 2, 1);
+				
+			#if 1
+				glUseProgram(shad_compute_convolve->prog);
 
+				float t = (float)mip / (float)(env_mips-1);
+				float roughness = powf(t, 1.0f / env_roughness_curve);
+				shad_compute_convolve->set_uniform("roughness", roughness);
+				shad_compute_convolve->set_uniform("resolution", int2(res));
+
+				int num_samples = sampler_per_res[floori(log2f((float)res))];
+				shad_compute_convolve->set_uniform("num_samples", num_samples);
+
+				state.bind_textures(shad_compute_convolve, {
+					{ "base_env_map", base_env_map },
+				});
+
+				glBindImageTexture(0, pbr_env_convolved, mip, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
+
+				dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
+			#else
 				glUseProgram(shad_convolve_env->prog);
 				state.bind_textures(shad_convolve_env, {
 					{ "base_env_map", base_env_map },
 				});
-
+				
 				auto fbo = make_and_bind_temp_fbo_layered(pbr_env_convolved, mip);
 				glViewport(0, 0, res.x, res.y);
-
+				
 				// clear for good measure
 				glClearColor(0,0,0,0);
 				glClear(GL_COLOR_BUFFER_BIT);
-			
+				
 				float t = (float)mip / (float)(env_mips-1);
 				float roughness = powf(t, 1.0f / env_roughness_curve);
 				shad_convolve_env->set_uniform("roughness", roughness);
-
+				
 				// Test: don't draw once per texel with many samples, but draw multiple times with less samples and blend additively, for better gpu utilization
 				shad_convolve_env->set_uniform("additive_layers", additive_layers);
-			
+				
 				// Draw all 6 faces at once using geometry shader and fbo layers
 				glDrawArrays(GL_TRIANGLES, 0, 3*additive_layers);
+			#endif
 			}
 		}
-		
-		//res = env_res;
-		//for (int mip=1; mip<env_mips; ++mip) {
-		//	res = max(res / 2, 1);
-		//	for (int face=0; face<6; ++face) {
-		//		copy_texels(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face,
-		//			env_tmp, mip-1, 0,res,
-		//			env_map, mip  , 0,res);
-		//	}
-		//}
+
+		// TODO: Is this correct?
+		glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
 		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -495,6 +567,7 @@ struct PBR_Render {
 #endif
 };
 
+// TODO: Debug why cascade 0 is not working???
 struct DirectionalCascadedShadowmap {
 	SERIALIZE(DirectionalCascadedShadowmap, shadow_res, cascades, cascade_factor, size, depth_range, bias_fac_world, bias_max_world)
 
@@ -631,7 +704,7 @@ struct DirectionalCascadedShadowmap {
 		shad->set_uniform("shadowmap_bias_max", bias_max);
 		shad->set_uniform("shadowmap_cascade_factor", cascade_factor);
 
-		textures += { "shadowmap", { GL_TEXTURE_2D_ARRAY, shadow_tex }, sampler };
+		textures += { "shadowmap",  { GL_TEXTURE_2D_ARRAY, shadow_tex }, sampler };
 		textures += { "shadowmap2", { GL_TEXTURE_2D_ARRAY, shadow_tex }, sampler2 };
 	}
 

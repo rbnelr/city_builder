@@ -4,9 +4,9 @@ float sun_strength () {
 	float a = map(-lighting.sun_dir.z, 0.5, -0.2);
 	return smoothstep(1.0, 0.0, a);
 }
-vec3 atmos_scattering () {
+vec3 atmos_scattering (vec3 sun) {
 	float a = map(-lighting.sun_dir.z, 0.5, 0.0);
-	return vec3(0.0, 0.85, 0.9)*0.85 * smoothstep(0.0, 1.0, a);
+	return clamp(sun - vec3(0.0, 0.90, 0.95)*0.85 * smoothstep(0.0, 1.0, a), vec3(0), vec3(1));
 }
 vec3 horizon (vec3 dir_world) {
 	return vec3(clamp(map(dir_world.z, -1.0, 1.0), 0.5, 1.0));
@@ -67,9 +67,9 @@ vec3 apply_fog (vec3 pix_col, vec3 pix_pos) {
 	// adjust color to give sun tint like iquilezles
 	float sun_amount = max(dot(ray_cam, -lighting.sun_dir), 0.0);
 	//vec3  col = mix(lighting.fog_col, lighting.sun_col, pow(sun_amount, 8.0) * 0.5);
-	vec3 sun = (lighting.sun_col - atmos_scattering()) * 5;
+	vec3 sun = atmos_scattering(lighting.sun_col) * 5;
 	
-	vec3 col = mix(lighting.fog_col, sun, pow(sun_amount, 8.0) * 0.7);
+	vec3 col = mix(lighting.fog_col, sun, pow(sun_amount, 7.0) * 0.7);
 	
 	//return vec3(1.0 - t);
 	
@@ -82,7 +82,7 @@ vec3 procedural_sky (vec3 view_point, vec3 dir_world) {
 	
 	vec3 col = lighting.sky_col * (stren + 0.001);
 	
-	vec3 sun = lighting.sun_col - atmos_scattering();
+	vec3 sun = atmos_scattering(lighting.sun_col);
 	{ // sun
 		sun *= stren;
 	

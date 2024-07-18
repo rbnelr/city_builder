@@ -64,7 +64,7 @@
 		#endif 
 			
 			//g.albedo = vec3(1);
-			g.roughness *= 0.6;
+			//g.roughness *= 0.4;
 			//g.metallic = 1.0;
 			
 			{
@@ -77,9 +77,13 @@
 					//col = pbr_IBL_test(g);
 				//}
 				
-				vec3 sun_light = lighting.sun_col - atmos_scattering();
-				sun_light *= sun_strength() * 1.0;
-				//col += pbr_analytical_light(g, sun_light, -lighting.sun_dir);
+				float shadow = sun_shadowmap(g.pos_world, g.normal_world);
+				if (shadow >= 0.0f) {
+					vec3 sun_light = atmos_scattering(lighting.sun_col);
+					sun_light *= sun_strength() * 3.0;
+					col += shadow * pbr_analytical_light(g, sun_light, -lighting.sun_dir);
+				}
+				//col = shadow.xxx;
 			}
 			
 			col = apply_fog(col, g.pos_world);
@@ -96,7 +100,7 @@
 		//frag_col = vec4(normal, 1.0);
 		//frag_col = vec4(depth,depth,depth, 1.0);
 		
-		//debug_window_shadow(shadowmap, 1.0);
+		//debug_window_shadow(shadowmap, 0.0);
 		//debug_window(gbuf_depth);
 		//debug_window(gbuf_norm);
 		//debug_window(gbuf_pbr);

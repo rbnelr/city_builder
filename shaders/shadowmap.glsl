@@ -4,14 +4,13 @@ uniform sampler2DArrayShadow shadowmap2;
 
 uniform mat4  shadowmap_mat;
 uniform vec3  shadowmap_dir; // light dir of sun
-uniform float shadowmap_bias_fac = 0.0005;
-uniform float shadowmap_bias_max = 0.004;
+uniform float shadowmap_bias_fac = 2.0;
+uniform float shadowmap_bias_max = 10.0;
 uniform float shadowmap_cascade_factor;
 
 float sun_shadowmap (vec3 pos_world, vec3 normal) {
 	vec2 texelSize = 1.0 / textureSize(shadowmap, 0).xy;
 	int cascades = int(textureSize(shadowmap, 0).z);
-	
 	
 	float bias = shadowmap_bias_fac * tan(acos(dot(normal, -shadowmap_dir)));
 	bias = clamp(bias, 0.0, shadowmap_bias_max);
@@ -21,8 +20,8 @@ float sun_shadowmap (vec3 pos_world, vec3 normal) {
 	// [0,1] -> [-1,+1] because else the cascade logic becomes harder
 	shadow_ndc.z = shadow_ndc.z*2.0 - 1.0;
 	
-	float m = max(max(abs(shadow_ndc.x), abs(shadow_ndc.y)),
-		abs(shadow_ndc.z));
+	vec3 v = abs(shadow_ndc);
+	float m = max(max(v.x,v.y), v.z);
 	m = log(m) / log(shadowmap_cascade_factor);
 	float cascade = max(ceil(m), 0.0);
 	
@@ -56,6 +55,7 @@ float sun_shadowmap (vec3 pos_world, vec3 normal) {
 		vec2 uv = shadow_uv + vec2(x,y) * texelSize;
 		
 		float fac = texture(shadowmap2, vec4(uv, cascade, compare)).r;
+		return fac;
 		//float fac = compare > texture(shadowmap, vec3(uv, float(cascade))).r ? 1.0 : 0.0;
 		shadow_fac += fac;
 		sum++;

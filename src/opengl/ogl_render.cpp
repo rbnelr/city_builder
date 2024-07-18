@@ -234,8 +234,8 @@ struct TerrainRenderer {
 					  y >= prev_bound0.y && y < prev_bound1.y )
 					continue;
 					
-				//if (dbg)
-				//	g_dbgdraw.wire_quad(float3((float2)int2(x,y), 0), (float2)(float)sz, g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))]);
+				if (dbg)
+					g_dbgdraw.wire_quad(float3((float2)int2(x,y), 0), (float2)(float)sz, g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))]);
 
 				// draw chunk with this lod
 				shad->set_uniform("offset", float2(int2(x,y)));
@@ -1217,8 +1217,8 @@ struct OglRenderer : public Renderer {
 				imgui_ColorEdit("sky_col", &sky_col);
 				imgui_ColorEdit("fog_col", &fog_col);
 
-				ImGui::DragFloat("fog_base",    &fog_base,    0.00001f, 0,0, "%.10f");
-				ImGui::DragFloat("fog_falloff", &fog_falloff, 0.0001f, 0,0, "%.10f");
+				ImGui::DragFloat("fog_base",    &fog_base,    0.0000001f, 0,0, "%.10f");
+				ImGui::DragFloat("fog_falloff", &fog_falloff, 0.000001f, 0,0, "%.10f");
 
 				ImGui::PopID();
 			}
@@ -1433,7 +1433,7 @@ struct OglRenderer : public Renderer {
 				network_renderer.render(state, textures, true);
 
 				building_renderer.draw(state, textures, textures.house_diff, true);
-				vehicle_renderer .draw(state, textures, textures.house_diff); // TODO: house_diff ??? please just make all entities use bindless!
+				vehicle_renderer .draw(state, textures, textures.house_diff, true); // TODO: house_diff ??? please just make all entities use bindless!
 				prop_renderer    .draw(state, textures, textures.streetlight_diff, true);
 			});
 		}

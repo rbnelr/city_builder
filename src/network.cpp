@@ -178,6 +178,8 @@ PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state
 	int num_moves = num_seg + (num_seg-1) + 2;
 	assert(num_seg >= 1);
 
+	auto seeded_rand = Random(hash(idx, (uint64_t)vehicle));
+
 	// find next (non-straight) turn in next N nodes
 	// choose lane for segment before that
 	// backiterate and apply 'target' lane to each by 'staying on' lane backwards for M steps
@@ -190,8 +192,29 @@ PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state
 		else
 			return in->node_b;
 	};
+	auto pick_random_allowed_lane_for_turn = [&] (Segment* in, Node* node, Segment* out) {
+		// still has next node, pick lane after cur_node based on required lane for turn at next_node
+		LaneDir dir = in->get_dir_to_node(node);
+		auto turn = classify_turn(node, in, out);
+		
+		auto lanes = in->lanes_in_dir(dir);
 
+		int count = 0;
+		for (auto id=lanes.first; id<lanes.end; ++id) {
+			if ((in->lanes[id].allowed_turns & turn) != Turns::NONE)
+				count++;
+		}
 
+		int choice = seeded_rand.uniformi(0, count);
+		int idx = 0;
+		for (auto id=lanes.first; id<lanes.end; ++id) {
+			if ((in->lanes[id].allowed_turns & turn) != Turns::NONE) {
+				if (idx++ == choice)
+					return SegLane{ in, id };
+			}
+		}
+		return SegLane{};
+	};
 
 	if (idx == 0) {
 		Segment* start_seg = vehicle->path[0];
@@ -199,6 +222,7 @@ PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state
 		LaneDir seg_dir = start_seg->get_dir_to_node(next_node); // null is ok
 
 		s.cur_lane = {};
+		// currently wrong, since it ignored turn arrows if next move is turn, need to somehow use same logic as in PathState::SEGMENT;
 		s.next_lane = start_seg->lanes_in_dir(seg_dir).outer(); // start on outermost lane
 		
 		auto s_lane = s.next_lane.clac_lane_info();
@@ -237,32 +261,27 @@ PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state
 			
 				int i = (idx-1)/2;
 		
-				Segment* seg0 = vehicle->path[i];
-				Segment* seg1 = i+1 < num_seg ? vehicle->path[i+1] : nullptr;
-				Segment* seg2 = i+2 < num_seg ? vehicle->path[i+2] : nullptr;
+				Segment* seg0 = vehicle->path[i]; // current segment
+				Segment* seg1 = i+1 < num_seg ? vehicle->path[i+1] : nullptr; // next segment (after current node)
+				Segment* seg2 = i+2 < num_seg ? vehicle->path[i+2] : nullptr; // segment after that (after next node)
 		
-					  cur_node  = seg1 ? find_node(seg0, seg1) : nullptr;
-				Node* next_node = seg2 ? find_node(seg1, seg2) : nullptr;
+					  cur_node  = seg1 ? find_node(seg0, seg1) : nullptr; // current/next segment -> current node
+				Node* next_node = seg2 ? find_node(seg1, seg2) : nullptr; // next/after that segment -> next node
 		
 				if (!seg1) {
+					// already on target lane
 					s.next_lane = {};
 				}
 				else if (!seg2) {
+					assert(cur_node && seg1);
+					// lane after node is target lane, can't pick normally
 					LaneDir dir = seg1->get_dir_from_node(cur_node);
 					s.next_lane = seg1->lanes_in_dir(dir).outer(); // end on outermost lane
 				}
 				else {
-					LaneDir dir = seg1->get_dir_from_node(cur_node);
-					auto turn = classify_turn(next_node, seg1, seg2);
-			
-					auto lanes = seg1->lanes_in_dir(dir);
-					for (auto id=lanes.first; id<lanes.first+lanes.count; ++id) {
-						auto& l = seg1->lanes[id];
-						if ((l.allowed_turns & turn) != Turns::NONE) {
-							s.next_lane = { seg1, id };
-							break;
-						}
-					}
+					assert(seg1 && next_node && seg2);
+					// still has next node, pick lane after cur_node based on required lane for turn at next_node
+					s.next_lane = pick_random_allowed_lane_for_turn(seg1, next_node, seg2);
 				}
 			}
 

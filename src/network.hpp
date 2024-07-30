@@ -303,6 +303,8 @@ struct Node {
 	
 	// TODO: can we get this info without needing so much memory
 
+	// TODO: only ever used in one place and the single bool (bool yield can just be stored in segment since every lane is only in_lane for one node)
+	//  and the only advantage is turning a 2 nested loop into a single loop ?? stupid
 	std::vector<InLane> in_lanes;
 	std::vector<OutLane> out_lanes;
 	
@@ -371,10 +373,10 @@ struct Segment { // better name? Keep Path and call path Route?
 	struct DirLanes {
 		Segment& seg;
 		uint16_t first;
-		uint16_t count;
+		uint16_t end;
 
 		SegLane inner () { return { &seg, first }; };
-		SegLane outer () { return { &seg, (uint16_t)(first+count-1) }; };
+		SegLane outer () { return { &seg, (uint16_t)(end-1) }; };
 	};
 	DirLanes lanes_forward () {
 		uint16_t count = (uint16_t)asset->num_lanes_in_dir(LaneDir::FORWARD);
@@ -382,7 +384,7 @@ struct Segment { // better name? Keep Path and call path Route?
 	}
 	DirLanes lanes_backwards () {
 		uint16_t first = (uint16_t)asset->num_lanes_in_dir(LaneDir::FORWARD);
-		return { *this, first, (uint16_t)(asset->lanes.size() - first) };
+		return { *this, first, (uint16_t)asset->lanes.size() };
 	}
 	DirLanes lanes_in_dir (LaneDir dir) {
 		return dir == LaneDir::FORWARD ? lanes_forward() : lanes_backwards();
@@ -541,23 +543,26 @@ struct Network {
 };
 
 inline void calc_default_allowed_turns (Node& node) {
-	for (auto& in_lane : node.in_lanes) {
-		auto& lane = in_lane.seg->lanes[in_lane.lane];
+	for (int d=0; d<2; ++d) {
+		auto dir = (LaneDir)d;
+		for (auto& in_lane : node.in_lanes) {
+			auto& lane = in_lane.seg->lanes[in_lane.lane];
 
-		auto dir = in_lane.seg->get_dir_to_node(&node);
+			auto dir = in_lane.seg->get_dir_to_node(&node);
 
-		int count = in_lane.seg->asset->num_lanes_in_dir(dir);
-		int idx   = in_lane.seg->get_lane_layout(&lane).order;
+			int count = in_lane.seg->asset->num_lanes_in_dir(dir);
+			int idx   = in_lane.seg->get_lane_layout(&lane).order;
 
-		if (count == 1) {
-			lane.allowed_turns = Turns::ALL;
-		}
-		else if (count == 2) {
-			if (idx == 0) lane.allowed_turns = Turns::LS;
-			else          lane.allowed_turns = Turns::SR;
-		}
-		else {
-			lane.allowed_turns = Turns::ALL;
+			if (count == 1) {
+				lane.allowed_turns = Turns::ALL;
+			}
+			else if (count == 2) {
+				if (idx == 0) lane.allowed_turns = Turns::LS;
+				else          lane.allowed_turns = Turns::SR;
+			}
+			else {
+				lane.allowed_turns = Turns::ALL;
+			}
 		}
 	}
 }
@@ -594,7 +599,7 @@ inline int default_lane_yield (int node_class, Segment& seg) {
 }
 
 inline void Node::update_cached () {
-	// Sort CCW(?) segments for good measure
+	// Sort CCW(?) segments in place for good measure
 	auto get_seg_angle = [] (Node* node, Segment* a) {
 		Node* other = a->get_other_node(node);
 		float2 dir = other->pos - node->pos;

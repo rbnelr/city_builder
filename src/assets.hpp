@@ -155,7 +155,7 @@ struct NetworkAsset {
 		float shift = 0;
 		float width = 3;
 		LaneDir direction = LaneDir::FORWARD;
-		// agent types (cars, trams, pedestrian etc.)
+		// user types (cars, trams, pedestrian etc.)
 		
 		// This is stupid
 		// TODO: just sort lanes beforehand and return subsets as span?

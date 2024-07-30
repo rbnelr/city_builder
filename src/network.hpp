@@ -3,7 +3,7 @@
 #include "assets.hpp"
 #include "util.hpp"
 
-struct Citizen;
+struct Person;
 struct Building;
 struct App;
 
@@ -15,8 +15,8 @@ namespace network {
 
 struct Node;
 struct Segment;
-struct Agent;
-struct LaneAgents;
+struct ActiveVehicle;
+struct LaneVehicles;
 
 enum AllowedTurns : uint8_t {
 	ALLOWED_LEFT     = 0b0001,
@@ -59,8 +59,8 @@ struct SegLane {
 	operator bool () const { return seg != nullptr; }
 	
 	Line clac_lane_info (float shift=0) const;
-
-	LaneAgents& agents () const;
+	
+	LaneVehicles& vehicles () const;
 };
 VALUE_HASHER(SegLane, t.seg, t.lane);
 
@@ -128,22 +128,22 @@ struct CachedConnection {
 };
 
 template <typename T>
-struct AgentList { // TODO: optimize agents in lane to only look at agent in front of them, and speed up insert/erase by using linked list
+struct VehicleList { // TODO: optimize vehicles in lane to only look at vehicle in front of them, and speed up insert/erase by using linked list
 	std::vector<T> list;
 
 	// TODO: can we avoid needing this?
 	template <typename U>
-	bool contains (U const& agent) {
-		return std::find(list.begin(), list.end(), agent) != list.end();
+	bool contains (U const& vehicle) {
+		return std::find(list.begin(), list.end(), vehicle) != list.end();
 	}
 
-	void add (T agent) {
-		assert(!contains(agent));
-		list.push_back(agent);
+	void add (T vehicle) {
+		assert(!contains(vehicle));
+		list.push_back(vehicle);
 	}
 	template <typename U>
-	void remove (U const& agent) {
-		auto it = std::find(list.begin(), list.end(), agent);
+	void remove (U const& vehicle) {
+		auto it = std::find(list.begin(), list.end(), vehicle);
 		assert(it != list.end());
 		list.erase(it);
 	}
@@ -161,60 +161,67 @@ struct AgentList { // TODO: optimize agents in lane to only look at agent in fro
 	}
 };
 
-struct AgentState {
+struct PathState {
 	enum State { EXIT_BUILDING, ENTER_BUILDING, SEGMENT, NODE };
 
-	State state;
+	State state; // type of motion
 	float end_t = 1.0f;
 	float next_start_t = 0.0f;
 	Bezier3 bezier;
 	float pos_z;
 
-	network::AgentList<Agent*>* cur_agents = nullptr;
-	network::AgentList<Agent*>* next_agents = nullptr;
+	VehicleList<ActiveVehicle*>* cur_vehicles = nullptr;
+	VehicleList<ActiveVehicle*>* next_vehicles = nullptr;
 
-	network::SegLane cur_lane = {}; // always valid
-	network::Node*   cur_node = nullptr; // valid if != null
-	network::SegLane next_lane = {}; // only valid if cur_node != null
+	SegLane cur_lane = {}; // always valid
+	Node*   cur_node = nullptr; // valid if != null
+	SegLane next_lane = {}; // only valid if cur_node != null
 };
 
-struct Agent {
-	Citizen* cit;
+struct ActiveVehicle {
+//// Constants for entire trip (decided by game logic)
+	Person* cit; // TODO: rename, later allow for cars with multiple passangers, in which case this would make sense anyway?
 
-	int   idx = 0;
-
-	float bez_t = 0;
-	//float rear_t = 0; // only approximately correct
-	
-	std::vector<Segment*> path;
-
+	// start and destination buildings
 	Building* start = nullptr;
 	Building* end   = nullptr;
+	
+//// Pathfinding result based on trip
+	// all segments returned by pathfinding, without choosing lanes
+	std::vector<Segment*> path;
 
+//// Path following variables
+	// current path sequence number (complicated, ideally this could be a generator function)
+	// 0: start building -> road segment
+	// 1: first segment, 2: first node, 3: next segment...
+	// n-1: road segment -> end building
+	int   idx = 0;
 
-	float speed = 0; // real speed
+	float bez_t = 0; // [0,1] bezier parameter for current segment/node curve
+
+	float brake; // set by controlled conflict logic, to brake smoothly
+	float speed = 0; // worldspace speed controlled by acceleration and brake
 
 	// speed (delta position) / delta beizer t
-	float bez_speed;
+	float bez_speed; // set after timestep based on current bezier eval, to approx correct worldspace step size along bezier in next tick
 
-	float brake;
-
-	// curvature, ie. 1/turn_radius, positive means left
-	float turn_curv = 0;
-
-	float wheel_roll = 0;
-
-	AgentState state;
+	// cached info about current and future path following
+	PathState state;
 	
+//// Movement sim variables for visuals
+	float3 front_pos; // car front
+	float3 rear_pos; // car rear
 
-	float3 front_pos;
-	float3 rear_pos;
-
-	float3 vel = 0;
-
+	// another velocity parameter, this time for the center of the car, to implement suspension
+	// TODO: this should not exist, OR be the only velocity paramter
+	float3 center_vel = 0;
 	// suspension (ie. car wobble) angles based on car acceleration on forward and sideways axes (computed seperately)
 	float2 suspension_ang = 0; // angle in radians, X: sideways (rotation on local X), Y: forwards
 	float2 suspension_ang_vel = 0; // angular velocity in radians
+	
+	// curvature, ie. 1/turn_radius, positive means left
+	float turn_curv = 0;
+	float wheel_roll = 0;
 
 	float3 center () { return (front_pos + rear_pos)*0.5; };
 	
@@ -222,8 +229,8 @@ struct Agent {
 	void calc_pos (float3* pos, float* ang);
 };
 
-struct NodeAgent {
-	Agent* agent;
+struct NodeVehicle {
+	ActiveVehicle* vehicle;
 
 	int node_idx;
 		
@@ -239,31 +246,31 @@ struct NodeAgent {
 
 	CachedConnection conn;
 
-	bool operator== (NodeAgent const& other) const {
-		return agent == other.agent;
+	bool operator== (NodeVehicle const& other) const {
+		return vehicle == other.vehicle;
 	}
-	bool operator== (Agent* other) const {
-		return agent == other;
+	bool operator== (ActiveVehicle* other) const {
+		return vehicle == other;
 	}
 	template <typename U>
 	bool operator!= (U const& other) const {
-		return agent != other.agent;
+		return vehicle != other.vehicle;
 	}
 };
 
-struct LaneAgents {
-	AgentList<Agent*> list;
+struct LaneVehicles {
+	VehicleList<ActiveVehicle*> list;
 	float avail_space;
 };
-struct SegAgents {
-	std::vector<LaneAgents> lanes;
-	//AgentList<Agent*> free; // not part of lane, building->lane
+struct SegVehicles {
+	std::vector<LaneVehicles> lanes;
+	//VehicleList<Vehicle*> free; // not part of lane, building->lane
 };
 
-struct NodeAgents {
-	AgentList<Agent*> free;
+struct NodeVehicles {
+	VehicleList<ActiveVehicle*> free;
 
-	AgentList<NodeAgent> test;
+	VehicleList<NodeVehicle> test;
 
 	Hashmap<ConflictKey, Conflict, ConflictKeyHasher> conflict_cache;
 };
@@ -290,7 +297,7 @@ struct Node {
 	Node*    _pred;
 	Segment* _pred_seg;
 
-	NodeAgents agents;
+	NodeVehicles vehicles;
 	
 	// TODO: can we get this info without needing so much memory
 
@@ -328,7 +335,7 @@ struct Segment { // better name? Keep Path and call path Route?
 
 	float _length = 0;
 
-	SegAgents agents;
+	SegVehicles vehicles;
 
 	std::vector<Lane> lanes;
 
@@ -386,8 +393,8 @@ inline Line SegLane::clac_lane_info (float shift) const {
 	else                                 return { b, a };
 }
 
-inline LaneAgents& SegLane::agents () const {
-	return seg->agents.lanes[lane];
+inline LaneVehicles& SegLane::vehicles () const {
+	return seg->vehicles.lanes[lane];
 }
 
 // max lanes/segment and max segments per node == 256
@@ -498,7 +505,7 @@ struct Network {
 		settings.imgui();
 	}
 
-	bool pathfind (Segment* start, Segment* target, Agent* path);
+	bool pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle);
 
 	int pathing_count;
 

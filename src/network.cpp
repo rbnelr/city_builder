@@ -6,10 +6,11 @@ namespace network {
 
 // Pathfinding ignores lanes other than checking if any lane allows the turn to a node being visited
 // Note: lane selection happens later during car path follwing, a few segments into the future
-bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
+bool Network::pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle) {
 	ZoneScoped;
 	// use dijkstra
 
+	// TODO: why did I create an optimization and then not use it? it it working? did I want to defer to when I can have more features?
 #define DIJK_OPT 0
 #if DIJK_OPT
 	std::vector<Node*> heap_vec;
@@ -37,7 +38,7 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 	std::priority_queue<Queued, std::vector<Queued>, Comparer> unvisited;
 #endif
 
-	// queue all nodes
+	// prepare all nodes
 	for (auto& node : nodes) {
 		node->_cost = INF;
 		node->_visited = false;
@@ -164,18 +165,23 @@ bool Network::pathfind (Segment* start, Segment* target, Agent* agent) {
 	assert(reverse_segments.size() >= 1);
 
 	for (int i=(int)reverse_segments.size()-1; i>=0; --i) {
-		agent->path.push_back(reverse_segments[i]);
+		vehicle->path.push_back(reverse_segments[i]);
 	}
 
 	return true;
 }
 
-AgentState get_agent_state (Agent* agent, int idx) {
-	AgentState s;
+PathState progress_path (ActiveVehicle* vehicle, int idx) {
+	PathState s;
 
-	int num_seg = (int)agent->path.size();
+	int num_seg = (int)vehicle->path.size();
 	int num_moves = num_seg + (num_seg-1) + 2;
 	assert(num_seg >= 1);
+
+	// find next (non-straight) turn in next N nodes
+	// choose lane for segment before that
+	// backiterate and apply 'target' lane to each by 'staying on' lane backwards for M steps
+	// possibly have random
 
 	// figure out node between in and out segment
 	auto find_node = [&] (Segment* in, Segment* out) {
@@ -198,7 +204,7 @@ AgentState get_agent_state (Agent* agent, int idx) {
 		assert(false);
 		return 0;
 	};
-	auto choose_lane_for_building = [&] (Node* prev_node, Segment* in) {
+	auto choose_default_lane = [&] (Node* prev_node, Segment* in) {
 		auto dir = in->get_dir_to_node(prev_node);
 		// TODO: make it so lanes in a direction (sorted left to right) can be accessed easier
 		for (auto& l : in->lanes) {
@@ -211,24 +217,26 @@ AgentState get_agent_state (Agent* agent, int idx) {
 
 	int i = idx > 0 ? (idx-1)/2 : 0;
 	
-	Segment* seg0 = i-1 >= 0      ? agent->path[i-1] : nullptr;
-	Segment* seg1 = i   < num_seg ? agent->path[i  ] : nullptr;
-	Segment* seg2 = i+1 < num_seg ? agent->path[i+1] : nullptr;
-	Segment* seg3 = i+2 < num_seg ? agent->path[i+2] : nullptr;
+	// Get all needed segments and nodes to determine in and outgoing lanes for next node
 
-	Node* node0 = seg0 && seg1 ? find_node(seg0, seg1) : nullptr;
-	Node* node1 = seg1 && seg2 ? find_node(seg1, seg2) : nullptr;
-	Node* node2 = seg2 && seg3 ? find_node(seg2, seg3) : nullptr;
+	Segment* seg0 = i-1 >= 0      ? vehicle->path[i-1] : nullptr; // previous segment
+	Segment* seg1 = i   < num_seg ? vehicle->path[i  ] : nullptr; // segment we are on / were on if already in node
+	Segment* seg2 = i+1 < num_seg ? vehicle->path[i+1] : nullptr; // segment after next node
+	Segment* seg3 = i+2 < num_seg ? vehicle->path[i+2] : nullptr;
 
-	int lane1 = seg1 && seg2 ? choose_lane(seg1, node1, seg2) : -1;
-	int lane2 = seg2 && seg3 ? choose_lane(seg2, node2, seg3) : -1;
+	Node* node0 = seg0 && seg1 ? find_node(seg0, seg1) : nullptr; // previous node (start point of current segment)
+	Node* node1 = seg1 && seg2 ? find_node(seg1, seg2) : nullptr; // next node / node we are on
+	Node* node2 = seg2 && seg3 ? find_node(seg2, seg3) : nullptr; // endpoint of next segemtn
+
+	int lane1 = seg1 && seg2 ? choose_lane(seg1, node1, seg2) : -1; // lane we are on
+	int lane2 = seg2 && seg3 ? choose_lane(seg2, node2, seg3) : -1; // lane after node
 
 	if (lane1 < 0) {
 		assert(node0);
-		lane1 = choose_lane_for_building(node0, seg1);
+		lane1 = choose_default_lane(node0, seg1);
 	}
 	if (lane2 < 0 && node1) {
-		lane2 = choose_lane_for_building(node1, seg2);
+		lane2 = choose_default_lane(node1, seg2);
 	}
 
 	s.cur_lane  = { seg1, (uint16_t)lane1 };
@@ -240,13 +248,13 @@ AgentState get_agent_state (Agent* agent, int idx) {
 
 	if (idx == 0) {
 		auto s_lane = s.cur_lane.clac_lane_info();
-		float3 s0 = agent->start->pos;
+		float3 s0 = vehicle->start->pos;
 		float3 s1 = (s_lane.a + s_lane.b) * 0.5f;
 
-		s.state = AgentState::EXIT_BUILDING;
+		s.state = PathState::EXIT_BUILDING;
 		s.next_start_t = 0.5f;
 
-		s.next_agents = &s.cur_lane.agents().list;
+		s.next_vehicles = &s.cur_lane.vehicles().list;
 
 		s.bezier = { s0, (s0+s1)*0.5f, s1 };
 		s.pos_z = s0.z;
@@ -254,9 +262,9 @@ AgentState get_agent_state (Agent* agent, int idx) {
 	else if (idx == num_moves-1) {
 		auto e_lane = s.cur_lane.clac_lane_info();
 		float3 e0 = (e_lane.a + e_lane.b) * 0.5f;
-		float3 e1 = agent->end->pos;
+		float3 e1 = vehicle->end->pos;
 
-		s.state = AgentState::ENTER_BUILDING;
+		s.state = PathState::ENTER_BUILDING;
 
 		s.bezier = { e0, (e0+e1)*0.5f, e1 };
 		s.pos_z = e1.z;
@@ -271,10 +279,10 @@ AgentState get_agent_state (Agent* agent, int idx) {
 		if ((idx-1) % 2 == 0) {
 			assert(s.cur_lane);
 
-			s.state = AgentState::SEGMENT;
+			s.state = PathState::SEGMENT;
 
-			s.cur_agents  = &s.cur_lane.agents().list;
-			s.next_agents = s.cur_node ? &s.cur_node->agents.free : nullptr;
+			s.cur_vehicles  = &s.cur_lane.vehicles().list;
+			s.next_vehicles = s.cur_node ? &s.cur_node->vehicles.free : nullptr;
 
 
 			// handle enter building
@@ -287,13 +295,13 @@ AgentState get_agent_state (Agent* agent, int idx) {
 		else {
 			assert(s.cur_lane && s.cur_node && s.next_lane);
 
-			if (agent->idx == idx)
-				assert(contains(s.cur_node->agents.free.list, agent));
+			if (vehicle->idx == idx)
+				assert(contains(s.cur_node->vehicles.free.list, vehicle));
 
-			s.state = AgentState::NODE;
+			s.state = PathState::NODE;
 
-			s.cur_agents  = &s.cur_node->agents.free;
-			s.next_agents = &s.next_lane.agents().list;
+			s.cur_vehicles  = &s.cur_node->vehicles.free;
+			s.next_vehicles = &s.next_lane.vehicles().list;
 
 			s.bezier = calc_curve(l, l2);
 			s.pos_z = l.a.z;
@@ -306,9 +314,9 @@ AgentState get_agent_state (Agent* agent, int idx) {
 float _brake_for_dist (float obstacle_dist) {
 	return clamp(map(obstacle_dist, 0.0f, 8.0f), 0.0f, 1.0f);
 }
-void brake_for_dist (Agent* agent, float obstacle_dist) {
+void brake_for_dist (ActiveVehicle* vehicle, float obstacle_dist) {
 	float brake = _brake_for_dist(obstacle_dist);
-	agent->brake = min(agent->brake, brake);
+	vehicle->brake = min(vehicle->brake, brake);
 }
 
 void debug_node (App& app, Node* node, View3D const& view) {
@@ -318,20 +326,20 @@ void debug_node (App& app, Node* node, View3D const& view) {
 
 	//{
 	//	int i=0;
-	//	for (auto& agent : node->agents.free.list) {
-	//		g_dbgdraw.wire_circle(agent->cit->center(), CAR_SIZE*0.5f, lrgba(1,0,0.5f,1));
+	//	for (auto& v : node->vehicles.free.list) {
+	//		g_dbgdraw.wire_circle(v->cit->center(), CAR_SIZE*0.5f, lrgba(1,0,0.5f,1));
 	//
 	//		g_dbgdraw.text.draw_text(prints("%d", i++),
-	//			30, 1, g_dbgdraw.text.map_text(agent->cit->center(), app.view));
+	//			30, 1, g_dbgdraw.text.map_text(v->cit->center(), app.view));
 	//	}
 	//}
 	{
 		int i=0;
-		for (auto& agent : node->agents.test.list) {
-			g_dbgdraw.wire_circle(agent.agent->center(), agent.agent->car_len()*0.5f, lrgba(1,0,0.5f,1));
+		for (auto& v : node->vehicles.test.list) {
+			g_dbgdraw.wire_circle(v.vehicle->center(), v.vehicle->car_len()*0.5f, lrgba(1,0,0.5f,1));
 	
-			g_dbgdraw.text.draw_text(prints("%d%s", i++, agent.blocked ? " B":""),
-				30, 1, g_dbgdraw.text.map_text(agent.agent->center(), view));
+			g_dbgdraw.text.draw_text(prints("%d%s", i++, v.blocked ? " B":""),
+				30, 1, g_dbgdraw.text.map_text(v.vehicle->center(), view));
 		}
 	}
 
@@ -365,7 +373,7 @@ void debug_node (App& app, Node* node, View3D const& view) {
 	//	});
 	//});
 
-	ImGui::Text("%d conflicts cached", (int)node->agents.conflict_cache.size());
+	ImGui::Text("%d conflicts cached", (int)node->vehicles.conflict_cache.size());
 
 	//{
 	//	Hashmap<SegLane, lrgba, SegLaneHasher> cols;
@@ -374,7 +382,7 @@ void debug_node (App& app, Node* node, View3D const& view) {
 	//		return g_dbgdraw.COLS[col_i++ % ARRLEN(g_dbgdraw.COLS)];
 	//	};
 	//
-	//	for (auto& kv : node->agents.conflict_cache) {
+	//	for (auto& kv : node->vehicles.conflict_cache) {
 	//		auto col0 = cols.get_or_create(kv.first.a.a, new_col);
 	//		auto col1 = cols.get_or_create(kv.first.a.b, new_col);
 	//		auto col2 = cols.get_or_create(kv.first.b.a, new_col);
@@ -393,30 +401,30 @@ void debug_node (App& app, Node* node, View3D const& view) {
 	//	}
 	//}
 }
-void debug_citizen (App& app, Citizen* cit, View3D const& view) {
-	if (!cit || !cit->agent) return;
+void debug_person (App& app, Person* person, View3D const& view) {
+	if (!person || !person->vehicle) return;
 
-	float start_t = cit->agent->bez_t;
-	for (int i=cit->agent->idx; ; ++i) {
-		auto s = get_agent_state(cit->agent.get(), i);
+	float start_t = person->vehicle->bez_t;
+	for (int i=person->vehicle->idx; ; ++i) {
+		auto s = progress_path(person->vehicle.get(), i);
 
 		dbg_draw_bez(s.bezier, 0, 5, lrgba(1,1,0,1), start_t, s.end_t); 
 
 		start_t = s.next_start_t;
-		if (s.state == AgentState::ENTER_BUILDING) break;
+		if (s.state == PathState::ENTER_BUILDING) break;
 	}
 
 	ImGui::Separator();
-	ImGui::TextColored(lrgba(cit->col, 1), "debug citizen");
+	ImGui::TextColored(lrgba(person->col, 1), "debug person");
 
 	static ValuePlotter speed_plot = ValuePlotter();
-	speed_plot.push_value(cit->agent->speed);
+	speed_plot.push_value(person->vehicle->speed);
 	speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
 
-	for (auto& bone : cit->owned_car->bone_mats) {
+	for (auto& bone : person->owned_vehicle->bone_mats) {
 		float3 center;
 		float ang;
-		cit->agent->calc_pos(&center, &ang);
+		person->vehicle->calc_pos(&center, &ang);
 
 		auto mat = translate(center) * rotate3_Z(ang) * bone.bone2mesh;
 
@@ -428,7 +436,7 @@ void debug_citizen (App& app, Citizen* cit, View3D const& view) {
 	}
 }
 
-void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col) {
+void dbg_brake_for (App& app, ActiveVehicle* cur, float dist, float3 obstacle, lrgba col) {
 	// dir does not actually point where we are going to stop
 	// obsticle visualizes what object we are stopping for
 	// dist is approx distance along bezier to stop at, which we don't bother visualizing exactly
@@ -443,15 +451,15 @@ void dbg_brake_for (App& app, Agent* cur, float dist, float3 obstacle, lrgba col
 	g_dbgdraw.arrow(pos, obstacle - pos, 0.3f, col);
 	g_dbgdraw.line(end - normal, end + normal, col);
 }
-void _FORCEINLINE dbg_brake_for_agent (App& app, Agent* cur, float dist, Agent* obstacle) {
-	if (app.selection.get<Citizen*>() == cur->cit) {
+void _FORCEINLINE dbg_brake_for_vehicle (App& app, ActiveVehicle* cur, float dist, ActiveVehicle* obstacle) {
+	if (app.selection.get<Person*>() == cur->cit) {
 		float3 center = (obstacle->rear_pos + obstacle->front_pos) * 0.5f;
 		dbg_brake_for(app, cur, dist, center, lrgba(1,0.1f,0,1));
 	}
 }
-void _FORCEINLINE dbg_brake_for_blocked_lane (App& app, NodeAgent& a, float dist) {
-	if (app.selection.get<Citizen*>() == a.agent->cit) {
-		dbg_brake_for(app, a.agent, dist, a.conn.conn.b.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
+void _FORCEINLINE dbg_brake_for_blocked_lane (App& app, NodeVehicle& v, float dist) {
+	if (app.selection.get<Person*>() == v.vehicle->cit) {
+		dbg_brake_for(app, v.vehicle, dist, v.conn.conn.b.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
 	}
 }
 
@@ -570,7 +578,7 @@ Conflict query_conflict (Node* node, CachedConnection const& a, CachedConnection
 	
 	ConflictKey key = ConflictKey{ pa->conn, pb->conn };
 
-	auto conf = node->agents.conflict_cache.get_or_create(key, [&] () -> Conflict {
+	auto conf = node->vehicles.conflict_cache.get_or_create(key, [&] () -> Conflict {
 		return check_conflict(*pa, *pb); // cache ordered conflict
 	});
 
@@ -579,31 +587,31 @@ Conflict query_conflict (Node* node, CachedConnection const& a, CachedConnection
 }
 
 void update_segment (App& app, Segment* seg) {
-	for (auto& lane : seg->agents.lanes) {
+	for (auto& lane : seg->vehicles.lanes) {
 		// brake for car in front
 		for (int i=1; i<(int)lane.list.list.size(); ++i) {
-			Agent* prev = lane.list.list[i-1];
-			Agent* cur  = lane.list.list[i];
+			ActiveVehicle* prev = lane.list.list[i-1];
+			ActiveVehicle* cur  = lane.list.list[i];
 			
 			// approx seperation using cur car bez_speed
 			float dist = (prev->bez_t - cur->bez_t) * cur->bez_speed - (prev->car_len() + 1);
 
 			brake_for_dist(cur, dist);
-			dbg_brake_for_agent(app, cur, dist, prev);
+			dbg_brake_for_vehicle(app, cur, dist, prev);
 		}
 	}
 }
 
-NodeAgent* get_left_agent (NodeAgent& a, NodeAgent& b) {
+NodeVehicle* get_left_vehicle (NodeVehicle& a, NodeVehicle& b) {
 	float2 dir_a = a.conn.pointsL[4] - a.conn.pointsL[0];
 	float2 dir_b = b.conn.pointsL[4] - b.conn.pointsL[0];
 	float d = dot(rotate90(dir_a), dir_b);
 
 	return d > 0 ? &a : &b;
 }
-void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg) {
+void _yield_for_car (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg) {
 	// WARNING: a and b are kinda the wrong way around, b is on the left, ie. yielded for
-	assert(a.agent != b.agent);
+	assert(a.vehicle != b.vehicle);
 	
 	auto conf = query_conflict(node, a.conn, b.conn);
 
@@ -651,8 +659,8 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 	}
 	else {
 		// TODO: calc this in query_conflict?
-		float a_eta = (a_k0 - a.front_k) / (a.agent->speed + 1.0f);
-		float b_eta = (b_k0 - b.front_k) / (b.agent->speed + 1.0f);
+		float a_eta = (a_k0 - a.front_k) / (a.vehicle->speed + 1.0f);
+		float b_eta = (b_k0 - b.front_k) / (b.vehicle->speed + 1.0f);
 
 		// max .5m past stop line
 		bool behind_stop_line = a.front_k < 0.5f;
@@ -673,8 +681,8 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 	
 	float dist = stop_k - a.front_k; // wait before conflict by default
 
-	brake_for_dist(a.agent, dist);
-	dbg_brake_for_agent(app, a.agent, dist, b.agent);
+	brake_for_dist(a.vehicle, dist);
+	dbg_brake_for_vehicle(app, a.vehicle, dist, b.vehicle);
 
 	// need to be careful because need to block cars that are behind other blocked cars or intersection can deadlock
 	// but can't just block anyone who crosses path with blocked or we also deadlock
@@ -683,12 +691,12 @@ void _yield_for_car (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg)
 		a.blocked = true; // so swapping can let other go first if we are effectively blocked
 
 }
-bool swap_cars (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int b_idx) {
-	assert(a.agent != b.agent);
+bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, int b_idx) {
+	assert(a.vehicle != b.vehicle);
 
 	bool swap_valid = true;
 
-	NodeAgent* left_agent = nullptr;
+	NodeVehicle* left_vehicle = nullptr;
 
 	auto conf = query_conflict(node, a.conn, b.conn);
 	if (conf) {
@@ -722,44 +730,44 @@ bool swap_cars (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int 
 		bool can_yeild_rBl = !same && !diverge && !a_entered;
 		bool same_yield_level = a.conn.conn.a.yield == b.conn.conn.a.yield;
 		if (same_yield_level && can_yeild_rBl) {
-			left_agent = get_left_agent(a, b);
+			left_vehicle = get_left_vehicle(a, b);
 		}
 	}
 	
-	auto clac_penalty = [&] (NodeAgent& agent, float conf_t0) {
+	auto clac_penalty = [&] (NodeVehicle& v, float conf_t0) {
 		auto& heur = app.net.settings.intersec_heur;
 
 		float penalty = 0;
 
 		// penalty for time to reach confict point if swapping with conflicting car
 		if (conf) {
-			float k0 = conf_t0 * agent.conn.bez_len;
+			float k0 = conf_t0 * v.conn.bez_len;
 
-			float conf_eta = (k0 - agent.front_k) / (agent.agent->speed + 1.0f);
+			float conf_eta = (k0 - v.front_k) / (v.vehicle->speed + 1.0f);
 			
 			penalty += clamp(map(conf_eta, 1.0f, 6.0f), 0.0f, 1.0f) * heur.conflict_eta_penal;
 		}
 
-		if (&agent == left_agent) {
+		if (&v == left_vehicle) {
 			penalty += heur.right_before_left_penal;
 		}
 
-		if (agent.conn.conn.a.yield)
+		if (v.conn.conn.a.yield)
 			penalty += heur.yield_lane_penal;
 		
 		// eta to leave intersection
-		float exit_eta = (agent.conn.bez_len - agent.front_k) / (agent.agent->speed + 1.0f);
+		float exit_eta = (v.conn.bez_len - v.front_k) / (v.vehicle->speed + 1.0f);
 		penalty += clamp(map(exit_eta, 1.0f, 6.0f), 0.0f, 1.0f) * heur.exit_eta_penal;
 
 		// priority for progress through intersection
 		// don't want distance from intersection to be a penalty, just to let cars in the intersection leave easier
-		if (agent.front_k > 0) {
-			float progress_ratio = agent.front_k / agent.conn.bez_len;
+		if (v.front_k > 0) {
+			float progress_ratio = v.front_k / v.conn.bez_len;
 			penalty -= progress_ratio * heur.progress_boost;
 		}
 
 		// unbounded wait time priority, waiting cars will eventually be let through
-		penalty -= agent.wait_time * heur.wait_boost_fac;
+		penalty -= v.wait_time * heur.wait_boost_fac;
 		
 		return penalty;
 	};
@@ -783,13 +791,13 @@ bool swap_cars (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int 
 	if (dbg) {
 		if (b_idx == 1) {
 			ImGui::Text("Cars swap:");
-			ImGui::TextColored(lrgba(a.agent->cit->col, 1), "#%02d", b_idx-1);
+			ImGui::TextColored(lrgba(a.vehicle->cit->col, 1), "#%02d", b_idx-1);
 		}
 
 		ImGui::Text("%7.3f%s", a_penalty, do_swap ? " S":"");
 		ImGui::Text("%7.3f", b_penalty);
 
-		ImGui::TextColored(lrgba(b.agent->cit->col, 1), "#%02d", b_idx);
+		ImGui::TextColored(lrgba(b.vehicle->cit->col, 1), "#%02d", b_idx);
 	}
 
 	return do_swap;
@@ -798,22 +806,22 @@ bool swap_cars (App& app, Node* node, NodeAgent& a, NodeAgent& b, bool dbg, int 
 void update_node (App& app, Node* node, float dt) {
 	bool node_dbg = app.selection.get<Node*>() == node;
 	
-	auto* sel  = app.selection .get<Citizen*>() ? app.selection .get<Citizen*>()->agent.get() : nullptr;
-	auto* sel2 = app.selection2.get<Citizen*>() ? app.selection2.get<Citizen*>()->agent.get() : nullptr;
+	auto* sel  = app.selection .get<Person*>() ? app.selection .get<Person*>()->vehicle.get() : nullptr;
+	auto* sel2 = app.selection2.get<Person*>() ? app.selection2.get<Person*>()->vehicle.get() : nullptr;
 	
-	auto dbg_avail_space = [&] (SegLane const& lane_out, Agent* a) {
+	auto dbg_avail_space = [&] (SegLane const& lane_out, ActiveVehicle* a) {
 		auto li = lane_out.clac_lane_info();
 		
-		auto pos = lerp(li.a, li.b, lane_out.agents().avail_space / lane_out.seg->_length);
+		auto pos = lerp(li.a, li.b, lane_out.vehicles().avail_space / lane_out.seg->_length);
 		g_dbgdraw.point(pos, 1, lrgba(a->cit->col,1));
 	};
 
 	//
 	for (auto& lane_out : node->out_lanes) {
-		auto& avail_space = lane_out.agents().avail_space;
+		auto& avail_space = lane_out.vehicles().avail_space;
 		avail_space = lane_out.seg->_length;
 		
-		for (auto* a : lane_out.seg->agents.lanes[lane_out.lane].list.list) {
+		for (auto* a : lane_out.seg->vehicles.lanes[lane_out.lane].list.list) {
 			if (node_dbg) dbg_avail_space(lane_out, a);
 
 			avail_space -= a->car_len() + SAFETY_DIST;
@@ -822,106 +830,106 @@ void update_node (App& app, Node* node, float dt) {
 	
 	// Track cars that are relevant to intersection
 	for (auto& lane : node->in_lanes) {
-		for (auto* agent : lane.agents().list.list) {
-			if (node->agents.test.contains(agent)) continue; // TODO: Expensive contains with vector
+		for (auto* v : lane.vehicles().list.list) {
+			if (node->vehicles.test.contains(v)) continue; // TODO: Expensive contains with vector
 
-			float dist = (1.0f - agent->bez_t) * agent->bez_speed;
+			float dist = (1.0f - v->bez_t) * v->bez_speed;
 			if (dist > 10.0f) break;
 
-			//auto s = get_agent_state_only_conn(agent, agent->idx);
-			if (!agent->state.cur_lane || !agent->state.next_lane)
+			//auto s = get_vehicle_state_only_conn(v, v->idx);
+			if (!v->state.cur_lane || !v->state.next_lane)
 				continue;
 
-			NodeAgent a;
-			a.agent = agent;
-			a.node_idx = agent->idx+1;
-			a.wait_time = 0;
+			NodeVehicle vehicle;
+			vehicle.vehicle = v;
+			vehicle.node_idx = v->idx+1;
+			vehicle.wait_time = 0;
 
-			auto in_lane = node->get_in_lane(agent->state.cur_lane.seg, agent->state.cur_lane.lane);
+			auto in_lane = node->get_in_lane(v->state.cur_lane.seg, v->state.cur_lane.lane);
 
-			a.conn.conn = { in_lane, OutLane{ agent->state.next_lane } };
-			auto bez = calc_curve(a.conn.conn.a.clac_lane_info(), a.conn.conn.b.clac_lane_info());
-			a.conn.bez_len = bez.approx_len(COLLISION_STEPS);
+			vehicle.conn.conn = { in_lane, OutLane{ v->state.next_lane } };
+			auto bez = calc_curve(vehicle.conn.conn.a.clac_lane_info(), vehicle.conn.conn.b.clac_lane_info());
+			vehicle.conn.bez_len = bez.approx_len(COLLISION_STEPS);
 			
-			_gen_points(a.conn.pointsL, a.conn.conn, -LANE_COLLISION_R);
-			_gen_points(a.conn.pointsR, a.conn.conn, +LANE_COLLISION_R);
+			_gen_points(vehicle.conn.pointsL, vehicle.conn.conn, -LANE_COLLISION_R);
+			_gen_points(vehicle.conn.pointsR, vehicle.conn.conn, +LANE_COLLISION_R);
 
-			node->agents.test.add(a);
+			node->vehicles.test.add(vehicle);
 		}
 	}
-	node->agents.test.remove_if([&] (NodeAgent& a) {
-		if (a.agent->idx > a.node_idx+1)
+	node->vehicles.test.remove_if([&] (NodeVehicle& v) {
+		if (v.vehicle->idx > v.node_idx+1)
 			return true; // past outgoing lane
-		if (a.agent->idx == a.node_idx+1) {
+		if (v.vehicle->idx == v.node_idx+1) {
 			// in outgoing lane
-			float dist = a.agent->bez_t * a.agent->bez_speed;
+			float dist = v.vehicle->bez_t * v.vehicle->bez_speed;
 			
-			if (dist > a.agent->car_len())
+			if (dist > v.vehicle->car_len())
 				return true;
 		}
 		return false;
 	});
 	
-	auto update_ks = [&] (NodeAgent& a) {
+	auto update_ks = [&] (NodeVehicle& v) {
 
 		// ingoing lane
-		if (a.agent->idx == a.node_idx-1) {
+		if (v.vehicle->idx == v.node_idx-1) {
 			// extrapolate and map from negative to 0
-			a.front_k = (a.agent->bez_t - 1.0f) * a.agent->bez_speed;
+			v.front_k = (v.vehicle->bez_t - 1.0f) * v.vehicle->bez_speed;
 		}
 		// on node
-		else if (a.agent->idx == a.node_idx) {
+		else if (v.vehicle->idx == v.node_idx) {
 			// approximate by just mapping t (which is wrong)
-			a.front_k = a.agent->bez_t * a.conn.bez_len;
+			v.front_k = v.vehicle->bez_t * v.conn.bez_len;
 		}
 		// outgoing lane
 		else {
-			assert(a.agent->idx == a.node_idx+1);
+			assert(v.vehicle->idx == v.node_idx+1);
 			// extrapolate and map from negative to 0
-			a.front_k = a.agent->bez_t * a.agent->bez_speed + a.conn.bez_len;
+			v.front_k = v.vehicle->bez_t * v.vehicle->bez_speed + v.conn.bez_len;
 		}
 		
-		a.rear_k = a.front_k - a.agent->car_len();
+		v.rear_k = v.front_k - v.vehicle->car_len();
 	};
 	
 	
 	// allocate space in priority order and remember blocked cars
-	for (auto& a : node->agents.test.list) {
-		update_ks(a);
+	for (auto& v : node->vehicles.test.list) {
+		update_ks(v);
 		
-		a.blocked = false;
-		a.wait_time += dt;
+		v.blocked = false;
+		v.wait_time += dt;
 
-		if (a.agent->idx > a.node_idx) {
+		if (v.vehicle->idx > v.node_idx) {
 			// already in outgoing lane (don't need to wait and avoid counting avail space twice)
 			continue;
 		}
 
 		// TODO: still reserve space even if none is avail if already on node?
 
-		auto& avail_space = a.conn.conn.b.agents().avail_space;
-		if (avail_space < a.agent->car_len()) {
-			float dist = -a.front_k; // end of ingoing lane
+		auto& avail_space = v.conn.conn.b.vehicles().avail_space;
+		if (avail_space < v.vehicle->car_len()) {
+			float dist = -v.front_k; // end of ingoing lane
 			
-			brake_for_dist(a.agent, dist);
-			dbg_brake_for_blocked_lane(app, a, dist);
+			brake_for_dist(v.vehicle, dist);
+			dbg_brake_for_blocked_lane(app, v, dist);
 
-			a.blocked = true;
+			v.blocked = true;
 		}
 		else {
-			if (node_dbg) dbg_avail_space(a.conn.conn.b, a.agent);
-			avail_space -= a.agent->car_len() + SAFETY_DIST;
+			if (node_dbg) dbg_avail_space(v.conn.conn.b, v.vehicle);
+			avail_space -= v.vehicle->car_len() + SAFETY_DIST;
 		}
 	}
 
-	int count = (int)node->agents.test.list.size();
+	int count = (int)node->vehicles.test.list.size();
 	
 	//for (int i=0; i<count; ++i) {
-	//	auto& b = node->agents.test.list[i];
+	//	auto& b = node->vehicles.test.list[i];
 	//
 	//	// swap with car that has prio 1 higher according to heuristic
 	//	if (i > 0) {
-	//		auto& a = node->agents.test.list[i-1];
+	//		auto& a = node->vehicles.test.list[i-1];
 	//
 	//		if (swap_cars(node, a, b)) {
 	//			std::swap(a, b);
@@ -931,15 +939,15 @@ void update_node (App& app, Node* node, float dt) {
 
 	// Check each car against higher prio cars to yield to them
 	for (int i=0; i<count; ++i) {
-		auto& a = node->agents.test.list[i];
+		auto& a = node->vehicles.test.list[i];
 
-		if (a.agent == sel || a.agent == sel2) {
+		if (a.vehicle == sel || a.vehicle == sel2) {
 			printf("");
 		}
 		
 		//// swap with car that has prio 1 higher according to heuristic
 		//if (i < count-1) {
-		//	auto& b = node->agents.test.list[i+1];
+		//	auto& b = node->vehicles.test.list[i+1];
 		//
 		//	if (swap_cars(node, a, b)) {
 		//		std::swap(a, b);
@@ -948,9 +956,9 @@ void update_node (App& app, Node* node, float dt) {
 
 		// loop over all previous cars (higher prio to yield for)
 		for (int j=0; j<i; ++j) {
-			auto& b = node->agents.test.list[j];
+			auto& b = node->vehicles.test.list[j];
 
-			bool dbg = (a.agent == sel || a.agent == sel2) && (b.agent == sel || b.agent == sel2);
+			bool dbg = (a.vehicle == sel || a.vehicle == sel2) && (b.vehicle == sel || b.vehicle == sel2);
 		
 			if (dbg) {
 				printf("");
@@ -960,8 +968,8 @@ void update_node (App& app, Node* node, float dt) {
 		}
 
 		// brake for target lane car
-		auto& target_lane = a.conn.conn.b.agents().list.list;
-		if (!target_lane.empty() && target_lane.back() != a.agent) {
+		auto& target_lane = a.conn.conn.b.vehicles().list.list;
+		if (!target_lane.empty() && target_lane.back() != a.vehicle) {
 			float a_front_k = a.front_k - a.conn.bez_len; // relative to after node
 
 			auto* b = target_lane.back();
@@ -970,14 +978,14 @@ void update_node (App& app, Node* node, float dt) {
 			float dist = b_rear_k - a_front_k;
 			dist -= SAFETY_DIST;
 		
-			brake_for_dist(a.agent, dist);
-			dbg_brake_for_agent(app, a.agent, dist, b);
+			brake_for_dist(a.vehicle, dist);
+			dbg_brake_for_vehicle(app, a.vehicle, dist, b);
 		}
 	}
 
 	for (int i=1; i<count; ++i) {
-		auto& a = node->agents.test.list[i-1];
-		auto& b = node->agents.test.list[i];
+		auto& a = node->vehicles.test.list[i-1];
+		auto& b = node->vehicles.test.list[i];
 	
 		// swap with car that has prio 1 higher according to heuristic
 		if (swap_cars(app, node, a, b, node_dbg, i) && dt > 0) { // HACK: dt>0 for debugging
@@ -1023,14 +1031,14 @@ float calc_car_deccel (float base_deccel, float target_speed, float cur_speed) {
 	return deccel;
 }
 
-float get_cur_speed_limit (Agent* agent) {
-	auto state = agent->state.state;
-	if (state == AgentState::SEGMENT) {
-		return agent->state.cur_lane.seg->asset->speed_limit;
+float get_cur_speed_limit (ActiveVehicle* vehicle) {
+	auto state = vehicle->state.state;
+	if (state == PathState::SEGMENT) {
+		return vehicle->state.cur_lane.seg->asset->speed_limit;
 	}
-	else if (state == AgentState::NODE) {
-		float a = agent->state.cur_lane .seg->asset->speed_limit;
-		float b = agent->state.next_lane.seg->asset->speed_limit;
+	else if (state == PathState::NODE) {
+		float a = vehicle->state.cur_lane .seg->asset->speed_limit;
+		float b = vehicle->state.next_lane.seg->asset->speed_limit;
 		return min(a, b); // TODO: ??
 	}
 	else {
@@ -1038,20 +1046,20 @@ float get_cur_speed_limit (Agent* agent) {
 	}
 }
 
-float network::Agent::car_len () {
-	return cit->owned_car->mesh.aabb.size().x;
+float network::ActiveVehicle::car_len () {
+	return cit->owned_vehicle->mesh.aabb.size().x;
 }
-void network::Agent::calc_pos (float3* pos, float* ang) {
+void network::ActiveVehicle::calc_pos (float3* pos, float* ang) {
 	float3 dir = front_pos - rear_pos;
 	*pos = front_pos - normalizesafe(dir) * car_len()*0.5f;
 	*ang = angle2d((float2)dir);
 }
 
-void update_vehicle_suspension (App& app, Agent& agent, float2 local_accel, float dt) {
+void update_vehicle_suspension (App& app, ActiveVehicle& vehicle, float2 local_accel, float dt) {
 	// assume constant mass
 
-	float2 ang = agent.suspension_ang;
-	float2 vel = agent.suspension_ang_vel;
+	float2 ang = vehicle.suspension_ang;
+	float2 vel = vehicle.suspension_ang_vel;
 
 	// spring resitive accel
 	//float2 accel = -ang * app.net.settings.suspension_spring_k;
@@ -1072,22 +1080,22 @@ void update_vehicle_suspension (App& app, Agent& agent, float2 local_accel, floa
 	ang = clamp(ang, -app.net.settings.suspension_max_ang,
 	                 +app.net.settings.suspension_max_ang);
 
-	agent.suspension_ang = ang;
-	agent.suspension_ang_vel = vel;
+	vehicle.suspension_ang = ang;
+	vehicle.suspension_ang_vel = vel;
 }
 
-void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
+void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float dt) {
 	if (dt < 0.0001f)
 		return;
 
-	assert(agent->bez_t < 1.0f);
-	float speed_limit = get_cur_speed_limit(agent);
+	assert(vehicle->bez_t < 1.0f);
+	float speed_limit = get_cur_speed_limit(vehicle);
 
-	float old_speed = agent->speed;
+	float old_speed = vehicle->speed;
 	float new_speed = old_speed;
 
 	// car speed change
-	float target_speed = speed_limit * agent->brake;
+	float target_speed = speed_limit * vehicle->brake;
 	if (target_speed >= new_speed) {
 		float accel = calc_car_accel(app.net.settings.car_accel, speed_limit, new_speed);
 		new_speed += accel * dt;
@@ -1099,68 +1107,68 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 		new_speed = max(new_speed, target_speed);
 	}
 
-	agent->speed = new_speed;
-	met.total_flow += agent->speed / speed_limit;
+	vehicle->speed = new_speed;
+	met.total_flow += vehicle->speed / speed_limit;
 	
 	// move car with speed on bezier based on previous frame delta t
-	float delta_dist = agent->speed * dt;
-	agent->bez_t += delta_dist / agent->bez_speed;
+	float delta_dist = vehicle->speed * dt;
+	vehicle->bez_t += delta_dist / vehicle->bez_speed;
 
 	// do bookkeeping when car reaches end of current bezier
-	if (agent->bez_t >= agent->state.end_t) {
-		agent->idx++;
-		agent->bez_t = agent->state.next_start_t;
-		assert(agent->bez_t >= 0 && agent->bez_t < 1);
+	if (vehicle->bez_t >= vehicle->state.end_t) {
+		vehicle->idx++;
+		vehicle->bez_t = vehicle->state.next_start_t;
+		assert(vehicle->bez_t >= 0 && vehicle->bez_t < 1);
 
-		if (agent->state.cur_agents)  agent->state.cur_agents ->remove(agent);
-		if (agent->state.next_agents) agent->state.next_agents->add(agent);
+		if (vehicle->state.cur_vehicles)  vehicle->state.cur_vehicles ->remove(vehicle);
+		if (vehicle->state.next_vehicles) vehicle->state.next_vehicles->add(vehicle);
 
-		if (agent->state.state == AgentState::ENTER_BUILDING) {
+		if (vehicle->state.state == PathState::ENTER_BUILDING) {
 			// end path
-			agent->cit->target_building = agent->end;
-			agent->cit->agent = nullptr;
+			vehicle->cit->cur_building = vehicle->end;
+			vehicle->cit->vehicle = nullptr;
 			return;
 		}
 
-		agent->state = get_agent_state(agent, agent->idx);
+		vehicle->state = progress_path(vehicle, vehicle->idx);
 	}
 
 	// eval bezier at car front
-	auto bez_res = agent->state.bezier.eval_with_curv(agent->bez_t);
+	auto bez_res = vehicle->state.bezier.eval_with_curv(vehicle->bez_t);
 	// remember bezier delta t for next frame
-	agent->bez_speed = length(bez_res.vel); // bezier t / delta pos
-	float2 bez_dir = bez_res.vel / agent->bez_speed;
+	vehicle->bez_speed = length(bez_res.vel); // bezier t / delta pos
+	float2 bez_dir = bez_res.vel / vehicle->bez_speed;
 
 	// actually move car rear using (bogus) trailer formula
 	float2 new_front = bez_res.pos;
 	
-	float2 old_front = (float2)agent->front_pos;
-	float2 old_rear  = (float2)agent->rear_pos;
+	float2 old_front = (float2)vehicle->front_pos;
+	float2 old_rear  = (float2)vehicle->rear_pos;
 
 	float2 forw = normalizesafe(old_front - old_rear);
 	float2 right = -rotate90(forw);
 	//float forw_amount = dot(new_front - old_front, forw);
 
-	float car_len = agent->car_len();
+	float car_len = vehicle->car_len();
 	float2 ref_point = old_rear + car_len*app.net.settings.car_rear_drag_ratio * forw; // Kinda works to avoid goofy car rear movement?
 
 	float2 new_rear = new_front - normalizesafe(new_front - ref_point) * car_len;
 
-	agent->front_pos = float3(new_front, agent->state.pos_z);
-	agent->rear_pos  = float3(new_rear,  agent->state.pos_z);
+	vehicle->front_pos = float3(new_front, vehicle->state.pos_z);
+	vehicle->rear_pos  = float3(new_rear,  vehicle->state.pos_z);
 	
 	// totally wack with car_rear_drag_ratio
-	agent->turn_curv = bez_res.curv; // TODO: to be correct for wheel turning this would need to be computed based on the rear axle
+	vehicle->turn_curv = bez_res.curv; // TODO: to be correct for wheel turning this would need to be computed based on the rear axle
 
 	{
 		float2 old_center = (old_front + old_rear) * 0.5f;
 		float2 new_center = (new_front + new_rear) * 0.5f;
 		float2 center_vel = (new_center - old_center) / dt;
-		float2 center_accel = (center_vel - float2(agent->vel)) / dt;
+		float2 center_accel = (center_vel - float2(vehicle->center_vel)) / dt;
 
-		if (agent->cit == app.selection.get<Citizen*>()) {
-			g_dbgdraw.arrow(float3(new_front, agent->state.pos_z), float3(center_vel, 0), 0.2f, lrgba(0,0,1,1));
-			g_dbgdraw.arrow(float3(new_front, agent->state.pos_z), float3(center_accel*0.1f, 0), 0.2f, lrgba(0,1,0,1));
+		if (vehicle->cit == app.selection.get<Person*>()) {
+			g_dbgdraw.arrow(float3(new_front, vehicle->state.pos_z), float3(center_vel, 0), 0.2f, lrgba(0,0,1,1));
+			g_dbgdraw.arrow(float3(new_front, vehicle->state.pos_z), float3(center_accel*0.1f, 0), 0.2f, lrgba(0,1,0,1));
 		}
 
 		// accel from world to local space
@@ -1169,30 +1177,30 @@ void update_vehicle (App& app, Metrics::Var& met, Agent* agent, float dt) {
 		//center_accel.x = clamp( dot(center_accel, forw ), -accel_cap, accel_cap);
 		center_accel.x = dot(center_accel, right);
 		center_accel.y = dot(center_accel, forw );
-		update_vehicle_suspension(app, *agent, -center_accel, dt);
+		update_vehicle_suspension(app, *vehicle, -center_accel, dt);
 		
-		if (agent->cit == app.selection.get<Citizen*>()) {
+		if (vehicle->cit == app.selection.get<Person*>()) {
 			//printf("%7.3f %7.3f  |  %7.3f %7.3f\n", center_accel.x, center_accel.y, center_vel.x, center_vel.y);
 			
-			float2 a = right * agent->suspension_ang.x + forw * agent->suspension_ang.y;
-			g_dbgdraw.point(float3(new_center, agent->state.pos_z), 0.1f, lrgba(.5f,.5f,.1f,0.5f));
-			g_dbgdraw.point(float3(new_center + a*10, agent->state.pos_z), 0.1f, lrgba(1,1,0.5f,1));
+			float2 a = right * vehicle->suspension_ang.x + forw * vehicle->suspension_ang.y;
+			g_dbgdraw.point(float3(new_center, vehicle->state.pos_z), 0.1f, lrgba(.5f,.5f,.1f,0.5f));
+			g_dbgdraw.point(float3(new_center + a*10, vehicle->state.pos_z), 0.1f, lrgba(1,1,0.5f,1));
 			
-			float turn_r = 1.0f/agent->turn_curv;
-			g_dbgdraw.wire_circle(float3(new_rear - right * turn_r, agent->state.pos_z), turn_r, lrgba(1,0,0,1), 128);
+			float turn_r = 1.0f/vehicle->turn_curv;
+			g_dbgdraw.wire_circle(float3(new_rear - right * turn_r, vehicle->state.pos_z), turn_r, lrgba(1,0,0,1), 128);
 		}
 
-		agent->vel = float3(center_vel, 0);
+		vehicle->center_vel = float3(center_vel, 0);
 
-		float wheel_circum = agent->cit->owned_car->wheel_r * (2*PI);
+		float wheel_circum = vehicle->cit->owned_vehicle->wheel_r * (2*PI);
 
-		agent->wheel_roll += delta_dist / wheel_circum;
-		agent->wheel_roll = fmodf(agent->wheel_roll, 1.0f);
+		vehicle->wheel_roll += delta_dist / wheel_circum;
+		vehicle->wheel_roll = fmodf(vehicle->wheel_roll, 1.0f);
 	}
 }
 
 void Metrics::update (Var& var, App& app) {
-	avg_flow = var.total_flow / (float)app.entities.citizens.size();
+	avg_flow = var.total_flow / (float)app.entities.persons.size();
 
 	flow_plot.push_value(avg_flow);
 }
@@ -1205,26 +1213,27 @@ void Network::simulate (App& app) {
 	float dt = app.sim_dt();
 	app._test_time += dt;
 
-	auto do_pathfind = [&] (Citizen* cit) {
-		auto* cur_target = app.entities.buildings[ app.test_rand.uniformi(0, (int)app.entities.buildings.size()) ].get();
+	auto start_trip = [&] (Person* person) {
+		auto* target = app.entities.buildings[ app.test_rand.uniformi(0, (int)app.entities.buildings.size()) ].get();
 		
-		assert(cit->target_building->connected_segment);
-		if (cit->target_building->connected_segment) {
+		assert(person->cur_building->connected_segment);
+		if (person->cur_building->connected_segment) {
 			ZoneScopedN("pathfind");
 
 			pathing_count++;
 
-			auto agent = std::make_unique<network::Agent>();
-			agent->cit = cit;
-			agent->start = cit->target_building;
-			agent->end   = cur_target;
-			bool valid = pathfind(cit->target_building->connected_segment, cur_target->connected_segment, agent.get());
+			auto vehicle = std::make_unique<network::ActiveVehicle>();
+			vehicle->cit = person;
+			vehicle->start = person->cur_building;
+			vehicle->end   = target;
+
+			bool valid = pathfind(person->cur_building->connected_segment, target->connected_segment, vehicle.get());
 			if (valid) {
-				cit->target_building = nullptr;
-				cit->agent = std::move(agent);
+				person->cur_building = nullptr;
+				person->vehicle = std::move(vehicle);
 				// get initial state
-				cit->agent->state = get_agent_state(cit->agent.get(), cit->agent->idx);
-				cit->agent->bez_speed = INF; // force not movement on initial tick
+				person->vehicle->state = progress_path(person->vehicle.get(), person->vehicle->idx);
+				person->vehicle->bez_speed = INF; // force not movement on initial tick
 				// keep _pos & _rot
 			}
 		}
@@ -1234,11 +1243,11 @@ void Network::simulate (App& app) {
 	//if (!app.sim_paused) {
 		Metrics::Var met;
 		
-		{
+		{ // TODO: only iterate active vehicles
 			ZoneScopedN("init pass");
-			for (auto& cit : app.entities.citizens) {
-				if (cit->target_building) continue;
-				cit->agent->brake = 1;
+			for (auto& cit : app.entities.persons) {
+				if (cit->cur_building) continue;
+				cit->vehicle->brake = 1;
 			}
 		}
 		
@@ -1257,12 +1266,17 @@ void Network::simulate (App& app) {
 		
 		{
 			ZoneScopedN("final pass");
-			for (auto& cit : app.entities.citizens) {
-				if (cit->target_building) {
-					do_pathfind(cit.get());
+			for (auto& person : app.entities.persons) {
+				if (person->cur_building) {
+					person->stay_timer += dt;
+					if (person->stay_timer >= 3.0f) {
+						person->stay_timer = 0;
+
+						start_trip(person.get());
+					}
 				}
 				else {
-					update_vehicle(app, met, cit->agent.get(), dt);
+					update_vehicle(app, met, person->vehicle.get(), dt);
 				}
 			}
 		}
@@ -1277,8 +1291,8 @@ void Network::simulate (App& app) {
 	ImGui::Text("pathing_count: avg %3.1f min: %3.1f max: %3.1f", avg, min, max);
 	
 
-	ImGui::Text("nodes: %05d segments: %05d citizens: %05d",
-		(int)nodes.size(), (int)segments.size(), (int)app.entities.citizens.size());
+	ImGui::Text("nodes: %05d segments: %05d persons: %05d",
+		(int)nodes.size(), (int)segments.size(), (int)app.entities.persons.size());
 	
 	ImGui::Text("last dijkstra: iter: %05d iter_dupl: %05d iter_lanes: %05d", _dijk_iter, _dijk_iter_dupl, _dijk_iter_lanes);
 
@@ -1286,7 +1300,7 @@ void Network::simulate (App& app) {
 
 void Network::draw_debug (App& app, View3D& view) {
 	debug_node(app, app.selection.get<Node*>(), view);
-	debug_citizen(app, app.selection.get<Citizen*>(), view);
+	debug_person(app, app.selection.get<Person*>(), view);
 }
 
 } // namespace network

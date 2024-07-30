@@ -289,7 +289,7 @@
 		"day_pause": true
 	},
 	"sim_paused": false,
-	"sim_speed": 1.0,
+	"sim_speed": 3.0,
 	"test": {
 		"bez": {
 			"a": [

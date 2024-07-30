@@ -34,10 +34,10 @@ inline constexpr float LANE_COLLISION_R = 1.3f;
 inline constexpr float SAFETY_DIST = 1.0f;
 
 
-struct Citizen;
+struct Person;
 struct Building;
 
-typedef NullableVariant<Citizen*, network::Node*> sel_ptr;
+typedef NullableVariant<Person*, network::Node*> sel_ptr;
 
 struct Building {
 	BuildingAsset* asset;
@@ -48,8 +48,7 @@ struct Building {
 	network::Segment* connected_segment = nullptr;
 };
 
-// Acts more like a Vehicle currently
-struct Citizen {
+struct Person {
 	// TODO: needs to be some kind of state like in car, or in building
 	// OR car/building etc needs to track citizen and we dont know where the citizen is
 	// probably best to first use double pointers everywhere, likely that this is not a problem in terms of memory
@@ -57,41 +56,41 @@ struct Citizen {
 	//Building* home = nullptr;
 	//Building* work = nullptr;
 	
-	// current (random target), while not driving this is also the place where they are
-	Building* target_building = nullptr;
+	Building* cur_building = nullptr;
+	float stay_timer = 0;
 
 	// while driving this is non null and represents the currently driving car
 	// (while inside building car does not exist)
-	std::unique_ptr<network::Agent> agent = nullptr;
+	std::unique_ptr<network::ActiveVehicle> vehicle = nullptr;
 
 
-	VehicleAsset* owned_car;
+	VehicleAsset* owned_vehicle;
 
 	// random color for better debug visualization
 	lrgb col;
 
-	Citizen (Random& r, Building* initial_building) { // TODO: spawn citizens on map edge (on path)
-		target_building = initial_building;
+	Person (Random& r, Building* initial_building) {
+		cur_building = initial_building;
 
 		col = hsv2rgb(r.uniformf(), 1.0f, 0.6f);
 	}
 
 	bool selectable () {
 		// can only select while driving currently
-		return agent != nullptr;
+		return vehicle != nullptr;
 	}
 	SelCircle get_sel_shape () {
 		auto c = lrgb(0.04f, 1, 0.04f);
-		if (agent)
-			return { agent->center(), agent->car_len()*0.5f, c };
-		return { target_building->pos, 1, c };
+		if (vehicle)
+			return { vehicle->center(), vehicle->car_len()*0.5f, c };
+		return { cur_building->pos, 1, c };
 	}
 };
 
 struct Entities {
 
 	std::vector<std::unique_ptr<Building>> buildings;
-	std::vector<std::unique_ptr<Citizen>> citizens;
+	std::vector<std::unique_ptr<Person>> persons;
 
 	// building and streets
 	bool buildings_changed = true;
@@ -316,12 +315,12 @@ struct CameraTrack {
 	}
 
 	void update (sel_ptr selection, float3* cam_pos, float* cam_rot) {
-		auto* sel = selection.get<Citizen*>();
+		auto* sel = selection.get<Person*>();
 
-		if (track && sel && sel->agent) {
+		if (track && sel && sel->vehicle) {
 			float3 pos;
 			float ang;
-			sel->agent->calc_pos(&pos, &ang);
+			sel->vehicle->calc_pos(&pos, &ang);
 			
 			if (!cur_tracking) {
 				//*cam_pos -= pos;
@@ -355,12 +354,12 @@ struct App : public Engine {
 	
 	friend SERIALIZE_TO_JSON(App) {
 		SERIALIZE_TO_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed, test,
-			_grid_n, _citizens_n);
+			_grid_n, _persons_n);
 		t.renderer->to_json(j);
 	}
 	friend SERIALIZE_FROM_JSON(App) {
 		SERIALIZE_FROM_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed, test,
-			_grid_n, _citizens_n);
+			_grid_n, _persons_n);
 		t.renderer->from_json(j);
 	}
 
@@ -501,7 +500,7 @@ struct App : public Engine {
 		sel_ptr hover;
 		float dist = INF;
 
-		for (auto& cit : entities.citizens) {
+		for (auto& cit : entities.persons) {
 			auto shape = cit->get_sel_shape();
 			float hit_dist;
 			if (shape.test(ray, &hit_dist) && hit_dist < dist) {
@@ -541,7 +540,7 @@ struct App : public Engine {
 
 	
 	int _grid_n = 10;
-	int _citizens_n = 600;
+	int _persons_n = 600;
 
 	float _intersection_radius = 0.0f;
 
@@ -554,9 +553,9 @@ struct App : public Engine {
 			|| assets.assets_reloaded;
 		buildings = ImGui::Button("Respawn buildings") || buildings;
 
-		bool citizens  = ImGui::SliderInt("citizens_n",  &_citizens_n,  0, 1000)
+		bool persons  = ImGui::SliderInt("persons_n",  &_persons_n,  0, 1000)
 			|| assets.assets_reloaded || buildings;
-		citizens = ImGui::Button("Respawn Citizens") || citizens;
+		persons = ImGui::Button("Respawn Residents") || persons;
 
 		ImGui::SliderFloat("intersection_radius", &_intersection_radius, 0, 30);
 
@@ -611,7 +610,7 @@ struct App : public Engine {
 				node_a->segments.push_back(seg);
 				node_b->segments.push_back(seg);
 
-				seg->agents.lanes.resize(layout->lanes.size());
+				seg->vehicles.lanes.resize(layout->lanes.size());
 
 				seg->pos_a = node_a->pos + dir * (road_type(pos  )->width * 0.5f + _intersection_radius);
 				seg->pos_b = node_b->pos - dir * (road_type(pos+1)->width * 0.5f + _intersection_radius);
@@ -681,24 +680,24 @@ struct App : public Engine {
 			entities.buildings_changed = true;
 		}
 		
-		if (citizens) {
-			ZoneScopedN("spawn citizens");
+		if (persons) {
+			ZoneScopedN("spawn persons");
 
-			clear_sel<Citizen*>();
+			clear_sel<Person*>();
 
 			// remove references
 			for (auto& node : net.nodes) {
-				node->agents.free.list.clear();
-				node->agents.test.list.clear();
+				node->vehicles.free.list.clear();
+				node->vehicles.test.list.clear();
 			}
 			for (auto& seg : net.segments) {
-				for (auto& lane : seg->agents.lanes) {
+				for (auto& lane : seg->vehicles.lanes) {
 					lane.list.list.clear();
 				}
 			}
 
-			entities.citizens.clear();
-			entities.citizens.resize(_citizens_n);
+			entities.persons.clear();
+			entities.persons.resize(_persons_n);
 
 			Random rand(0);
 			auto rand_car = weighted_choice(assets.vehicles, [] (std::unique_ptr<VehicleAsset> const& car) { return car->spawn_weight; });
@@ -706,12 +705,12 @@ struct App : public Engine {
 			test_rand = Random(0);
 
 			if (entities.buildings.size() > 0) {
-				for (int i=0; i<_citizens_n; ++i) {
+				for (int i=0; i<_persons_n; ++i) {
 					auto* building = entities.buildings[rand.uniformi(0, (int)entities.buildings.size())].get();
 					auto* car_asset = rand_car.get_random(rand)->get();
 					
-					entities.citizens[i] = std::make_unique<Citizen>(Citizen{rand, building});
-					entities.citizens[i]->owned_car = car_asset;
+					entities.persons[i] = std::make_unique<Person>(Person{rand, building});
+					entities.persons[i]->owned_vehicle = car_asset;
 				}
 			}
 		}

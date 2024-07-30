@@ -199,11 +199,12 @@ struct ActiveVehicle {
 
 	float bez_t = 0; // [0,1] bezier parameter for current segment/node curve
 
-	float brake; // set by controlled conflict logic, to brake smoothly
+	float brake = 1; // set by controlled conflict logic, to brake smoothly
 	float speed = 0; // worldspace speed controlled by acceleration and brake
 
 	// speed (delta position) / delta beizer t
-	float bez_speed; // set after timestep based on current bezier eval, to approx correct worldspace step size along bezier in next tick
+	// INF to force no movement on initial tick (rather than div by 0)
+	float bez_speed = INF; // set after timestep based on current bezier eval, to approx correct worldspace step size along bezier in next tick
 
 	// cached info about current and future path following
 	PathState state;

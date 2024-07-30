@@ -1304,13 +1304,14 @@ struct OglRenderer : public Renderer {
 		
 		vehicle_renderer.update_instances([&] () {
 			std::vector<VehicleInstance> instances;
-			instances.resize(app.entities.persons.size());
 
-			for (uint32_t i=0; i<(uint32_t)app.entities.persons.size(); ++i) {
-				auto& entity = app.entities.persons[i];
-				if (!entity->vehicle) continue;
+			for (auto& entity : app.entities.persons) {
+				if (entity->vehicle) {
+					uint32_t instance_idx = (uint32_t)instances.size();
+					auto& instance = instances.emplace_back();
 
-				update_vehicle_instance(instances[i], *entity, i, view);
+					update_vehicle_instance(instance, *entity, instance_idx, view);
+				}
 			}
 
 			return instances;

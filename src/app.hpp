@@ -500,12 +500,14 @@ struct App : public Engine {
 		sel_ptr hover;
 		float dist = INF;
 
-		for (auto& cit : entities.persons) {
-			auto shape = cit->get_sel_shape();
-			float hit_dist;
-			if (shape.test(ray, &hit_dist) && hit_dist < dist) {
-				hover = cit.get();
-				dist = hit_dist;
+		for (auto& person : entities.persons) {
+			if (person->selectable()) {
+				auto shape = person->get_sel_shape();
+				float hit_dist;
+				if (shape.test(ray, &hit_dist) && hit_dist < dist) {
+					hover = person.get();
+					dist = hit_dist;
+				}
 			}
 		}
 		for (auto& node : net.nodes) {

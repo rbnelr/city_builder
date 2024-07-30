@@ -1085,8 +1085,6 @@ void update_vehicle_suspension (App& app, ActiveVehicle& vehicle, float2 local_a
 }
 
 void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float dt) {
-	if (dt < 0.0001f)
-		return;
 
 	assert(vehicle->bez_t < 1.0f);
 	float speed_limit = get_cur_speed_limit(vehicle);
@@ -1126,7 +1124,7 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 		if (vehicle->state.state == PathState::ENTER_BUILDING) {
 			// end path
 			vehicle->cit->cur_building = vehicle->end;
-			vehicle->cit->vehicle = nullptr;
+			vehicle->cit->vehicle = nullptr; // ugh, but works
 			return;
 		}
 
@@ -1163,8 +1161,8 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 	{
 		float2 old_center = (old_front + old_rear) * 0.5f;
 		float2 new_center = (new_front + new_rear) * 0.5f;
-		float2 center_vel = (new_center - old_center) / dt;
-		float2 center_accel = (center_vel - float2(vehicle->center_vel)) / dt;
+		float2 center_vel   = dt == 0 ? 0 : (new_center - old_center) / dt;
+		float2 center_accel = dt == 0 ? 0 : (center_vel - float2(vehicle->center_vel)) / dt;
 
 		if (vehicle->cit == app.selection.get<Person*>()) {
 			g_dbgdraw.arrow(float3(new_front, vehicle->state.pos_z), float3(center_vel, 0), 0.2f, lrgba(0,0,1,1));
@@ -1233,9 +1231,8 @@ void Network::simulate (App& app) {
 				person->vehicle = std::move(vehicle);
 				// get initial state
 				person->vehicle->state = progress_path(person->vehicle.get(), person->vehicle->idx);
-				person->vehicle->bez_speed = INF; // force not movement on initial tick
-				// keep _pos & _rot
 			}
+			return valid;
 		}
 	};
 	
@@ -1272,10 +1269,13 @@ void Network::simulate (App& app) {
 					if (person->stay_timer >= 3.0f) {
 						person->stay_timer = 0;
 
-						start_trip(person.get());
+						if (start_trip(person.get())) {
+							update_vehicle(app, met, person->vehicle.get(), 0); // 0 dt timestep to init some values properly
+						}
 					}
 				}
 				else {
+					assert(person->vehicle);
 					update_vehicle(app, met, person->vehicle.get(), dt);
 				}
 			}

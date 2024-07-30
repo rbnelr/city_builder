@@ -630,5 +630,19 @@ inline void Node::update_cached () {
 	calc_default_allowed_turns(*this);
 }
 
+inline float get_cur_speed_limit (ActiveVehicle* vehicle) {
+	auto state = vehicle->state.state;
+	if (state == PathState::SEGMENT) {
+		return vehicle->state.cur_lane.seg->asset->speed_limit;
+	}
+	else if (state == PathState::NODE) {
+		float a = vehicle->state.cur_lane .seg->asset->speed_limit;
+		float b = vehicle->state.next_lane.seg->asset->speed_limit;
+		return min(a, b); // TODO: ??
+	}
+	else {
+		return 20 / KPH_PER_MS;
+	}
+}
 
 } // namespace network

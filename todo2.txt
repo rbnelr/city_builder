@@ -20,7 +20,10 @@ Traffic lights
 create car roughness tex
 !!!!!
 
-finish PBR impl, if it's kinda wip that's fine, but need performant code
+*finish PBR impl, if it's kinda wip that's fine, but need performant code
+ > Kinda done? shading is fast as fuck and env map resolve is kinda fast compared to the naiive one as well (<1ms)
+  -> Could consider testing if it cant be queued with one frame delay, opengl probably doesn't have a async compute queue though, if it had, you could even update it every 2 frames etc.
+ > IBL realtime env map + directional sun (with shadowmap) + numerous point lights are all working
 
 Make shadows disableable, I want all resources to be deallocated in this case
 

@@ -68,11 +68,19 @@ struct Person {
 
 	// random color for better debug visualization
 	lrgb col;
+	float agressiveness;
+
+	float topspeed_accel_mul () {
+		return clamp(1.1f + agressiveness, 0.7f, 1.5f);
+	}
 
 	Person (Random& r, Building* initial_building) {
 		cur_building = initial_building;
 
 		col = hsv2rgb(r.uniformf(), 1.0f, 0.6f);
+
+		float agressiveness_deviation = 0.15f;
+		agressiveness = r.normalf(agressiveness_deviation, 0.0f);
 	}
 
 	bool selectable () {
@@ -562,6 +570,11 @@ struct App : public Engine {
 		ImGui::SliderFloat("intersection_radius", &_intersection_radius, 0, 30);
 
 		ImGui::SliderFloat("connection_chance", &_connection_chance, 0, 1);
+		
+		static DistributionPlotter aggress_dist;
+		aggress_dist.plot_distribution("vehicle topspeed_accel_mul",
+			(int)entities.persons.size(), [&] (int i) { return entities.persons[i]->topspeed_accel_mul(); },
+			0.5f, 1.6f, false);
 
 		if (buildings) {
 			ZoneScopedN("spawn buildings");

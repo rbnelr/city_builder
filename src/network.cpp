@@ -191,6 +191,8 @@ PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state
 			return in->node_b;
 	};
 
+
+
 	if (idx == 0) {
 		Segment* start_seg = vehicle->path[0];
 		Node* next_node = num_seg > 1 ? find_node(start_seg, vehicle->path[1]) : nullptr;
@@ -416,6 +418,9 @@ void debug_person (App& app, Person* person, View3D const& view) {
 
 	ImGui::Separator();
 	ImGui::TextColored(lrgba(person->col, 1), "debug person");
+	
+	ImGui::Text("Speed Limit: %7s", format_speed(get_cur_speed_limit(person->vehicle.get()), app.settings.speed_unit).c_str());
+	ImGui::Text("Speed: %7s",       format_speed(person->vehicle->speed, app.settings.speed_unit).c_str());
 
 	static ValuePlotter speed_plot = ValuePlotter();
 	speed_plot.push_value(person->vehicle->speed);
@@ -1031,21 +1036,6 @@ float calc_car_deccel (float base_deccel, float target_speed, float cur_speed) {
 	return deccel;
 }
 
-float get_cur_speed_limit (ActiveVehicle* vehicle) {
-	auto state = vehicle->state.state;
-	if (state == PathState::SEGMENT) {
-		return vehicle->state.cur_lane.seg->asset->speed_limit;
-	}
-	else if (state == PathState::NODE) {
-		float a = vehicle->state.cur_lane .seg->asset->speed_limit;
-		float b = vehicle->state.next_lane.seg->asset->speed_limit;
-		return min(a, b); // TODO: ??
-	}
-	else {
-		return 20 / KPH_PER_MS;
-	}
-}
-
 float network::ActiveVehicle::car_len () {
 	return cit->owned_vehicle->mesh.aabb.size().x;
 }
@@ -1086,8 +1076,10 @@ void update_vehicle_suspension (App& app, ActiveVehicle& vehicle, float2 local_a
 
 void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float dt) {
 
+	float aggress = vehicle->cit->topspeed_accel_mul();
+
 	assert(vehicle->bez_t < 1.0f);
-	float speed_limit = get_cur_speed_limit(vehicle);
+	float speed_limit = aggress * get_cur_speed_limit(vehicle);
 
 	float old_speed = vehicle->speed;
 	float new_speed = old_speed;
@@ -1095,13 +1087,13 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 	// car speed change
 	float target_speed = speed_limit * vehicle->brake;
 	if (target_speed >= new_speed) {
-		float accel = calc_car_accel(app.net.settings.car_accel, speed_limit, new_speed);
+		float accel = aggress * calc_car_accel(app.net.settings.car_accel, speed_limit, new_speed);
 		new_speed += accel * dt;
 		new_speed = min(new_speed, target_speed);
 	}
 	else {
 		//new_speed = target_speed; // brake instantly for now
-		new_speed -= calc_car_deccel(app.net.settings.car_deccel, speed_limit, new_speed);
+		new_speed -= aggress * calc_car_deccel(app.net.settings.car_deccel, speed_limit, new_speed);
 		new_speed = max(new_speed, target_speed);
 	}
 

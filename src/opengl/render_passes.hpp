@@ -367,7 +367,7 @@ struct PBR_Render {
 			});
 
 			auto fbo = make_and_bind_temp_fbo_layered(base_env_map, 0);
-			glViewport(0, 0, res.x, res.y);
+			glViewport(0, 0, res, res);
 
 			glDrawArrays(GL_TRIANGLES, 0, 3);
 		#endif
@@ -375,16 +375,16 @@ struct PBR_Render {
 		{
 			OGL_TRACE("gen mips");
 		#if 1
+			glUseProgram(shad_compute_gen_mips->prog);
+			state.bind_textures(shad_compute_gen_mips, {
+				{ "base_env_map", base_env_map },
+			});
+
 			for (int mip=1; mip<env_mips; ++mip) {
 				res = max(res / 2, 1);
 
-				glUseProgram(shad_compute_gen_mips->prog);
 				shad_compute_gen_mips->set_uniform("resolution", int2(res));
 				shad_compute_gen_mips->set_uniform("prev_mip", (float)(mip-1));
-
-				state.bind_textures(shad_compute_gen_mips, {
-					{ "base_env_map", base_env_map },
-				});
 
 				glBindImageTexture(0, base_env_map, mip, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
 
@@ -420,7 +420,7 @@ struct PBR_Render {
 			});
 
 			auto fbo = make_and_bind_temp_fbo_layered(pbr_env_convolved, 0);
-			glViewport(0, 0, res.x, res.y);
+			glViewport(0, 0, res, res);
 
 			glDrawArrays(GL_TRIANGLES, 0, 3);
 		#endif
@@ -428,12 +428,15 @@ struct PBR_Render {
 		
 		{
 			OGL_TRACE("convolve");
+		#if 1
+			glUseProgram(shad_compute_convolve->prog);
+			state.bind_textures(shad_compute_convolve, {
+				{ "base_env_map", base_env_map },
+			});
+
 			for (int mip=1; mip<env_mips; ++mip) {
 				res = max(res / 2, 1);
 				
-			#if 1
-				glUseProgram(shad_compute_convolve->prog);
-
 				float t = (float)mip / (float)(env_mips-1);
 				float roughness = powf(t, 1.0f / env_roughness_curve);
 				shad_compute_convolve->set_uniform("roughness", roughness);
@@ -442,22 +445,22 @@ struct PBR_Render {
 				int num_samples = sampler_per_res[floori(log2f((float)res))];
 				shad_compute_convolve->set_uniform("num_samples", num_samples);
 
-				state.bind_textures(shad_compute_convolve, {
-					{ "base_env_map", base_env_map },
-				});
-
 				glBindImageTexture(0, pbr_env_convolved, mip, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
 
 				constexpr int BATCH_SIZE = 32;
 				dispatch_compute(int3(BATCH_SIZE,res*res,6), int3(BATCH_SIZE,4,1));
-			#else
+			}
+		#else
+			for (int mip=1; mip<env_mips; ++mip) {
+				res = max(res / 2, 1);
+				
 				glUseProgram(shad_convolve_env->prog);
 				state.bind_textures(shad_convolve_env, {
 					{ "base_env_map", base_env_map },
 				});
 				
 				auto fbo = make_and_bind_temp_fbo_layered(pbr_env_convolved, mip);
-				glViewport(0, 0, res.x, res.y);
+				glViewport(0, 0, res, res);
 				
 				// clear for good measure
 				glClearColor(0,0,0,0);
@@ -472,8 +475,8 @@ struct PBR_Render {
 				
 				// Draw all 6 faces at once using geometry shader and fbo layers
 				glDrawArrays(GL_TRIANGLES, 0, 3*additive_layers);
-			#endif
 			}
+		#endif
 		}
 
 		// TODO: Is this correct?
@@ -481,6 +484,8 @@ struct PBR_Render {
 
 		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		glBindVertexArray(0);
 	}
 
 	void update (StateManager& state, Textures& texs) {
@@ -723,7 +728,9 @@ struct DirectionalCascadedShadowmap {
 
 			glBindFramebuffer(GL_FRAMEBUFFER, cascade_fbo);
 			glViewport(0, 0, shadow_res, shadow_res);
-		
+			
+			PipelineState s; // Set state (glDepthMask) so glClear actully bothers to do anything!
+			state.set_no_override(s);
 			glClear(GL_DEPTH_BUFFER_BIT);
 
 			//float3 center = float3(size * 0.5f, size * 0.5f, 0.0f);

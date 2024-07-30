@@ -11,12 +11,11 @@ VS2FS Vertex {
 
 #ifdef _VERTEX
 	layout(location = 0) in vec2  attr_pos;
+	layout(location = 1) in vec3  offset_scale;
+	layout(location = 2) in vec4  lod_bounds;
 	
 	uniform sampler2D heightmap;
 	uniform sampler2D heightmap_outer;
-	
-	uniform vec2  offset;
-	uniform float quad_size;
 	
 	uniform vec2  inv_map_size;
 	uniform vec2  inv_outer_size;
@@ -24,16 +23,15 @@ VS2FS Vertex {
 	uniform float z_min;
 	uniform float z_range;
 	
-	uniform vec2  lod_bound0;
-	uniform vec2  lod_bound1;
-	
-	uniform vec4 dbg_tint;
-	
 	// TODO: could be done on cpu side by providing a mesh variant for
 	// center, edge and corner lod transitions and having the cpu code select them
 	// they would have to be rotated with a 2x2 matrix
 	void fix_lod_seam (inout vec2 pos) {
 		//vs_dbg = vec3(0);
+		
+		vec2 lod_bound0 = lod_bounds.xy;
+		vec2 lod_bound1 = lod_bounds.zw;
+		float quad_size = offset_scale.z;
 		
 		vec2 dist = min(lod_bound1 - pos, pos - lod_bound0);
 		vec2 t = clamp(1.0 - dist / quad_size, vec2(0), vec2(1));
@@ -66,6 +64,9 @@ VS2FS Vertex {
 	}
 	
 	void main () {
+		vec2 offset = offset_scale.xy;
+		float quad_size = offset_scale.z;
+		
 		vec3 pos = vec3(quad_size * attr_pos + offset, 0.0);
 		
 		fix_lod_seam(pos.xy);
@@ -100,8 +101,8 @@ VS2FS Vertex {
 			v.tint = mix(v.tint, vec3(0.5,0.3,0.5), cliff);
 		}
 		
-		if (dbg_tint.a > 0.0)
-			v.tint = dbg_tint.rgb;
+		//if (dbg_tint.a > 0.0)
+		//	v.tint = dbg_tint.rgb;
 		
 		gl_Position = view.world2clip * vec4(pos, 1.0);
 		v.pos = pos;

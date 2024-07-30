@@ -150,20 +150,31 @@ struct TerrainRenderer {
 
 	struct TerrainVertex {
 		float2 pos;
+		float3 offset_scale;
+		float4 lod_bounds;
 
 		VERTEX_CONFIG(
 			ATTRIB(FLT,2, TerrainVertex, pos),
 		)
 	};
-	VertexBufferI terrain_chunk = vertex_bufferI<TerrainVertex>("terrain");
+	struct TerrainChunkInstance {
+		float3 offset_scale;
+		float4 lod_bounds;
+
+		VERTEX_CONFIG(
+			ATTRIB(FLT,3, TerrainChunkInstance, offset_scale),
+			ATTRIB(FLT,4, TerrainChunkInstance, lod_bounds),
+		)
+	};
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<TerrainVertex, TerrainChunkInstance>("terrain");
 	int chunk_vertices;
 	int chunk_indices;
-		
+	
 	int drawn_chunks = 0;
 
 	template <typename FUNC>
 	void lodded_chunks (StateManager& state, Heightmap& heightmap, Textures& texs,
-			View3D& view, Shader* shad, int base_lod, bool dbg, FUNC draw_chunk) {
+			View3D& view, int base_lod, bool dbg, FUNC draw_chunk) {
 		ZoneScoped;
 
 		float2 lod_center = (float2)view.cam_pos;
@@ -223,9 +234,6 @@ struct TerrainRenderer {
 			bound0 = clamp(bound0, -half_map_sz, half_map_sz);
 			bound1 = clamp(bound1, -half_map_sz, half_map_sz);
 
-			shad->set_uniform("lod_bound0", (float2)bound0);
-			shad->set_uniform("lod_bound1", (float2)bound1);
-
 			// interate over all chunks in bounds
 			for (int y=bound0.y; y<bound1.y; y+=sz)
 			for (int x=bound0.x; x<bound1.x; x+=sz) {
@@ -236,14 +244,8 @@ struct TerrainRenderer {
 					
 				if (dbg)
 					g_dbgdraw.wire_quad(float3((float2)int2(x,y), 0), (float2)(float)sz, g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))]);
-
-				// draw chunk with this lod
-				shad->set_uniform("offset", float2(int2(x,y)));
-				shad->set_uniform("quad_size", quad_size);
-				shad->set_uniform("dbg_tint", dbg ?
-					g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))] : lrgba(0));
 				
-				draw_chunk();
+				draw_chunk(bound0, bound1, quad_size, int2(x,y));
 
 				drawn_chunks++;
 			}
@@ -305,7 +307,7 @@ struct TerrainRenderer {
 			idx_count += 6;
 		}
 
-		terrain_chunk.upload(verts, indices);
+		vbo.upload_mesh(verts, indices);
 		chunk_vertices = vert_count;
 		chunk_indices  = idx_count;
 	}
@@ -316,6 +318,17 @@ struct TerrainRenderer {
 		drawn_chunks = 0;
 
 		if (draw_terrain && shad_terrain->prog) {
+			
+			std::vector<TerrainChunkInstance> instances;
+
+			lodded_chunks(state, heightmap, texs, view, terrain_base_lod, dbg_lod,
+			[&] (int2 bound0, int2 bound1, float quad_size, int2 offset) {
+				instances.push_back({
+					float3( (float2)offset, quad_size ),
+					float4( (float)bound0.x, (float)bound0.y, (float)bound1.x, (float)bound1.y )
+				});
+			});
+
 
 			PipelineState s;
 			if (!shadow_pass) {
@@ -346,11 +359,9 @@ struct TerrainRenderer {
 			shad_terrain->set_uniform("z_min", heightmap.z_min);
 			shad_terrain->set_uniform("z_range", heightmap.z_range);
 
-			glBindVertexArray(terrain_chunk.vao);
-			
-			lodded_chunks(state, heightmap, texs, view, shad_terrain, terrain_base_lod, dbg_lod, [this] () {
-				glDrawElements(GL_TRIANGLES, chunk_indices, GL_UNSIGNED_SHORT, (void*)0);
-			});
+			vbo.stream_instances(instances);
+			glBindVertexArray(vbo.vao);
+			glDrawElementsInstanced(GL_TRIANGLES, chunk_indices, GL_UNSIGNED_SHORT, (void*)0, (GLsizei)instances.size());
 		}
 	}
 	//void render_ocean (Game& g, Renderer& r) {

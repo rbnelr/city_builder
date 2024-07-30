@@ -1299,7 +1299,7 @@ struct OglRenderer : public Renderer {
 
 		mesher.remesh(app);
 	}
-	void upload_car_instances (App& app) {
+	void upload_car_instances (App& app, View3D& view) {
 		ZoneScoped;
 		
 		vehicle_renderer.update_instances([&] () {
@@ -1310,59 +1310,81 @@ struct OglRenderer : public Renderer {
 				auto& entity = app.entities.citizens[i];
 				if (!entity->agent) continue;
 
-				auto& bone_mats = entity->owned_car->bone_mats;
-
-				int tex_id = textures.bindless_textures.get_tex_id(entity->owned_car->tex_filename + ".diff.png");
-
-				// TODO: network code shoud ensure length(dir) == CAR_SIZE
-				float3 center;
-				float ang;
-				entity->agent->calc_pos(&center, &ang);
-
-				instances[i].mesh_id = vehicle_renderer.asset2mesh_id[entity->owned_car];
-				instances[i].instance_id = i;
-				instances[i].tex_id = tex_id;
-				instances[i].pos = center;
-				instances[i].col = entity->col;
-				
-				float3x3 heading_rot = rotate3_Z(ang);
-				auto set_bone_rot = [&] (int boneID, float3x3 const& bone_rot) {
-					instances[i].bone_rot[boneID] = float4x4(heading_rot) *
-						(bone_mats[boneID].bone2mesh * float4x4(bone_rot) * bone_mats[boneID].mesh2bone);
-				};
-
-				float wheel_ang = entity->agent->wheel_roll * -deg(360);
-				float3x3 roll_mat = rotate3_Z(wheel_ang);
-
-				float rear_axle_x = (bone_mats[VBONE_WHEEL_BL].bone2mesh * float4(0,0,0,1)).x;
-				
-				auto get_wheel_turn = [&] (int boneID) {
-					// formula for ackerman steering with fixed rear axle
-					// X is forw, Y is left
-					float2 wheel_pos2d = (float2)(bone_mats[boneID].bone2mesh * float4(0,0,0,1));
-					float2 wheel_rel2d = wheel_pos2d - float2(rear_axle_x, 0);
-
-					float c = entity->agent->turn_curv;
-					float ang = -atanf((c * wheel_rel2d.x) / (c * -wheel_rel2d.y - 1.0f));
-
-					return rotate3_Y(ang);
-				};
-
-				float3x3 base_rot = rotate3_X(entity->agent->suspension_ang.x) * rotate3_Z(-entity->agent->suspension_ang.y);
-				set_bone_rot(VBONE_BASE, base_rot);
-
-
-				set_bone_rot(VBONE_WHEEL_FL, get_wheel_turn(VBONE_WHEEL_FL) * roll_mat);
-				set_bone_rot(VBONE_WHEEL_FR, get_wheel_turn(VBONE_WHEEL_FR) * roll_mat);
-
-				set_bone_rot(VBONE_WHEEL_BL, roll_mat);
-				set_bone_rot(VBONE_WHEEL_BR, roll_mat);
+				update_vehicle_instance(instances[i], *entity, i, view);
 			}
 
 			return instances;
 		});
 	}
+	
+	void update_vehicle_instance (VehicleInstance& instance, Citizen& entity, int i, View3D& view) {
+		auto& bone_mats = entity.owned_car->bone_mats;
+	
+		int tex_id = textures.bindless_textures.get_tex_id(entity.owned_car->tex_filename + ".diff.png");
 
+		// TODO: network code shoud ensure length(dir) == CAR_SIZE
+		float3 center;
+		float ang;
+		entity.agent->calc_pos(&center, &ang);
+
+		instance.mesh_id = vehicle_renderer.asset2mesh_id[entity.owned_car];
+		instance.instance_id = i;
+		instance.tex_id = tex_id;
+		instance.pos = center;
+		instance.col = entity.col;
+				
+		float3x3 heading_rot = rotate3_Z(ang);
+
+		// skip expensive bone matricies computation when too far away
+		float anim_LOD_dist = 250;
+		if (length_sqr(center - view.cam_pos) > anim_LOD_dist*anim_LOD_dist) {
+			for (auto& mat : instance.bone_rot) {
+				mat = float4x4(heading_rot);
+			}
+			return;
+		}
+
+		// LOD this since currently bone matricies are too slow in debug mode
+		// TODO: find a reasonable way to optimize this? Can't think of a clean way of doing matrix math much faster (especially in unoptimized mode)
+		//    -> quaternions
+		//  move to gpu? could easily do this in compute shader by passing wheel_roll, turn_curv, suspension_ang per instance as well
+		//  could simply keep matricies in instance buffer and have compute shader read/write the vbo in different places? I think that's safe
+		//  could also just split out the matrices into other buffer
+		//  the question is if this is premature optimization, animated citizens would be different again, and might want to move other code on gpu in the future
+				
+		auto set_bone_rot = [&] (int boneID, float3x3 const& bone_rot) {
+			instance.bone_rot[boneID] = float4x4(heading_rot) *
+				(bone_mats[boneID].bone2mesh * float4x4(bone_rot) * bone_mats[boneID].mesh2bone);
+		};
+
+		float wheel_ang = entity.agent->wheel_roll * -deg(360);
+		float3x3 roll_mat = rotate3_Z(wheel_ang);
+
+		float rear_axle_x = (bone_mats[VBONE_WHEEL_BL].bone2mesh * float4(0,0,0,1)).x;
+				
+		auto get_wheel_turn = [&] (int boneID) {
+			// formula for ackerman steering with fixed rear axle
+			// X is forw, Y is left
+			float2 wheel_pos2d = (float2)(bone_mats[boneID].bone2mesh * float4(0,0,0,1));
+			float2 wheel_rel2d = wheel_pos2d - float2(rear_axle_x, 0);
+
+			float c = entity.agent->turn_curv;
+			float ang = -atanf((c * wheel_rel2d.x) / (c * -wheel_rel2d.y - 1.0f));
+
+			return rotate3_Y(ang);
+		};
+
+		float3x3 base_rot = rotate3_X(entity.agent->suspension_ang.x) * rotate3_Z(-entity.agent->suspension_ang.y);
+		set_bone_rot(VBONE_BASE, base_rot);
+
+
+		set_bone_rot(VBONE_WHEEL_FL, get_wheel_turn(VBONE_WHEEL_FL) * roll_mat);
+		set_bone_rot(VBONE_WHEEL_FR, get_wheel_turn(VBONE_WHEEL_FR) * roll_mat);
+
+		set_bone_rot(VBONE_WHEEL_BL, roll_mat);
+		set_bone_rot(VBONE_WHEEL_BR, roll_mat);
+	}
+	
 	virtual void begin (App& app) {
 		ZoneScoped;
 		gl_dbgdraw.gl_text_render.begin(g_dbgdraw.text); // upload text and init data structures to allow text printing
@@ -1390,7 +1412,7 @@ struct OglRenderer : public Renderer {
 
 			upload_static_instances(app);
 		}
-		upload_car_instances(app);
+		upload_car_instances(app, view);
 
 		{
 			ZoneScopedN("setup");

@@ -99,7 +99,7 @@ bool Network::pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle)
 			break; // shortest path found if both target segment nodes are visited
 
 		// Get all allowed turns for incoming segment
-		AllowedTurns allowed = (AllowedTurns)0;
+		Turns allowed = Turns::NONE;
 		for (auto& lane : cur_node->_pred_seg->lanes) {
 			allowed |= lane.allowed_turns;
 		}
@@ -110,7 +110,7 @@ bool Network::pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle)
 
 			// check if turn to this node is actually allowed
 			auto turn = classify_turn(cur_node, cur_node->_pred_seg, lane.seg);
-			if ((allowed & turn) == 0) {
+			if ((allowed & turn) == Turns::NONE) {
 				// turn not allowed
 				assert(false); // currently impossible, only the case for roads with no right turn etc.
 				//continue;
@@ -171,8 +171,8 @@ bool Network::pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle)
 	return true;
 }
 
-PathState progress_path (ActiveVehicle* vehicle, int idx) {
-	PathState s;
+PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state = nullptr) {
+	PathState s = {};
 
 	int num_seg = (int)vehicle->path.size();
 	int num_moves = num_seg + (num_seg-1) + 2;
@@ -190,77 +190,34 @@ PathState progress_path (ActiveVehicle* vehicle, int idx) {
 		else
 			return in->node_b;
 	};
-	auto choose_lane = [&] (Segment* in, Node* node, Segment* out) {
-		auto turn = classify_turn(node, in, out);
-		auto dir = in->get_dir_to_node(node);
-
-		for (auto& l : in->lanes) {
-			if (  in->get_lane_layout(&l).direction == dir &&
-				  (l.allowed_turns & turn) != 0) {
-				return (int)(&l - in->lanes.data());
-			}
-		}
-
-		assert(false);
-		return 0;
-	};
-	auto choose_default_lane = [&] (Node* prev_node, Segment* in) {
-		auto dir = in->get_dir_to_node(prev_node);
-		// TODO: make it so lanes in a direction (sorted left to right) can be accessed easier
-		for (auto& l : in->lanes) {
-			if (in->get_lane_layout(&l).direction != dir) { // != for opposite direction
-				return (int)(&l - in->lanes.data());
-			}
-		}
-		return 0;
-	};
-
-	int i = idx > 0 ? (idx-1)/2 : 0;
-	
-	// Get all needed segments and nodes to determine in and outgoing lanes for next node
-
-	Segment* seg0 = i-1 >= 0      ? vehicle->path[i-1] : nullptr; // previous segment
-	Segment* seg1 = i   < num_seg ? vehicle->path[i  ] : nullptr; // segment we are on / were on if already in node
-	Segment* seg2 = i+1 < num_seg ? vehicle->path[i+1] : nullptr; // segment after next node
-	Segment* seg3 = i+2 < num_seg ? vehicle->path[i+2] : nullptr;
-
-	Node* node0 = seg0 && seg1 ? find_node(seg0, seg1) : nullptr; // previous node (start point of current segment)
-	Node* node1 = seg1 && seg2 ? find_node(seg1, seg2) : nullptr; // next node / node we are on
-	Node* node2 = seg2 && seg3 ? find_node(seg2, seg3) : nullptr; // endpoint of next segemtn
-
-	int lane1 = seg1 && seg2 ? choose_lane(seg1, node1, seg2) : -1; // lane we are on
-	int lane2 = seg2 && seg3 ? choose_lane(seg2, node2, seg3) : -1; // lane after node
-
-	if (lane1 < 0) {
-		assert(node0);
-		lane1 = choose_default_lane(node0, seg1);
-	}
-	if (lane2 < 0 && node1) {
-		lane2 = choose_default_lane(node1, seg2);
-	}
-
-	s.cur_lane  = { seg1, (uint16_t)lane1 };
-	s.next_lane = { seg2, (uint16_t)lane2 };
-	s.cur_node  = node1;
-
-	if (s.cur_lane)  assert(s.cur_lane.lane  >= 0);
-	if (s.next_lane) assert(s.next_lane.lane >= 0);
 
 	if (idx == 0) {
-		auto s_lane = s.cur_lane.clac_lane_info();
+		Segment* start_seg = vehicle->path[0];
+		Node* next_node = num_seg > 1 ? find_node(start_seg, vehicle->path[1]) : nullptr;
+		LaneDir seg_dir = start_seg->get_dir_to_node(next_node); // null is ok
+
+		s.cur_lane = {};
+		s.next_lane = start_seg->lanes_in_dir(seg_dir).outer(); // start on outermost lane
+		
+		auto s_lane = s.next_lane.clac_lane_info();
 		float3 s0 = vehicle->start->pos;
 		float3 s1 = (s_lane.a + s_lane.b) * 0.5f;
 
 		s.state = PathState::EXIT_BUILDING;
 		s.next_start_t = 0.5f;
 
-		s.next_vehicles = &s.cur_lane.vehicles().list;
+		s.next_vehicles = &s.next_lane.vehicles().list;
 
 		s.bezier = { s0, (s0+s1)*0.5f, s1 };
 		s.pos_z = s0.z;
 	}
 	else if (idx == num_moves-1) {
-		auto e_lane = s.cur_lane.clac_lane_info();
+		assert(prev_state);
+		auto prev_lane = prev_state->cur_lane;
+		s.cur_lane = {};
+		s.next_lane = {};
+
+		auto e_lane = prev_lane.clac_lane_info();
 		float3 e0 = (e_lane.a + e_lane.b) * 0.5f;
 		float3 e1 = vehicle->end->pos;
 
@@ -270,39 +227,78 @@ PathState progress_path (ActiveVehicle* vehicle, int idx) {
 		s.pos_z = e1.z;
 	}
 	else {
-		auto l  = s.cur_lane.clac_lane_info();
-		auto l2 = s.next_lane ? s.next_lane.clac_lane_info() : Line{0,0};
-
-		if (s.cur_node) assert(contains(s.cur_node->in_lanes , s.cur_lane ));
-		if (s.cur_node) assert(contains(s.cur_node->out_lanes, s.next_lane));
-
+		Node* cur_node;
 		if ((idx-1) % 2 == 0) {
-			assert(s.cur_lane);
+			{
+				assert(prev_state);
+				s.cur_lane = prev_state->next_lane;
+			
+				int i = (idx-1)/2;
+		
+				Segment* seg0 = vehicle->path[i];
+				Segment* seg1 = i+1 < num_seg ? vehicle->path[i+1] : nullptr;
+				Segment* seg2 = i+2 < num_seg ? vehicle->path[i+2] : nullptr;
+		
+					  cur_node  = seg1 ? find_node(seg0, seg1) : nullptr;
+				Node* next_node = seg2 ? find_node(seg1, seg2) : nullptr;
+		
+				if (!seg1) {
+					s.next_lane = {};
+				}
+				else if (!seg2) {
+					LaneDir dir = seg1->get_dir_from_node(cur_node);
+					s.next_lane = seg1->lanes_in_dir(dir).outer(); // end on outermost lane
+				}
+				else {
+					LaneDir dir = seg1->get_dir_from_node(cur_node);
+					auto turn = classify_turn(next_node, seg1, seg2);
+			
+					auto lanes = seg1->lanes_in_dir(dir);
+					for (auto id=lanes.first; id<lanes.first+lanes.count; ++id) {
+						auto& l = seg1->lanes[id];
+						if ((l.allowed_turns & turn) != Turns::NONE) {
+							s.next_lane = { seg1, id };
+							break;
+						}
+					}
+				}
+			}
 
+			auto l = s.cur_lane.clac_lane_info();
+		
 			s.state = PathState::SEGMENT;
-
+		
 			s.cur_vehicles  = &s.cur_lane.vehicles().list;
-			s.next_vehicles = s.cur_node ? &s.cur_node->vehicles.free : nullptr;
-
-
+			s.next_vehicles = cur_node ? &cur_node->vehicles.free : nullptr;
+			
 			// handle enter building
-			if (!node1)
+			if (!cur_node)
 				s.end_t = 0.5f;
-
+		
 			s.bezier = { l.a, (l.a+l.b)*0.5f, l.b }; // 3d 2d?
 			s.pos_z = l.a.z;
 		}
 		else {
-			assert(s.cur_lane && s.cur_node && s.next_lane);
+			s.cur_lane = prev_state->cur_lane;
+			s.next_lane = prev_state->next_lane;
+			cur_node = find_node(s.cur_lane.seg, s.next_lane.seg);
 
+			auto l  = s.cur_lane.clac_lane_info();
+			auto l2 = s.next_lane ? s.next_lane.clac_lane_info() : Line{0,0};
+
+			//if (s.cur_node) assert(contains(s.cur_node->in_lanes , s.cur_lane ));
+			//if (s.cur_node) assert(contains(s.cur_node->out_lanes, s.next_lane));
+
+			assert(s.cur_lane && cur_node && s.next_lane);
+		
 			if (vehicle->idx == idx)
-				assert(contains(s.cur_node->vehicles.free.list, vehicle));
-
+				assert(contains(cur_node->vehicles.free.list, vehicle));
+		
 			s.state = PathState::NODE;
-
-			s.cur_vehicles  = &s.cur_node->vehicles.free;
+		
+			s.cur_vehicles  = &cur_node->vehicles.free;
 			s.next_vehicles = &s.next_lane.vehicles().list;
-
+		
 			s.bezier = calc_curve(l, l2);
 			s.pos_z = l.a.z;
 		}
@@ -404,14 +400,18 @@ void debug_node (App& app, Node* node, View3D const& view) {
 void debug_person (App& app, Person* person, View3D const& view) {
 	if (!person || !person->vehicle) return;
 
-	float start_t = person->vehicle->bez_t;
-	for (int i=person->vehicle->idx; ; ++i) {
-		auto s = progress_path(person->vehicle.get(), i);
+	{
+		PathState s = person->vehicle->state; // copy
+		float start_t = person->vehicle->bez_t;
 
-		dbg_draw_bez(s.bezier, 0, 5, lrgba(1,1,0,1), start_t, s.end_t); 
+		for (int i=person->vehicle->idx; ; ++i) {
+			dbg_draw_bez(s.bezier, 0, 5, lrgba(1,1,0,1), start_t, s.end_t); 
 
-		start_t = s.next_start_t;
-		if (s.state == PathState::ENTER_BUILDING) break;
+			start_t = s.next_start_t;
+			if (s.state == PathState::ENTER_BUILDING) break;
+
+			s = get_path_state(person->vehicle.get(), i+1, &s);
+		}
 	}
 
 	ImGui::Separator();
@@ -1128,7 +1128,7 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 			return;
 		}
 
-		vehicle->state = progress_path(vehicle, vehicle->idx);
+		vehicle->state = get_path_state(vehicle, vehicle->idx, &vehicle->state);
 	}
 
 	// eval bezier at car front
@@ -1230,10 +1230,11 @@ void Network::simulate (App& app) {
 				person->cur_building = nullptr;
 				person->vehicle = std::move(vehicle);
 				// get initial state
-				person->vehicle->state = progress_path(person->vehicle.get(), person->vehicle->idx);
+				person->vehicle->state = get_path_state(person->vehicle.get(), person->vehicle->idx);
+				return true;
 			}
-			return valid;
 		}
+		return false;
 	};
 	
 	// to avoid debugging overlays only showing while not paused, only skip moving the car when paused, later actually skip sim steps

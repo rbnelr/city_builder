@@ -18,19 +18,21 @@ struct Segment;
 struct ActiveVehicle;
 struct LaneVehicles;
 
-enum AllowedTurns : uint8_t {
-	ALLOWED_LEFT     = 0b0001,
-	ALLOWED_STRAIGHT = 0b0010,
-	ALLOWED_RIGHT    = 0b0100,
-	//ALLOWED_UTURN    = 8,
-	//ALLOWED_CUSTOM     = 16,
+enum class Turns : uint8_t {
+	NONE     = 0,
+
+	LEFT     = 0b0001,
+	STRAIGHT = 0b0010,
+	RIGHT    = 0b0100,
+	//UTURN    = 8,
+	//CUSTOM     = 16,
 	
-	ALLOWED_LS     = ALLOWED_LEFT | ALLOWED_STRAIGHT,
-	ALLOWED_LR     = ALLOWED_LEFT | ALLOWED_RIGHT,
-	ALLOWED_SR     = ALLOWED_STRAIGHT | ALLOWED_RIGHT,
-	ALLOWED_ALL    = ALLOWED_LEFT | ALLOWED_STRAIGHT | ALLOWED_RIGHT,
+	LS     = LEFT     | STRAIGHT,
+	LR     = LEFT     | RIGHT,
+	SR     = STRAIGHT | RIGHT,
+	ALL    = LEFT     | STRAIGHT | RIGHT,
 };
-ENUM_BITFLAG_OPERATORS_TYPE(AllowedTurns, uint8_t)
+ENUM_BITFLAG_OPERATORS_TYPE(Turns, uint8_t)
 
 struct Line {
 	float3 a, b;
@@ -174,7 +176,6 @@ struct PathState {
 	VehicleList<ActiveVehicle*>* next_vehicles = nullptr;
 
 	SegLane cur_lane = {}; // always valid
-	Node*   cur_node = nullptr; // valid if != null
 	SegLane next_lane = {}; // only valid if cur_node != null
 };
 
@@ -322,7 +323,7 @@ struct Node {
 };
 
 struct Lane {
-	AllowedTurns allowed_turns = ALLOWED_ALL;
+	Turns allowed_turns = Turns::ALL;
 };
 
 // Segments are oriented from a -> b, such that the 'forward' lanes go from a->b and reverse lanes from b->a
@@ -339,6 +340,7 @@ struct Segment { // better name? Keep Path and call path Route?
 	SegVehicles vehicles;
 
 	std::vector<Lane> lanes;
+	typedef std::vector<Lane>::iterator lanes_it_t;
 
 	Lane& get_lane (NetworkAsset::Lane* layout_lane) {
 		return lanes[layout_lane - &asset->lanes[0]];
@@ -351,7 +353,10 @@ struct Segment { // better name? Keep Path and call path Route?
 		return node_a == node ? node_b : node_a;
 	}
 	LaneDir get_dir_to_node (Node* node) {
-		return node_b == node ? LaneDir::FORWARD : LaneDir::BACKWARD;
+		return node_a != node ? LaneDir::FORWARD : LaneDir::BACKWARD;
+	}
+	LaneDir get_dir_from_node (Node* node) {
+		return node_a == node ? LaneDir::FORWARD : LaneDir::BACKWARD;
 	}
 	
 	Node* get_node_in_dir (LaneDir dir) {
@@ -360,6 +365,27 @@ struct Segment { // better name? Keep Path and call path Route?
 
 	float3 pos_for_node (Node* node) {
 		return node_a == node ? pos_a : pos_b;
+	}
+
+
+	struct DirLanes {
+		Segment& seg;
+		uint16_t first;
+		uint16_t count;
+
+		SegLane inner () { return { &seg, first }; };
+		SegLane outer () { return { &seg, (uint16_t)(first+count-1) }; };
+	};
+	DirLanes lanes_forward () {
+		uint16_t count = (uint16_t)asset->num_lanes_in_dir(LaneDir::FORWARD);
+		return { *this, 0, count };
+	}
+	DirLanes lanes_backwards () {
+		uint16_t first = (uint16_t)asset->num_lanes_in_dir(LaneDir::FORWARD);
+		return { *this, first, (uint16_t)(asset->lanes.size() - first) };
+	}
+	DirLanes lanes_in_dir (LaneDir dir) {
+		return dir == LaneDir::FORWARD ? lanes_forward() : lanes_backwards();
 	}
 
 	void update_cached () {
@@ -524,18 +550,18 @@ inline void calc_default_allowed_turns (Node& node) {
 		int idx   = in_lane.seg->get_lane_layout(&lane).order;
 
 		if (count == 1) {
-			lane.allowed_turns = ALLOWED_ALL;
+			lane.allowed_turns = Turns::ALL;
 		}
 		else if (count == 2) {
-			if (idx == 0) lane.allowed_turns = ALLOWED_LS;
-			else          lane.allowed_turns = ALLOWED_SR;
+			if (idx == 0) lane.allowed_turns = Turns::LS;
+			else          lane.allowed_turns = Turns::SR;
 		}
 		else {
-			lane.allowed_turns = ALLOWED_ALL;
+			lane.allowed_turns = Turns::ALL;
 		}
 	}
 }
-inline AllowedTurns classify_turn (Node* node, Segment* in, Segment* out) {
+inline Turns classify_turn (Node* node, Segment* in, Segment* out) {
 	// TODO: store dir for seg end and start point?
 
 	float2 in_dir = in->clac_seg_vecs().forw; // dir: node_a -> node_b
@@ -548,12 +574,12 @@ inline AllowedTurns classify_turn (Node* node, Segment* in, Segment* out) {
 	float d_right = dot(out_dir, rotate90(-in_dir));
 
 	// TODO: track uturns?
-	if (d_forw > abs(d_right)) return ALLOWED_STRAIGHT;
-	else if (d_right < 0.0f)   return ALLOWED_RIGHT;
-	else                       return ALLOWED_LEFT;
+	if (d_forw > abs(d_right)) return Turns::STRAIGHT;
+	else if (d_right < 0.0f)   return Turns::RIGHT;
+	else                       return Turns::LEFT;
 }
-inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, AllowedTurns allowed) {
-	return (classify_turn(node, in, out) & allowed) != 0;
+inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowed) {
+	return (classify_turn(node, in, out) & allowed) != Turns::NONE;
 }
 
 inline int calc_node_class (Node& node) {

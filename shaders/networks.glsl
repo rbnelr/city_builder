@@ -22,7 +22,7 @@ VS2FS Vertex {
 	void main () {
 		gl_Position = view.world2clip * vec4(pos, 1.0);
 		
-		v.pos  = pos;
+		v.pos = pos;
 		
 		vec2 world_uv = pos.xy * 0.5;
 		if (tex_id < 0) {
@@ -37,6 +37,9 @@ VS2FS Vertex {
 			v.norm = norm;
 			v.tang = tang;
 		}
+		
+		//if (tex_id == 14)
+		//dbgdraw_visualize_normal_tangent(v.pos, v.norm, v.tang);
 	}
 #endif
 #ifdef _FRAGMENT
@@ -47,9 +50,7 @@ VS2FS Vertex {
 	void main () {
 		vec3 norm = normal_map(v.norm, v.tang,
 		           texture(bindless_tex(v.tex_id+1), v.uv).rgb );
-		//vec3 norm = v.norm;
 		vec3 col = texture(bindless_tex(v.tex_id), v.uv).rgb;
-		//col = vec4(1,1,1,1);
 		
 		frag_col = vec4(col, 1.0);
 		frag_norm = vec4(norm, 1.0);

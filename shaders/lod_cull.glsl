@@ -6,14 +6,6 @@ layout(local_size_x = GROUPSZ) in;
 
 // assume uint == uint32_t
 
-struct glDrawElementsIndirectCommand {
-	uint  count;
-	uint  instanceCount;
-	uint  firstIndex;
-	int   baseVertex;
-	uint  baseInstance;
-};
-
 struct MeshInfo {
 	uint mesh_lod_id; // index of MeshLodInfos [lods]
 	uint lods;
@@ -64,7 +56,7 @@ void main () {
 	MeshLodInfo lod_info = mesh_lod_info[info.mesh_lod_id + lod];
 	
 	cmd[i].count = lod_info.index_count;
-	cmd[i].instanceCount = 1u;
+	cmd[i].primCount = 1u;
 	cmd[i].firstIndex = lod_info.index_base;
 	cmd[i].baseVertex = int(lod_info.vertex_base);
 	cmd[i].baseInstance = i;

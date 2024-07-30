@@ -8,11 +8,13 @@ struct glDrawArraysIndirectCommand {
 };
 
 struct glDrawElementsIndirectCommand {
-	uint count;
-	uint primCount;
-	uint firstIndex;
-	uint baseVertex;
-	uint baseInstance;
+	uint  count;
+	// not a primitive count?? glDrawElementsInstancedBaseVertexBaseInstance
+	// >glDrawElementsInstancedBaseVertexBaseInstance: primcount: Specifies the number of instances of the indexed geometry that should be drawn.
+	uint  primCount;
+	uint  firstIndex;
+	int   baseVertex;
+	uint  baseInstance;
 };
 
 struct IndirectLineVertex {
@@ -81,3 +83,24 @@ void dbgdraw_point (vec3 pos, float r, vec4 col) {
 //	if (idx >= _INDIRECT_BUFSZ) return;
 //	_dbgdrawbuf.wire_spheres.vertices[idx] = IndirectWireInstace( vec4(pos, 0), vec4(size, 0), col);
 //}
+
+
+void dbgdraw_visualize_normals (vec3 pos_world, vec3 norm_world) {
+	if (distance(pos_world, view.cam_pos) < 5.0f) {
+		dbgdraw_vector(pos_world, norm_world * 0.1f, vec4(0,0,1,1));
+	}
+}
+void dbgdraw_visualize_normal_tangent (vec3 pos_world, vec3 norm_world, vec3 tangent) {
+	if (distance(pos_world, view.cam_pos) < 5.0f) {
+		dbgdraw_vector(pos_world, norm_world * 0.1f, vec4(0,0,1,1));
+		dbgdraw_vector(pos_world, tangent * 0.1f, vec4(1,0,0,1));
+	}
+}
+#ifdef _FRAGMENT
+void dbgdraw_visualize_normal_frag (vec3 pos_world, vec3 norm_world) {
+	ivec2 xy = ivec2(gl_FragCoord.xy) % ivec2(1);
+	if (xy.x == 0 && xy.y == 0 && distance(pos_world, view.cam_pos) < 5.0f) {
+		dbgdraw_vector(pos_world, norm_world * 0.1f, vec4(0,0,1,1));
+	}
+}
+#endif

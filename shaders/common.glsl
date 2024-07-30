@@ -118,7 +118,7 @@ vec4 readCubemapLod (samplerCube cubemap, vec3 dir_world, float lod) {
 	return textureLod(cubemap, vec3(dir_world.x, -dir_world.z, dir_world.y), lod);
 }
 
-//#include "dbg_indirect_draw.glsl"
+#include "dbg_indirect_draw.glsl"
 
 mat3 mat_rotateX (float rot) {
 	float s = sin(rot);

@@ -877,10 +877,8 @@ struct Mesher {
 		V sL1b = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidewalk_h), up,         tang, float2(0,1), curb_tex_id };
 		V sL2  = { float3(seg.asset->sidewalkL              , 0, sidewalk_h), diag_right, tang, float2(0,0.4f), curb_tex_id };
 		V sL3  = { float3(seg.asset->sidewalkL              , 0,          0), right,      tang, float2(0,0), curb_tex_id };
-		
 		V r0   = { float3(seg.asset->sidewalkL, 0, 0), up, tang, no_uv, asphalt_tex_id };
 		V r1   = { float3(seg.asset->sidewalkR, 0, 0), up, tang, no_uv, asphalt_tex_id };
-		
 		V sR0  = { float3(seg.asset->sidewalkR              , 0,          0), -right,    tang, float2(0,0), curb_tex_id };
 		V sR1  = { float3(seg.asset->sidewalkR              , 0, sidewalk_h), diag_left, tang, float2(0,0.4f), curb_tex_id };
 		V sR2b = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidewalk_h), up,        tang, float2(0,1), curb_tex_id };
@@ -1405,7 +1403,7 @@ struct OglRenderer : public Renderer {
 				common_ubo.set_lighting(lighting);
 				textures.bindless_textures.update_lut(BINDLESS_TEX_SSBO_BINDING);
 
-				//glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, gl_dbgdraw.indirect_vbo);
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, gl_dbgdraw.indirect_vbo);
 
 				gl_dbgdraw.update(app.input);
 			}

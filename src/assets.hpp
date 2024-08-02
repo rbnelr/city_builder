@@ -118,6 +118,8 @@ enum class LaneDir : uint8_t {
 };
 NLOHMANN_JSON_SERIALIZE_ENUM(LaneDir, { { LaneDir::FORWARD, "FORWARD" }, { LaneDir::BACKWARD, "BACKWARD" } })
 
+typedef uint16_t laneid_t;
+
 enum class LineMarkingType {
 	LINE = 0,
 	STRIPED = 1,
@@ -156,10 +158,6 @@ struct NetworkAsset {
 		float width = 3;
 		LaneDir direction = LaneDir::FORWARD;
 		// user types (cars, trams, pedestrian etc.)
-		
-		// This is stupid
-		// TODO: just sort lanes beforehand and return subsets as span?
-		int order; // left to right lane index in direction
 	};
 
 	struct LineMarking {
@@ -187,7 +185,7 @@ struct NetworkAsset {
 
 	float width = 16;
 
-	// for now: (RHD) outer forward, inner forward, ..., outer reverse, inner reverse
+	// for now: (RHD) inner forward, outer forward, ..., inner reverse, outer reverse
 	// ie. sorted from left to right per direction
 	// (relevant for pathing)
 	std::vector<Lane> lanes;
@@ -199,25 +197,28 @@ struct NetworkAsset {
 	
 	std::vector<Streetlight> streetlights;
 
-
 	float speed_limit = 40 / KPH_PER_MS;
 
-	// TODO: return list of all lanes in dir, how? span?
-	// I just wish I had generator functions...
-	int _lanes_in_dir[2];
-	int num_lanes_in_dir (LaneDir dir) {
-		return _lanes_in_dir[(int)dir];
+
+	laneid_t _num_lanes_in_dir[2];
+	laneid_t num_lanes_in_dir (LaneDir dir) {
+		return _num_lanes_in_dir[(int)dir];
 	}
 
-
 	void update_cached () {
-		_lanes_in_dir[(int)LaneDir::FORWARD] = 0;
-		_lanes_in_dir[(int)LaneDir::BACKWARD] = 0;
-
+		auto sort_less = [] (Lane const& l, Lane const& r) {
+			if (l.direction != r.direction)
+				return (int)l.direction < (int)r.direction;
+			return l.direction == LaneDir::FORWARD ?
+				l.shift < r.shift :
+				l.shift > r.shift;
+		};
+		std::sort(lanes.begin(), lanes.end(), sort_less);
+		
+		_num_lanes_in_dir[(int)LaneDir::FORWARD] = 0;
+		_num_lanes_in_dir[(int)LaneDir::BACKWARD] = 0;
 		for (auto& lane : lanes) {
-			int& idx = _lanes_in_dir[(int)lane.direction];
-			lane.order = idx;
-			idx++;
+			_num_lanes_in_dir[(int)lane.direction]++;
 		}
 	}
 
@@ -228,8 +229,10 @@ struct NetworkAsset {
 
 		changed = ImGui::DragFloat("width", &width, 0.1f) || changed;
 
-		changed = imgui_edit_vector("lanes", lanes, [] (int i, Lane& l) {
-			bool changed = ImGui::DragFloat("shift", &l.shift, 0.1f);
+		changed = imgui_edit_vector("lanes", lanes, [&] (int i, Lane& l) {
+			bool changed = ImGui::DragFloat("shift", &l.shift, 0.1f,
+				i > 0 ? lanes[i-1].shift : -INF,
+				i < (int)lanes.size()-1 ? lanes[i+1].shift : +INF);
 			changed = ImGui::DragFloat("width", &l.width, 0.1f) || changed;
 
 			int val = (int)l.direction;

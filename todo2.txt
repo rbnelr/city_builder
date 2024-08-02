@@ -8,7 +8,16 @@ Lane selection
 	 as in, forward scan for turn, select lane there (left/rightmost? based on turn)
 	 then backwards scan to 'follow' this lane through straight travel -> need map in->out lanes
 	 this should inform us if we want to switch lanes, then simply decide based on some rules at which intersection to actually switch lanes
- 
+-> implement configurable random lane switch chance
+ -> measure how much never switching lanes (pick first one?) vs randomly switching with different chances
+   -> switching 10-20% of the time probably is a lot better than old version
+-> implement opportunistic lane switches onto less congested lanes? based on free slots or flow rate or combination?
+-> implement correct turn lane selection over multiple segments as planned
+
+Fix lane order to be left to right?, just sort lanes on load, consider what to do on ui edits
+
+Remove InLane & OutLane arrays in node, not needed!
+
 Traffic lights
  -> add props for traffic light poles etc.
  -> make them actually glow (emmisive with bloom?)

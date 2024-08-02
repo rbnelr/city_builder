@@ -15,6 +15,7 @@ namespace network {
 
 struct Node;
 struct Segment;
+struct Lane;
 struct ActiveVehicle;
 struct LaneVehicles;
 
@@ -49,7 +50,7 @@ inline Bezier3 calc_curve (Line const& l0, Line const& l1) {
 // TODO: overhaul this! We need to track lanes per segment so we can actually just turn this into a pointer
 struct SegLane {
 	Segment* seg = nullptr;
-	uint16_t lane = (uint16_t)-1;
+	laneid_t lane = (laneid_t)-1;
 
 	inline bool operator== (SegLane const& r) const {
 		return seg == r.seg && lane == r.lane;
@@ -59,6 +60,8 @@ struct SegLane {
 	}
 
 	operator bool () const { return seg != nullptr; }
+
+	Lane& get ();
 	
 	Line clac_lane_info (float shift=0) const;
 	
@@ -66,17 +69,9 @@ struct SegLane {
 };
 VALUE_HASHER(SegLane, t.seg, t.lane);
 
-// extend the structs because otherwise I go crazy with nested structs and some contains searches break
-struct InLane : public SegLane {
-	bool yield;
-};
-struct OutLane : public SegLane {
-	
-};
-
 struct Connection {
-	InLane a;
-	OutLane b;
+	SegLane a;
+	SegLane b;
 	
 	// arbitrary order so we can treat b->a as a->b for Conflict cache
 	bool operator< (Connection const& other) const {
@@ -301,22 +296,6 @@ struct Node {
 
 	NodeVehicles vehicles;
 	
-	// TODO: can we get this info without needing so much memory
-
-	// TODO: only ever used in one place and the single bool (bool yield can just be stored in segment since every lane is only in_lane for one node)
-	//  and the only advantage is turning a 2 nested loop into a single loop ?? stupid
-	std::vector<InLane> in_lanes;
-	std::vector<OutLane> out_lanes;
-	
-	// NOTE: this allows U-turns
-	int num_conns () { return (int)in_lanes.size() * (int)out_lanes.size(); }
-	
-	InLane& get_in_lane (Segment* seg, uint16_t lane) {
-		int idx = indexof(in_lanes, SegLane{ seg, lane });
-		assert(idx >= 0);
-		return in_lanes[idx];
-	}
-	
 	void update_cached ();
 	
 	SelCircle get_sel_shape () {
@@ -326,6 +305,7 @@ struct Node {
 
 struct Lane {
 	Turns allowed_turns = Turns::ALL;
+	bool  yield = false;
 };
 
 // Segments are oriented from a -> b, such that the 'forward' lanes go from a->b and reverse lanes from b->a
@@ -369,25 +349,51 @@ struct Segment { // better name? Keep Path and call path Route?
 		return node_a == node ? pos_a : pos_b;
 	}
 
+	// I despise iterators so much... I just want zero-cost generator functions....
+	struct IterLanes {
+		struct _Iter {
+			SegLane sl;
 
-	struct DirLanes {
-		Segment& seg;
-		uint16_t first;
-		uint16_t end;
+			bool operator!= (_Iter const& other) {
+				assert(sl.seg == other.sl.seg); // only happens if caller is stupid
+				return sl.lane != other.sl.lane;
+			}
+			_Iter operator++ () {
+				auto copy = *this;
+				sl.lane++;
+				return copy; // return copy that no one ever needs
+			}
+			SegLane operator* () {
+				return sl; // don't actually deref anything
+			}
+		};
 
-		SegLane inner () { return { &seg, first }; };
-		SegLane outer () { return { &seg, (uint16_t)(end-1) }; };
+		Segment* seg;
+		laneid_t first;
+		laneid_t end_;
+
+		_Iter begin () { return {{ seg, first }}; }
+		_Iter end ()   { return {{ seg, end_ }}; }
+
+		SegLane inner () { return { seg, first }; }
+		SegLane outer () { return { seg, (laneid_t)(end_-1) }; }
 	};
-	DirLanes lanes_forward () {
-		uint16_t count = (uint16_t)asset->num_lanes_in_dir(LaneDir::FORWARD);
-		return { *this, 0, count };
+	IterLanes lanes_forward () {
+		laneid_t count = (laneid_t)asset->num_lanes_in_dir(LaneDir::FORWARD);
+		return { this, 0, count };
 	}
-	DirLanes lanes_backwards () {
-		uint16_t first = (uint16_t)asset->num_lanes_in_dir(LaneDir::FORWARD);
-		return { *this, first, (uint16_t)asset->lanes.size() };
+	IterLanes lanes_backwards () {
+		laneid_t first = (laneid_t)asset->num_lanes_in_dir(LaneDir::FORWARD);
+		return { this, first, (laneid_t)lanes.size() };
 	}
-	DirLanes lanes_in_dir (LaneDir dir) {
+	IterLanes lanes_in_dir (LaneDir dir) {
 		return dir == LaneDir::FORWARD ? lanes_forward() : lanes_backwards();
+	}
+	IterLanes in_lanes (Node* node) {
+		return lanes_in_dir(get_dir_to_node(node));
+	}
+	IterLanes out_lanes (Node* node) {
+		return lanes_in_dir(get_dir_from_node(node));
 	}
 
 	void update_cached () {
@@ -420,6 +426,9 @@ inline Line SegLane::clac_lane_info (float shift) const {
 
 	if (l.direction == LaneDir::FORWARD) return { a, b };
 	else                                 return { b, a };
+}
+inline Lane& SegLane::get () {
+	return seg->lanes[lane];
 }
 
 inline LaneVehicles& SegLane::vehicles () const {
@@ -542,46 +551,23 @@ struct Network {
 	void draw_debug (App& app, View3D& view);
 };
 
-inline void calc_default_allowed_turns (Node& node) {
-	for (int d=0; d<2; ++d) {
-		auto dir = (LaneDir)d;
-		for (auto& in_lane : node.in_lanes) {
-			auto& lane = in_lane.seg->lanes[in_lane.lane];
-
-			auto dir = in_lane.seg->get_dir_to_node(&node);
-
-			int count = in_lane.seg->asset->num_lanes_in_dir(dir);
-			int idx   = in_lane.seg->get_lane_layout(&lane).order;
-
-			if (count == 1) {
-				lane.allowed_turns = Turns::ALL;
-			}
-			else if (count == 2) {
-				if (idx == 0) lane.allowed_turns = Turns::LS;
-				else          lane.allowed_turns = Turns::SR;
-			}
-			else {
-				lane.allowed_turns = Turns::ALL;
-			}
-		}
-	}
-}
 inline Turns classify_turn (Node* node, Segment* in, Segment* out) {
-	// TODO: store dir for seg end and start point?
+	auto seg_dir_to_node = [] (Node* node, Segment* seg) {
+		float2 dir = seg->clac_seg_vecs().forw; // dir: node_a -> node_b
+		return seg->get_dir_to_node(node) == LaneDir::FORWARD ? dir : -dir;
+	};
 
-	float2 in_dir = in->clac_seg_vecs().forw; // dir: node_a -> node_b
-	if (in->node_a == node) in_dir = -in_dir;
+	float2 in_dir  = seg_dir_to_node(node, in);
+	float2 out_dir = seg_dir_to_node(node, out);
 
-	float2 out_dir = out->clac_seg_vecs().forw;
-	if (out->node_a != node) out_dir = -out_dir;
-
-	float d_forw  = dot(out_dir, in_dir);
-	float d_right = dot(out_dir, rotate90(-in_dir));
+	float2 rel;
+	rel.y = dot(-out_dir, in_dir);
+	rel.x = dot(-out_dir, rotate90(-in_dir));
 
 	// TODO: track uturns?
-	if (d_forw > abs(d_right)) return Turns::STRAIGHT;
-	else if (d_right < 0.0f)   return Turns::RIGHT;
-	else                       return Turns::LEFT;
+	if (rel.y > abs(rel.x)) return Turns::STRAIGHT;
+	else if (rel.x < 0.0f)  return Turns::LEFT;
+	else                    return Turns::RIGHT;
 }
 inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowed) {
 	return (classify_turn(node, in, out) & allowed) != Turns::NONE;
@@ -597,6 +583,31 @@ inline int calc_node_class (Node& node) {
 inline int default_lane_yield (int node_class, Segment& seg) {
 	return seg.asset->road_class < node_class;
 }
+inline void set_default_lane_options (Node& node) {
+	int node_class = calc_node_class(node);
+	
+	for (auto& seg : node.segments) {
+		auto dir = seg->get_dir_to_node(&node);
+		int count = seg->asset->num_lanes_in_dir(dir);
+
+		auto in_lanes = seg->lanes_in_dir(dir);
+		for (auto lane : in_lanes) {
+			Lane& l = lane.get();
+
+			bool leftmost = lane.lane == in_lanes.first;
+			if (count == 2) {
+				// 0 == leftmost
+				if (leftmost) l.allowed_turns = Turns::LS;
+				else          l.allowed_turns = Turns::SR;
+			}
+			else {
+				l.allowed_turns = Turns::ALL;
+			}
+			
+			l.yield = default_lane_yield(node_class, *seg);
+		}
+	}
+}
 
 inline void Node::update_cached () {
 	// Sort CCW(?) segments in place for good measure
@@ -611,28 +622,12 @@ inline void Node::update_cached () {
 		return ang_l < ang_r;
 	});
 
-	int node_class = calc_node_class(*this);
-
 	_radius = 0;
 	for (auto* seg : segments) {
-		LaneDir dir = this == seg->node_a ? LaneDir::FORWARD : LaneDir::BACKWARD; // 0: segment points 'away' from this node
-
-		for (int i=0; i<(int)seg->asset->lanes.size(); ++i) {
-			auto& lane = seg->asset->lanes[i];
-
-			if (lane.direction == dir) {
-				out_lanes.push_back(OutLane{ seg, (uint16_t)i });
-			}
-			else {
-				bool yield = default_lane_yield(node_class, *seg);
-				in_lanes.push_back(InLane{ seg, (uint16_t)i, yield });
-			}
-		}
-
 		_radius = max(_radius, distance(pos, seg->pos_for_node(this)));
 	}
 
-	calc_default_allowed_turns(*this);
+	set_default_lane_options(*this);
 }
 
 inline float get_cur_speed_limit (ActiveVehicle* vehicle) {

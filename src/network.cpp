@@ -105,36 +105,38 @@ bool Network::pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle)
 		}
 
 		// update neighbours with new minimum cost
-		for (auto& lane : cur_node->out_lanes) {
-			Node* other_node = lane.seg->get_other_node(cur_node);
+		for (auto& seg : cur_node->segments) {
+			for (auto lane : seg->in_lanes(cur_node)) {
+				Node* other_node = seg->get_other_node(cur_node);
 
-			// check if turn to this node is actually allowed
-			auto turn = classify_turn(cur_node, cur_node->_pred_seg, lane.seg);
-			if ((allowed & turn) == Turns::NONE) {
-				// turn not allowed
-				assert(false); // currently impossible, only the case for roads with no right turn etc.
-				//continue;
+				// check if turn to this node is actually allowed
+				auto turn = classify_turn(cur_node, cur_node->_pred_seg, lane.seg);
+				if ((allowed & turn) == Turns::NONE) {
+					// turn not allowed
+					assert(false); // currently impossible, only the case for roads with no right turn etc.
+					//continue;
+				}
+
+				float len = lane.seg->_length + lane.seg->node_a->_radius + lane.seg->node_b->_radius;
+				float cost = len / lane.seg->asset->speed_limit;
+				assert(cost > 0);
+
+				float new_cost = cur_node->_cost + cost;
+				if (new_cost < other_node->_cost && !other_node->_visited) {
+					other_node->_pred      = cur_node;
+					other_node->_pred_seg  = lane.seg;
+					other_node->_cost      = new_cost;
+					//assert(!other_node->_visited); // dijstra with positive costs should prevent this
+
+				#if DIJK_OPT
+					min_heap.push_or_decrease(other_node);
+				#else
+					unvisited.push({ other_node, other_node->_cost }); // push updated neighbour (duplicate)
+				#endif
+				}
+
+				_dijk_iter_lanes++;
 			}
-
-			float len = lane.seg->_length + lane.seg->node_a->_radius + lane.seg->node_b->_radius;
-			float cost = len / lane.seg->asset->speed_limit;
-			assert(cost > 0);
-
-			float new_cost = cur_node->_cost + cost;
-			if (new_cost < other_node->_cost && !other_node->_visited) {
-				other_node->_pred      = cur_node;
-				other_node->_pred_seg  = lane.seg;
-				other_node->_cost      = new_cost;
-				//assert(!other_node->_visited); // dijstra with positive costs should prevent this
-
-			#if DIJK_OPT
-				min_heap.push_or_decrease(other_node);
-			#else
-				unvisited.push({ other_node, other_node->_cost }); // push updated neighbour (duplicate)
-			#endif
-			}
-
-			_dijk_iter_lanes++;
 		}
 	}
 	
@@ -194,25 +196,25 @@ PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state
 	};
 	auto pick_random_allowed_lane_for_turn = [&] (Segment* in, Node* node, Segment* out) {
 		// still has next node, pick lane after cur_node based on required lane for turn at next_node
-		LaneDir dir = in->get_dir_to_node(node);
 		auto turn = classify_turn(node, in, out);
-		
-		auto lanes = in->lanes_in_dir(dir);
+		auto lanes = in->in_lanes(node);
 
 		int count = 0;
-		for (auto id=lanes.first; id<lanes.end; ++id) {
-			if ((in->lanes[id].allowed_turns & turn) != Turns::NONE)
+		for (auto lane : lanes) {
+			if ((lane.get().allowed_turns & turn) != Turns::NONE)
 				count++;
 		}
 
+		assert(count > 0);
 		int choice = seeded_rand.uniformi(0, count);
 		int idx = 0;
-		for (auto id=lanes.first; id<lanes.end; ++id) {
-			if ((in->lanes[id].allowed_turns & turn) != Turns::NONE) {
+		for (auto lane : lanes) {
+			if ((lane.get().allowed_turns & turn) != Turns::NONE) {
 				if (idx++ == choice)
-					return SegLane{ in, id };
+					return lane;
 			}
 		}
+		assert(false);
 		return SegLane{};
 	};
 
@@ -260,7 +262,7 @@ PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state
 				s.cur_lane = prev_state->next_lane;
 			
 				int i = (idx-1)/2;
-		
+				
 				Segment* seg0 = vehicle->path[i]; // current segment
 				Segment* seg1 = i+1 < num_seg ? vehicle->path[i+1] : nullptr; // next segment (after current node)
 				Segment* seg2 = i+2 < num_seg ? vehicle->path[i+2] : nullptr; // segment after that (after next node)
@@ -752,7 +754,7 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 		
 		// detemine right before left
 		bool can_yeild_rBl = !same && !diverge && !a_entered;
-		bool same_yield_level = a.conn.conn.a.yield == b.conn.conn.a.yield;
+		bool same_yield_level = a.conn.conn.a.get().yield == b.conn.conn.a.get().yield;
 		if (same_yield_level && can_yeild_rBl) {
 			left_vehicle = get_left_vehicle(a, b);
 		}
@@ -776,7 +778,7 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 			penalty += heur.right_before_left_penal;
 		}
 
-		if (v.conn.conn.a.yield)
+		if (v.conn.conn.a.get().yield)
 			penalty += heur.yield_lane_penal;
 		
 		// eta to leave intersection
@@ -841,44 +843,46 @@ void update_node (App& app, Node* node, float dt) {
 	};
 
 	//
-	for (auto& lane_out : node->out_lanes) {
-		auto& avail_space = lane_out.vehicles().avail_space;
-		avail_space = lane_out.seg->_length;
+	for (auto& seg : node->segments) {
+		for (auto lane_out : seg->out_lanes(node)) {
+			auto& avail_space = lane_out.vehicles().avail_space;
+			avail_space = lane_out.seg->_length;
 		
-		for (auto* a : lane_out.seg->vehicles.lanes[lane_out.lane].list.list) {
-			if (node_dbg) dbg_avail_space(lane_out, a);
+			for (auto* a : lane_out.seg->vehicles.lanes[lane_out.lane].list.list) {
+				if (node_dbg) dbg_avail_space(lane_out, a);
 
-			avail_space -= a->car_len() + SAFETY_DIST;
+				avail_space -= a->car_len() + SAFETY_DIST;
+			}
 		}
 	}
 	
 	// Track cars that are relevant to intersection
-	for (auto& lane : node->in_lanes) {
-		for (auto* v : lane.vehicles().list.list) {
-			if (node->vehicles.test.contains(v)) continue; // TODO: Expensive contains with vector
+	for (auto& seg : node->segments) {
+		for (auto lane : seg->in_lanes(node)) {
+			for (auto* v : lane.vehicles().list.list) {
+				if (node->vehicles.test.contains(v)) continue; // TODO: Expensive contains with vector
 
-			float dist = (1.0f - v->bez_t) * v->bez_speed;
-			if (dist > 10.0f) break;
+				float dist = (1.0f - v->bez_t) * v->bez_speed;
+				if (dist > 10.0f) break;
 
-			//auto s = get_vehicle_state_only_conn(v, v->idx);
-			if (!v->state.cur_lane || !v->state.next_lane)
-				continue;
+				//auto s = get_vehicle_state_only_conn(v, v->idx);
+				if (!v->state.cur_lane || !v->state.next_lane)
+					continue;
 
-			NodeVehicle vehicle;
-			vehicle.vehicle = v;
-			vehicle.node_idx = v->idx+1;
-			vehicle.wait_time = 0;
+				NodeVehicle vehicle;
+				vehicle.vehicle = v;
+				vehicle.node_idx = v->idx+1;
+				vehicle.wait_time = 0;
 
-			auto in_lane = node->get_in_lane(v->state.cur_lane.seg, v->state.cur_lane.lane);
-
-			vehicle.conn.conn = { in_lane, OutLane{ v->state.next_lane } };
-			auto bez = calc_curve(vehicle.conn.conn.a.clac_lane_info(), vehicle.conn.conn.b.clac_lane_info());
-			vehicle.conn.bez_len = bez.approx_len(COLLISION_STEPS);
+				vehicle.conn.conn = { v->state.cur_lane, v->state.next_lane };
+				auto bez = calc_curve(vehicle.conn.conn.a.clac_lane_info(), vehicle.conn.conn.b.clac_lane_info());
+				vehicle.conn.bez_len = bez.approx_len(COLLISION_STEPS);
 			
-			_gen_points(vehicle.conn.pointsL, vehicle.conn.conn, -LANE_COLLISION_R);
-			_gen_points(vehicle.conn.pointsR, vehicle.conn.conn, +LANE_COLLISION_R);
+				_gen_points(vehicle.conn.pointsL, vehicle.conn.conn, -LANE_COLLISION_R);
+				_gen_points(vehicle.conn.pointsR, vehicle.conn.conn, +LANE_COLLISION_R);
 
-			node->vehicles.test.add(vehicle);
+				node->vehicles.test.add(vehicle);
+			}
 		}
 	}
 	node->vehicles.test.remove_if([&] (NodeVehicle& v) {
@@ -965,9 +969,9 @@ void update_node (App& app, Node* node, float dt) {
 	for (int i=0; i<count; ++i) {
 		auto& a = node->vehicles.test.list[i];
 
-		if (a.vehicle == sel || a.vehicle == sel2) {
-			printf("");
-		}
+		//if (a.vehicle == sel || a.vehicle == sel2) {
+		//	printf("");
+		//}
 		
 		//// swap with car that has prio 1 higher according to heuristic
 		//if (i < count-1) {
@@ -984,9 +988,9 @@ void update_node (App& app, Node* node, float dt) {
 
 			bool dbg = (a.vehicle == sel || a.vehicle == sel2) && (b.vehicle == sel || b.vehicle == sel2);
 		
-			if (dbg) {
-				printf("");
-			}
+			//if (dbg) {
+			//	printf("");
+			//}
 
 			_yield_for_car(app, node, a, b, dbg);
 		}

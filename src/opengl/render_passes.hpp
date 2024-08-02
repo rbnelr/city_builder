@@ -21,12 +21,12 @@ struct Textures {
 	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
 
 	const char* turn_arrows[7] = {
-		"misc/turn_arrow_R.png"  ,
-		"misc/turn_arrow_S.png"  ,
-		"misc/turn_arrow_SR.png" ,
 		"misc/turn_arrow_L.png"  ,
-		"misc/turn_arrow_LR.png" ,
+		"misc/turn_arrow_S.png"  ,
 		"misc/turn_arrow_LS.png" ,
+		"misc/turn_arrow_R.png"  ,
+		"misc/turn_arrow_LR.png" ,
+		"misc/turn_arrow_SR.png" ,
 		"misc/turn_arrow_LSR.png",
 	};
 

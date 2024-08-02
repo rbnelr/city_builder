@@ -1035,9 +1035,10 @@ struct Mesher {
 
 			auto v = seg->clac_seg_vecs();
 			
-			for (int i=0; i<(int)seg->lanes.size(); ++i) {
-				auto& lane = seg->lanes[i];
-				network::SegLane seg_lane = { seg.get(), (uint16_t)i };
+			for (laneid_t id=0; id<(laneid_t)seg->lanes.size(); ++id) {
+				auto seg_lane = network::SegLane{ seg.get(), id };
+				auto& lane = seg->lanes[id];
+				auto& lane_asset = seg->get_lane_layout(&lane);
 
 				auto li = seg_lane.clac_lane_info();
 				// TODO: this will be a bezier
@@ -1046,7 +1047,7 @@ struct Mesher {
 				float ang = angle2d((float2)forw) - deg(90);
 
 				{ // push turn arrow
-					float2 size = float2(1, 1.5f) * seg->asset->lanes[i].width;
+					float2 size = float2(1, 1.5f) * lane_asset.width;
 
 					float3 pos = li.b;
 					pos -= forw * size.y*0.75f;
@@ -1083,22 +1084,17 @@ struct Mesher {
 					decals.push_back(decal);
 				};
 
-
-				auto& lane_asset = seg->asset->lanes[i];
-				auto in_node = seg->get_node_in_dir(lane_asset.direction);
-				auto& in_lane = in_node->get_in_lane(seg.get(), (uint16_t)i);
-
 				if (lane_asset.direction == LaneDir::FORWARD) {
 					float l = lane_asset.shift - lane_asset.width*0.5f;
 					float r = lane_asset.shift + lane_asset.width*0.5f;
 
-					stop_line(seg->pos_b, l, r, 0, in_lane.yield);
+					stop_line(seg->pos_b, l, r, 0, lane.yield);
 				}
 				else {
 					float l = lane_asset.shift - lane_asset.width*0.5f;
 					float r = lane_asset.shift + lane_asset.width*0.5f;
 
-					stop_line(seg->pos_a, l, r, 1, in_lane.yield);
+					stop_line(seg->pos_a, l, r, 1, lane.yield);
 				}
 			}
 		}

@@ -1035,7 +1035,7 @@ struct Mesher {
 
 			auto v = seg->clac_seg_vecs();
 			
-			for (laneid_t id=0; id<(laneid_t)seg->lanes.size(); ++id) {
+			for (laneid_t id=0; id<seg->num_lanes(); ++id) {
 				auto seg_lane = network::SegLane{ seg.get(), id };
 				auto& lane = seg->lanes[id];
 				auto& lane_asset = seg->get_lane_layout(&lane);

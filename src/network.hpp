@@ -294,6 +294,8 @@ struct Node {
 	Node*    _pred;
 	Segment* _pred_seg;
 
+	bool _fully_dedicated_turns = false; // TODO: do this differently in the future
+
 	NodeVehicles vehicles;
 	
 	void update_cached ();
@@ -322,7 +324,7 @@ struct Segment { // better name? Keep Path and call path Route?
 	SegVehicles vehicles;
 
 	std::vector<Lane> lanes;
-	typedef std::vector<Lane>::iterator lanes_it_t;
+	laneid_t num_lanes () const { return (laneid_t)lanes.size(); }
 
 	Lane& get_lane (NetworkAsset::Lane* layout_lane) {
 		return lanes[layout_lane - &asset->lanes[0]];
@@ -345,12 +347,12 @@ struct Segment { // better name? Keep Path and call path Route?
 		return dir == LaneDir::FORWARD ? node_b : node_a;
 	}
 
-	float3 pos_for_node (Node* node) {
+	float3& pos_for_node (Node* node) {
 		return node_a == node ? pos_a : pos_b;
 	}
 
 	// I despise iterators so much... I just want zero-cost generator functions....
-	struct IterLanes {
+	struct LanesRange {
 		struct _Iter {
 			SegLane sl;
 
@@ -377,22 +379,31 @@ struct Segment { // better name? Keep Path and call path Route?
 
 		SegLane inner () { return { seg, first }; }
 		SegLane outer () { return { seg, (laneid_t)(end_-1) }; }
+
+		bool contains (SegLane sl) {
+			return sl.seg == seg && (sl.lane >= first && sl.lane < end_);
+		}
+
+		SegLane operator[] (laneid_t idx) {
+			assert(idx >= first && idx < end_);
+			return { seg, (laneid_t)(first+idx) };
+		}
 	};
-	IterLanes lanes_forward () {
+	LanesRange lanes_forward () {
 		laneid_t count = (laneid_t)asset->num_lanes_in_dir(LaneDir::FORWARD);
 		return { this, 0, count };
 	}
-	IterLanes lanes_backwards () {
+	LanesRange lanes_backwards () {
 		laneid_t first = (laneid_t)asset->num_lanes_in_dir(LaneDir::FORWARD);
-		return { this, first, (laneid_t)lanes.size() };
+		return { this, first, num_lanes() };
 	}
-	IterLanes lanes_in_dir (LaneDir dir) {
+	LanesRange lanes_in_dir (LaneDir dir) {
 		return dir == LaneDir::FORWARD ? lanes_forward() : lanes_backwards();
 	}
-	IterLanes in_lanes (Node* node) {
+	LanesRange in_lanes (Node* node) {
 		return lanes_in_dir(get_dir_to_node(node));
 	}
-	IterLanes out_lanes (Node* node) {
+	LanesRange out_lanes (Node* node) {
 		return lanes_in_dir(get_dir_from_node(node));
 	}
 
@@ -538,9 +549,15 @@ struct Network {
 	int _dijk_iter_dupl = 0;
 	int _dijk_iter_lanes = 0;
 
+	// Just an experiment for now
+	float _random_lane_switching_chance = 0.15f;
+
 	void imgui () {
 		metrics.imgui();
 		settings.imgui();
+
+		ImGui::SliderFloat("random_lane_switching_chance", &_random_lane_switching_chance, 0, 1);
+		_random_lane_switching_chance = clamp(_random_lane_switching_chance, 0.0f, 1.0f);
 	}
 
 	bool pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle);
@@ -583,28 +600,47 @@ inline int calc_node_class (Node& node) {
 inline int default_lane_yield (int node_class, Segment& seg) {
 	return seg.asset->road_class < node_class;
 }
-inline void set_default_lane_options (Node& node) {
+inline void set_default_lane_options (Node& node, bool fully_dedicated=false) {
 	int node_class = calc_node_class(node);
 	
 	for (auto& seg : node.segments) {
 		auto dir = seg->get_dir_to_node(&node);
 		int count = seg->asset->num_lanes_in_dir(dir);
-
 		auto in_lanes = seg->lanes_in_dir(dir);
-		for (auto lane : in_lanes) {
-			Lane& l = lane.get();
+		
+		if (count <= 1) {
+			for (auto lane : in_lanes)
+				lane.get().allowed_turns = Turns::ALL;
+		}
+		else if (count == 2 || !fully_dedicated) {
+			for (auto lane : in_lanes) {
+				bool leftmost  = lane.lane == in_lanes.first;
+				bool rightmost = lane.lane == in_lanes.end_-1;
+				if      (leftmost)  lane.get().allowed_turns = Turns::LS;
+				else if (rightmost) lane.get().allowed_turns = Turns::SR;
+				else                lane.get().allowed_turns = Turns::STRAIGHT;
+			}
+		}
+		else {
+			// fully dedicated
+			int div = count / 3;
+			int rem = count % 3;
 
-			bool leftmost = lane.lane == in_lanes.first;
-			if (count == 2) {
-				// 0 == leftmost
-				if (leftmost) l.allowed_turns = Turns::LS;
-				else          l.allowed_turns = Turns::SR;
+			// equal lanes for left straight right turn, remainder goes to straight then left
+			int L=div, S=div, R=div;
+			if (rem >= 1) S+=1;
+			if (rem >= 1) L+=1;
+
+			for (auto lane : in_lanes) {
+				int idx = 0;
+				for (int i=0; i<L; ++i) in_lanes[idx++].get().allowed_turns = Turns::LEFT;
+				for (int i=0; i<S; ++i) in_lanes[idx++].get().allowed_turns = Turns::STRAIGHT;
+				for (int i=0; i<R; ++i) in_lanes[idx++].get().allowed_turns = Turns::RIGHT;
 			}
-			else {
-				l.allowed_turns = Turns::ALL;
-			}
-			
-			l.yield = default_lane_yield(node_class, *seg);
+		}
+
+		for (auto lane : in_lanes) {
+			lane.get().yield = default_lane_yield(node_class, *seg);
 		}
 	}
 }
@@ -627,7 +663,7 @@ inline void Node::update_cached () {
 		_radius = max(_radius, distance(pos, seg->pos_for_node(this)));
 	}
 
-	set_default_lane_options(*this);
+	set_default_lane_options(*this, _fully_dedicated_turns);
 }
 
 inline float get_cur_speed_limit (ActiveVehicle* vehicle) {

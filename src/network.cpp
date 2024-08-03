@@ -173,7 +173,7 @@ bool Network::pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle)
 	return true;
 }
 
-PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state = nullptr) {
+PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathState* prev_state = nullptr) {
 	PathState s = {};
 
 	int num_seg = (int)vehicle->path.size();
@@ -194,28 +194,56 @@ PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state
 		else
 			return in->node_b;
 	};
-	auto pick_random_allowed_lane_for_turn = [&] (Segment* in, Node* node, Segment* out) {
-		// still has next node, pick lane after cur_node based on required lane for turn at next_node
-		auto turn = classify_turn(node, in, out);
-		auto lanes = in->in_lanes(node);
-
+	
+	auto roll_random_lane_switch = [&] () {
+		return seeded_rand.chance(net._random_lane_switching_chance);
+	};
+	auto pick_random_allowed_lane = [&] (Segment::LanesRange& lanes, Turns turn, SegLane default_lane, bool exclude_default=false) {
+		auto choose = [&] (SegLane lane) {
+			return (lane.get().allowed_turns & turn) != Turns::NONE &&
+				(exclude_default ? lane != default_lane : true);
+		};
+		
 		int count = 0;
 		for (auto lane : lanes) {
-			if ((lane.get().allowed_turns & turn) != Turns::NONE)
+			if (choose(lane))
 				count++;
 		}
-
-		assert(count > 0);
-		int choice = seeded_rand.uniformi(0, count);
-		int idx = 0;
-		for (auto lane : lanes) {
-			if ((lane.get().allowed_turns & turn) != Turns::NONE) {
-				if (idx++ == choice)
+		
+		if (count > 0) {
+			int choice = seeded_rand.uniformi(0, count);
+			int idx = 0;
+			for (auto lane : lanes) {
+				if (choose(lane) && idx++ == choice)
 					return lane;
 			}
 		}
-		assert(false);
-		return SegLane{};
+		// if no lanes were chosen for random pick either because exclude_default or missing allowed turn (pathfinding bug?)
+		return default_lane;
+	};
+	auto pick_stay_in_lane = [&] (Segment::LanesRange& next_lanes, SegLane& cur_lane) {
+		// stupid logic for now
+		auto lane = (laneid_t)clamp(cur_lane.lane, next_lanes.first, next_lanes.end_-1);
+		return SegLane{ next_lanes.seg, lane };
+	};
+
+	auto pick_next_lane = [&] (SegLane& cur_lane, Segment* in, Node* node, Segment* out) {
+		auto turn = classify_turn(node, in, out);
+		auto in_lanes = in->in_lanes(node);
+		
+		SegLane stay_lane = pick_stay_in_lane(in_lanes, cur_lane);
+		bool can_stay_in_lane = (stay_lane.get().allowed_turns & turn) != Turns::NONE;
+
+		// if we can't stay in lane, pick random turn lane
+		if (!can_stay_in_lane)
+			return pick_random_allowed_lane(in_lanes, turn, stay_lane);
+
+		// randomly switch lanes, but never switch
+		if (roll_random_lane_switch())
+			return pick_random_allowed_lane(in_lanes, turn, stay_lane, true);
+
+		// otherwise stay in lane if allowed
+		return stay_lane;
 	};
 
 	if (idx == 0) {
@@ -271,7 +299,7 @@ PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state
 				Node* next_node = seg2 ? find_node(seg1, seg2) : nullptr; // next/after that segment -> next node
 		
 				if (!seg1) {
-					// already on target lane
+					// already on target lane (end of trip)
 					s.next_lane = {};
 				}
 				else if (!seg2) {
@@ -283,7 +311,7 @@ PathState get_path_state (ActiveVehicle* vehicle, int idx, PathState* prev_state
 				else {
 					assert(seg1 && next_node && seg2);
 					// still has next node, pick lane after cur_node based on required lane for turn at next_node
-					s.next_lane = pick_random_allowed_lane_for_turn(seg1, next_node, seg2);
+					s.next_lane = pick_next_lane(s.cur_lane, seg1, next_node, seg2);
 				}
 			}
 
@@ -433,7 +461,7 @@ void debug_person (App& app, Person* person, View3D const& view) {
 			start_t = s.next_start_t;
 			if (s.state == PathState::ENTER_BUILDING) break;
 
-			s = get_path_state(person->vehicle.get(), i+1, &s);
+			s = get_path_state(app.net, person->vehicle.get(), i+1, &s);
 		}
 	}
 
@@ -1143,7 +1171,7 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 			return;
 		}
 
-		vehicle->state = get_path_state(vehicle, vehicle->idx, &vehicle->state);
+		vehicle->state = get_path_state(app.net, vehicle, vehicle->idx, &vehicle->state);
 	}
 
 	// eval bezier at car front
@@ -1245,7 +1273,7 @@ void Network::simulate (App& app) {
 				person->cur_building = nullptr;
 				person->vehicle = std::move(vehicle);
 				// get initial state
-				person->vehicle->state = get_path_state(person->vehicle.get(), person->vehicle->idx);
+				person->vehicle->state = get_path_state(*this, person->vehicle.get(), person->vehicle->idx);
 				return true;
 			}
 		}

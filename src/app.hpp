@@ -599,22 +599,42 @@ struct App : public Engine {
 			
 			auto* small_road  = assets.networks[0].get();
 			auto* medium_road = assets.networks[1].get();
+			auto* medium_road_asym = assets.networks[2].get();
 			
 			float2 spacing = float2(60, 60);
 
-			auto road_type = [&] (int x_or_y) {
-				return (x_or_y-5) % 10 == 0 ? medium_road : small_road;
+			auto road_type = [&] (int2 pos, int axis, bool* flip=nullptr) {
+				bool type1 = wrap(pos[axis^1]-5, 0,10) == 0;
+
+				bool type2_0 = wrap(pos[axis]-5, 0,10) <= 1;
+				bool type2_1 = wrap(pos[axis]-5, 0,10) >= 8;
+
+				if (type1) {
+					if (type2_0 || type2_1) {
+						if (flip) *flip = type2_0;
+						return medium_road_asym;
+					}
+					return medium_road;
+				}
+				return small_road;
 			};
 
 			// create path nodes grid
 			for (int y=0; y<_grid_n+1; ++y)
 			for (int x=0; x<_grid_n+1; ++x) {
 				float3 pos = base_pos + float3((float)x,(float)y,0) * float3(spacing, 0);
-				net.nodes[y * (_grid_n+1) + x] = std::make_unique<Node>(Node{pos});
+				auto node = std::make_unique<Node>(Node{pos});
+
+				bool big_intersec = wrap(x-5, 0,10) == 0 && wrap(y-5, 0,10) == 0;
+				node->_fully_dedicated_turns = big_intersec;
+
+				net.nodes[y * (_grid_n+1) + x] = std::move(node);
 			}
 			
-			auto create_segment = [&] (NetworkAsset* layout, Node* node_a, Node* node_b, int pos) {
+			auto create_segment = [&] (NetworkAsset* layout, Node* node_a, Node* node_b, int2 pos, int axis, bool flip) {
 				assert(node_a && node_b && node_a != node_b);
+
+				if (flip) std::swap(node_a, node_b);
 
 				float3 dir = normalizesafe(node_b->pos - node_a->pos);
 
@@ -625,10 +645,15 @@ struct App : public Engine {
 				node_a->segments.push_back(seg);
 				node_b->segments.push_back(seg);
 
-				seg->vehicles.lanes.resize(layout->lanes.size());
+				int2 pos2 = pos;
+				pos2[axis] += 1;
 
-				seg->pos_a = node_a->pos + dir * (road_type(pos  )->width * 0.5f + _intersection_radius);
-				seg->pos_b = node_b->pos - dir * (road_type(pos+1)->width * 0.5f + _intersection_radius);
+				if (flip) std::swap(pos, pos2);
+				
+				seg->pos_a = node_a->pos + dir * (road_type(pos,  axis^1)->width * 0.5f + _intersection_radius);
+				seg->pos_b = node_b->pos - dir * (road_type(pos2, axis^1)->width * 0.5f + _intersection_radius);
+
+				seg->vehicles.lanes.resize(layout->lanes.size());
 
 				seg->update_cached();
 			};
@@ -636,26 +661,28 @@ struct App : public Engine {
 			// create x paths
 			for (int y=0; y<_grid_n+1; ++y)
 			for (int x=0; x<_grid_n; ++x) {
-				auto layout = road_type(y);
+				bool flip;
+				auto layout = road_type(int2(x,y), 0, &flip);
 
 				auto* a = get_node(x, y);
 				auto* b = get_node(x+1, y);
-				create_segment(layout, a, b, x);
+				create_segment(layout, a, b, int2(x,y), 0, flip);
 			}
 			// create y paths
 			for (int y=0; y<_grid_n; ++y)
 			for (int x=0; x<_grid_n+1; ++x) {
-				auto layout = road_type(x);
+				bool flip;
+				auto layout = road_type(int2(x,y), 1, &flip);
 
-				if (rand.chance(_connection_chance) || layout == medium_road) {
+				if (layout != small_road || rand.chance(_connection_chance)) {
 					auto* a = get_node(x, y);
 					auto* b = get_node(x, y+1);
-					create_segment(layout, a, b, y);
+					create_segment(layout, a, b, int2(x,y), 1, flip);
 				}
 			}
 
 			for (auto& node : net.nodes) {
-				node->update_cached(); // update seg connections
+				node->update_cached();
 			}
 
 			for (int y=0; y<_grid_n+1; ++y)
@@ -663,28 +690,30 @@ struct App : public Engine {
 				Random rand(hash(int2(x,y))); // position-based rand
 				auto* asset = rand.uniformi(0, 2) ? house0 : house1;
 
-				float3 road_center = (float3((float)x,(float)y,0) + float3(0.5f,0,0)) * float3(spacing,0);
-
-				float3 pos1 = base_pos + road_center + float3(0, asset->size.y, 0);
-				float rot1 = deg(90);
-				auto build1 = std::make_unique<Building>(Building{ asset, pos1, rot1 });
-				
-				float3 pos2 = base_pos + road_center - float3(0, asset->size.y, 0);
-				float rot2 = deg(-90);
-				auto build2 = std::make_unique<Building>(Building{ asset, pos2, rot2 });
-
-				//
-				auto* a = get_node(x, y);
-				auto* b = get_node(x+1, y);
-				for (auto& seg : a->segments) {
-					auto* other_node = seg->node_a != a ? seg->node_a : seg->node_b;
-					if (other_node == b) {
-						// found path in front of building
-						build1->connected_segment = seg;
-						build2->connected_segment = seg;
-						break;
+				Segment* conn_seg = nullptr;
+				{
+					auto* a = get_node(x, y);
+					auto* b = get_node(x+1, y);
+					for (auto& seg : a->segments) {
+						auto* other_node = seg->node_a != a ? seg->node_a : seg->node_b;
+						if (other_node == b) {
+							// found path in front of building
+							conn_seg = seg;
+							break;
+						}
 					}
 				}
+
+				float3 road_center = (float3((float)x,(float)y,0) + float3(0.5f,0,0)) * float3(spacing,0);
+				float road_width = conn_seg->asset->width * 0.5f;
+
+				float3 pos1 = base_pos + road_center + float3(0, road_width + asset->size.y, 0);
+				float rot1 = deg(90);
+				auto build1 = std::make_unique<Building>(Building{ asset, pos1, rot1, conn_seg });
+				
+				float3 pos2 = base_pos + road_center - float3(0, road_width + asset->size.y, 0);
+				float rot2 = deg(-90);
+				auto build2 = std::make_unique<Building>(Building{ asset, pos2, rot2, conn_seg });
 
 				assert(build1->connected_segment);
 				assert(build2->connected_segment);

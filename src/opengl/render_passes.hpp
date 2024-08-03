@@ -130,10 +130,10 @@ struct Textures {
 		
 		// TODO: make dynamic so that any texture from json works
 		load_bindless<srgb8>("vehicles/car.diff.png");
-		load_bindless<srgb8>("vehicles/car.TR.png");
+		load_bindless<srgb8>("vehicles/car.pbr.png");
 
 		load_bindless<srgb8>("vehicles/bus.diff.png");
-		load_bindless<srgb8>("vehicles/bus.TR.png");
+		load_bindless<srgb8>("vehicles/bus.pbr.png");
 	}
 
 	Textures () {

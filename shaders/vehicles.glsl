@@ -48,10 +48,9 @@ void main () {
 	GBUF_OUT
 	void main () {
 		vec4 diff = texture(bindless_tex(v.tex_id), v.uv);
-		vec3 TRM = texture(bindless_tex(v.tex_id+1), v.uv).rgb;
-		float tint = TRM.r;
-		vec2 pbr = TRM.gb;
-		pbr.g = 0; // hardcode for now, while textuer is not final
+		vec3 tint_pbr = texture(bindless_tex(v.tex_id+1), v.uv).rgb;
+		float tint = tint_pbr.r;
+		vec2 pbr = tint_pbr.gb;
 		
 		diff.rgb *= mix(vec3(1.0), v.col, tint);
 		

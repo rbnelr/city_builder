@@ -635,7 +635,7 @@ inline void set_default_lane_options (Node& node, bool fully_dedicated=false) {
 				int idx = 0;
 				for (int i=0; i<L; ++i) in_lanes[idx++].get().allowed_turns = Turns::LEFT;
 				for (int i=0; i<S; ++i) in_lanes[idx++].get().allowed_turns = Turns::STRAIGHT;
-				for (int i=0; i<R; ++i) in_lanes[idx++].get().allowed_turns = Turns::RIGHT;
+				for (int i=0; i<R; ++i) in_lanes[idx++].get().allowed_turns = Turns::SR; //Turns::RIGHT;
 			}
 		}
 

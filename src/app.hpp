@@ -688,7 +688,6 @@ struct App : public Engine {
 			for (int y=0; y<_grid_n+1; ++y)
 			for (int x=0; x<_grid_n; ++x) {
 				Random rand(hash(int2(x,y))); // position-based rand
-				auto* asset = rand.uniformi(0, 2) ? house0 : house1;
 
 				Segment* conn_seg = nullptr;
 				{
@@ -706,19 +705,21 @@ struct App : public Engine {
 
 				float3 road_center = (float3((float)x,(float)y,0) + float3(0.5f,0,0)) * float3(spacing,0);
 				float road_width = conn_seg->asset->width * 0.5f;
-
-				float3 pos1 = base_pos + road_center + float3(0, road_width + asset->size.y, 0);
-				float rot1 = deg(90);
-				auto build1 = std::make_unique<Building>(Building{ asset, pos1, rot1, conn_seg });
 				
-				float3 pos2 = base_pos + road_center - float3(0, road_width + asset->size.y, 0);
-				float rot2 = deg(-90);
-				auto build2 = std::make_unique<Building>(Building{ asset, pos2, rot2, conn_seg });
-
-				assert(build1->connected_segment);
-				assert(build2->connected_segment);
-				entities.buildings.emplace_back(std::move(build1));
-				entities.buildings.emplace_back(std::move(build2));
+				{
+					auto* asset = rand.uniformi(0, 2) ? house0 : house1;
+					float3 pos1 = base_pos + road_center + float3(0, road_width + asset->size.y, 0);
+					float rot1 = deg(90);
+					auto build1 = std::make_unique<Building>(Building{ asset, pos1, rot1, conn_seg });
+					entities.buildings.emplace_back(std::move(build1));
+				}
+				{
+					auto* asset = rand.uniformi(0, 2) ? house0 : house1;
+					float3 pos2 = base_pos + road_center - float3(0, road_width + asset->size.y, 0);
+					float rot2 = deg(-90);
+					auto build2 = std::make_unique<Building>(Building{ asset, pos2, rot2, conn_seg });
+					entities.buildings.emplace_back(std::move(build2));
+				}
 			}
 
 			entities.buildings_changed = true;

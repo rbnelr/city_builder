@@ -74,10 +74,28 @@ struct Person {
 		return clamp(1.1f + agressiveness, 0.7f, 1.5f);
 	}
 
-	Person (Random& r, Building* initial_building) {
-		cur_building = initial_building;
+	Person (Random& r, Building* initial_building, VehicleAsset* owned_vehicle) {
+		this->cur_building = initial_building;
+		this->owned_vehicle = owned_vehicle;
 
-		col = hsv2rgb(r.uniformf(), 1.0f, 0.6f);
+		if (r.chance(0.5f)) {
+			lrgb std_colors[] = {
+				lrgb(0,0,0),
+				lrgb(0,0,0),
+				lrgb(0.1f,0.1f,0.1f),
+				lrgb(0.5f,0.5f,0.55f),
+				lrgb(1,1,1),
+				lrgb(0.95f,0.1f,0.1f),
+			};
+			col = std_colors[r.uniformi(0, ARRLEN(std_colors))];
+		}
+		else {
+			col = hsv2rgb(r.uniformf(), 1.0f, 0.8f); // debug-like colorful colors
+		}
+
+		if (owned_vehicle->filename == "vehicles/van.fbx" && r.chance(0.8f)) {
+			col = lrgb(1,1,1);
+		}
 
 		float agressiveness_deviation = 0.15f;
 		agressiveness = r.normalf(agressiveness_deviation, 0.0f);
@@ -754,8 +772,7 @@ struct App : public Engine {
 					auto* building = entities.buildings[rand.uniformi(0, (int)entities.buildings.size())].get();
 					auto* car_asset = rand_car.get_random(rand)->get();
 					
-					entities.persons[i] = std::make_unique<Person>(Person{rand, building});
-					entities.persons[i]->owned_vehicle = car_asset;
+					entities.persons[i] = std::make_unique<Person>(Person{rand, building, car_asset});
 				}
 			}
 		}

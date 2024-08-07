@@ -148,8 +148,36 @@ struct PointLight {
 	}
 };
 
+struct PropAsset {
+	SERIALIZE_ASSET(PropAsset, name, filename, tex_filename, lights)
+
+	std::string name = "<unnamed>";
+	std::string filename;
+	std::string tex_filename;
+
+	AssetMesh<BasicVertex> mesh;
+
+	std::vector<PointLight> lights;
+
+	bool imgui () {
+		bool changed = false;
+
+		changed = ImGui::InputText("name", &name) || changed;
+		
+		changed = imgui_edit_vector("lights", lights, [&] (int i, PointLight& l) {
+			return l.imgui("light");
+		}) || changed;
+
+		return changed;
+	}
+
+	void reload () {
+		assimp::load_basic(prints("assets/%s", filename.c_str()).c_str(), &mesh);
+	}
+};
+
 struct NetworkAsset {
-	SERIALIZE_ASSET(NetworkAsset, name, filename, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
+	SERIALIZE_ASSET(NetworkAsset, name, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
 
 	struct Lane {
 		SERIALIZE(Lane, shift, width, direction)
@@ -169,17 +197,19 @@ struct NetworkAsset {
 	};
 
 	struct Streetlight {
-		SERIALIZE(Streetlight, shift, spacing, rot, light)
+		SERIALIZE(Streetlight, prop, shift, spacing, rot)
+
+		// TODO: need to create a system where this is saved by name, and stored ref counted at runtime
+		//PropAsset* prop = nullptr;
+		PropAsset prop; // tmp fix
 
 		float3 shift = 0;
 		float spacing = 10;
 		float rot = deg(90);
-
-		PointLight light;
 	};
 	
 	std::string name = "<unnamed>";
-	std::string filename;
+	//std::string filename;
 
 	int road_class = 0;
 
@@ -253,7 +283,8 @@ struct NetworkAsset {
 			bool changed = ImGui::DragFloat3("shift", &l.shift.x, 0.1f);
 			changed = ImGui::DragFloat("spacing", &l.spacing, 0.1f) || changed;
 			changed = ImGui::SliderAngle("rot", &l.rot, 0, 360) || changed;
-			changed = l.light.imgui("light") || changed;
+
+			changed = l.prop.imgui() || changed;
 			return changed;
 		}) || changed;
 
@@ -300,10 +331,11 @@ constexpr const char* VEHICLE_BONE_NAMES[] = {
 };
 
 struct BuildingAsset {
-	SERIALIZE_ASSET(BuildingAsset, name, filename, type, citizens, size)
+	SERIALIZE_ASSET(BuildingAsset, name, filename, tex_filename, type, citizens, size)
 
 	std::string name = "<unnamed>";
 	std::string filename;
+	std::string tex_filename;
 
 	BuildingType type = BuildingType::RESIDENTIAL;
 	int citizens = 10;
@@ -334,7 +366,6 @@ struct VehicleAsset {
 
 	std::string name = "<unnamed>";
 	std::string filename;
-
 	std::string tex_filename;
 
 	float spawn_weight = 1;
@@ -347,18 +378,6 @@ struct VehicleAsset {
 
 	void reload () {
 		assimp::load_simple_anim(prints("assets/%s", filename.c_str()).c_str(), &mesh, bone_mats, &wheel_r);
-	}
-};
-struct PropAsset {
-	SERIALIZE_ASSET(PropAsset, name, filename)
-
-	std::string name = "<unnamed>";
-	std::string filename;
-
-	AssetMesh<BasicVertex> mesh;
-
-	void reload () {
-		assimp::load_basic(prints("assets/%s", filename.c_str()).c_str(), &mesh);
 	}
 };
 
@@ -404,6 +423,10 @@ struct Assets {
 		if (ImGui::Button("Reload All"))
 			reload_all();
 		
+		imgui_edit_vector("props", props, [&] (int i, std::unique_ptr<PropAsset>& prop) {
+			prop->imgui();
+			return false;
+		});
 		imgui_edit_vector("networks", networks, [&] (int i, std::unique_ptr<NetworkAsset>& network) {
 			network->imgui(settings);
 			return false;

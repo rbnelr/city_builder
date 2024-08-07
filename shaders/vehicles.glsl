@@ -48,14 +48,13 @@ void main () {
 	GBUF_OUT
 	void main () {
 		vec4 diff = texture(bindless_tex(v.tex_id), v.uv);
-		vec3 tint_pbr = texture(bindless_tex(v.tex_id+1), v.uv).rgb;
-		float tint = tint_pbr.r;
-		vec2 pbr = tint_pbr.gb;
+		vec3 TRM = texture(bindless_tex(v.tex_id+1), v.uv).rgb;
 		
-		diff.rgb *= mix(vec3(1.0), v.col, tint);
+		// tint based on pbr.r and instance color
+		diff.rgb *= mix(vec3(1.0), v.col, TRM.r);
 		
 		frag_col = diff;
 		frag_norm = vec4(v.world_normal, 1.0);
-		frag_pbr  = vec4(pbr, 0,1);
+		frag_pbr  = vec4(TRM.gb, 0,1);
 	}
 #endif

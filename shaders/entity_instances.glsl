@@ -2,6 +2,7 @@
 // float x,y,z instead of vec3 to avoid alignment being applied (VBO instance buffer does not align, C++ float3 does not align and we can simply read as floats and turn them into a vec3
 struct StaticEntityInstance {
 	uint  mesh_id;
+	uint  tex_id;
 	float posx, posy, posz;
 	float rotx;
 	float colr, colg, colb;

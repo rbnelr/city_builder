@@ -22,6 +22,10 @@ void main () {
 	v.light_radius = instance_radius;
 	v.light_col    = instance_col;
 	
+	// Not working, whyy??????
+	//if (distance(v.light_pos, view.cam_pos) < 30.0)
+	//	dbgdraw_point(v.light_pos, 0.5, vec4(1,0,0,1));
+	
 	gl_Position = view.world2clip * vec4(world_pos, 1.0);
 }
 

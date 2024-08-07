@@ -78,7 +78,10 @@ struct Person {
 		this->cur_building = initial_building;
 		this->owned_vehicle = owned_vehicle;
 
-		if (r.chance(0.5f)) {
+		bool van = owned_vehicle->filename == "vehicles/van.fbx";
+		bool bus = owned_vehicle->filename == "vehicles/bus.fbx";
+
+		if (r.chance(0.5f) && !bus) {
 			lrgb std_colors[] = {
 				lrgb(0,0,0),
 				lrgb(0,0,0),
@@ -93,7 +96,7 @@ struct Person {
 			col = hsv2rgb(r.uniformf(), 1.0f, 0.8f); // debug-like colorful colors
 		}
 
-		if (owned_vehicle->filename == "vehicles/van.fbx" && r.chance(0.8f)) {
+		if (van && r.chance(0.8f)) {
 			col = lrgb(1,1,1);
 		}
 

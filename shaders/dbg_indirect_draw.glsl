@@ -53,6 +53,7 @@ layout(std430, binding = 2) restrict buffer IndirectBuffer {
 //	_dbgdrawbuf.wire_spheres.cmd.primCount = 0;
 //}
 void dbgdraw_vector (vec3 pos, vec3 dir, vec4 col) {
+	if (!_dbgdrawbuf.update) return;
 	uint idx = atomicAdd(_dbgdrawbuf.lines.cmd.count, 2u);
 	if (idx >= _INDIRECT_BUFSZ) return;
 	
@@ -60,6 +61,7 @@ void dbgdraw_vector (vec3 pos, vec3 dir, vec4 col) {
 	_dbgdrawbuf.lines.vertices[idx++] = IndirectLineVertex( vec4(pos + dir, 0), col );
 }
 void dbgdraw_point (vec3 pos, float r, vec4 col) {
+	if (!_dbgdrawbuf.update) return;
 	uint idx = atomicAdd(_dbgdrawbuf.lines.cmd.count, 6u);
 	if (idx >= _INDIRECT_BUFSZ) return;
 	
@@ -86,20 +88,20 @@ void dbgdraw_point (vec3 pos, float r, vec4 col) {
 
 
 void dbgdraw_visualize_normals (vec3 pos_world, vec3 norm_world) {
-	if (distance(pos_world, view.cam_pos) < 5.0f) {
-		dbgdraw_vector(pos_world, norm_world * 0.1f, vec4(0,0,1,1));
+	if (distance(pos_world, view.cam_pos) < 5.0) {
+		dbgdraw_vector(pos_world, norm_world * 0.1, vec4(0,0,1,1));
 	}
 }
 void dbgdraw_visualize_normal_tangent (vec3 pos_world, vec3 norm_world, vec3 tangent) {
-	if (distance(pos_world, view.cam_pos) < 5.0f) {
-		dbgdraw_vector(pos_world, norm_world * 0.1f, vec4(0,0,1,1));
-		dbgdraw_vector(pos_world, tangent * 0.1f, vec4(1,0,0,1));
+	if (distance(pos_world, view.cam_pos) < 5.0) {
+		dbgdraw_vector(pos_world, norm_world * 0.1, vec4(0,0,1,1));
+		dbgdraw_vector(pos_world, tangent * 0.1, vec4(1,0,0,1));
 	}
 }
 #ifdef _FRAGMENT
 void dbgdraw_visualize_normal_frag (vec3 pos_world, vec3 norm_world) {
 	ivec2 xy = ivec2(gl_FragCoord.xy) % ivec2(1);
-	if (xy.x == 0 && xy.y == 0 && distance(pos_world, view.cam_pos) < 5.0f) {
+	if (xy.x == 0 && xy.y == 0 && distance(pos_world, view.cam_pos) < 10.0) {
 		dbgdraw_vector(pos_world, norm_world * 0.1f, vec4(0,0,1,1));
 	}
 }

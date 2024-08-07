@@ -471,6 +471,7 @@ struct SkyboxRenderer {
 
 struct StaticEntityInstance {
 	int    mesh_id;
+	int    tex_id;
 	float3 pos;
 	float  rot;
 	float3 col; // Just for debug?
@@ -479,6 +480,7 @@ struct StaticEntityInstance {
 	
 	VERTEX_CONFIG(
 		ATTRIB(INT,1, StaticEntityInstance, mesh_id),
+		ATTRIB(INT,1, StaticEntityInstance, tex_id),
 		ATTRIB(FLT,3, StaticEntityInstance, pos),
 		ATTRIB(FLT,1, StaticEntityInstance, rot),
 		ATTRIB(FLT,3, StaticEntityInstance, col),
@@ -629,7 +631,7 @@ struct EntityRenderer {
 		entities_count = (uint32_t)instances.size();
 	}
 
-	void draw (StateManager& state, Textures& texs, Texture2D& tex, bool shadow_pass=false) {
+	void draw (StateManager& state, bool shadow_pass=false) {
 		ZoneScoped;
 		OGL_TRACE("draw entities");
 		
@@ -679,11 +681,7 @@ struct EntityRenderer {
 			glBindVertexArray(vbo.vao);
 			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_vbo);
 
-			state.bind_textures(shad, {
-				{"tex", tex, texs.sampler_normal},
-			});
-			if ((GLuint)tex == (GLuint)texs.streetlight_diff) // Hack for now to get streetlights to be shiny metallic
-				shad->set_uniform("pbr", float4(0.3f, 1.0f));
+			state.bind_textures(shad, {});
 
 			glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, entities_count, 0);
 				
@@ -779,17 +777,7 @@ struct Mesher {
 	
 	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
 	std::vector<DecalRenderer::Instance> decals;
-
-	StaticEntityInstance& push_prop (PropAsset* asset, float3 pos, float rot) {
-		auto* i = push_back(prop_instances, 1);
-		
-		i->mesh_id = prop_renderer.asset2mesh_id[asset];
-		i->pos = pos;
-		i->rot = rot;
-		i->col = 1;
-
-		return *i;
-	}
+	
 	void push_light (float3 pos, float radius, lrgb col) {
 		auto* i = push_back(light_instances, 1);
 			
@@ -797,18 +785,43 @@ struct Mesher {
 		i->radius = radius;
 		i->col = col;
 	}
+	StaticEntityInstance& push_prop (PropAsset* prop, float3 pos, float rot, Textures& texs) {
+		auto* i = push_back(prop_instances, 1);
+
+		i->mesh_id = prop_renderer.asset2mesh_id[prop];
+		i->tex_id = texs.bindless_textures.get_tex_id(prop->tex_filename + ".png");
+		i->pos = pos;
+		i->rot = rot;
+		i->col = 1;
+
+		auto mat = obj_transform(pos, rot);
+		for (auto& light : prop->lights) {
+			auto light_pos = mat * light.pos;
+			auto col = light.col * light.strength;
+
+			push_light(light_pos, light.radius, col);
+		}
+
+		return *i;
+	}
 	
-	StaticEntityInstance& place_prop (network::Segment& seg, float3 shift, float rot, PropAsset* prop) {
-		float3 dir = seg.node_b->pos - seg.node_a->pos;
+	void place_segment_line_props (network::Segment& seg, NetworkAsset::Streetlight& light, Textures& texs) {
+		float y = 0;
+		while (y < seg._length) {
+			float3 dir = seg.node_b->pos - seg.node_a->pos;
 
-		float3 forw = normalizesafe(dir);
-		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
-		float3 up = cross(right, forw);
+			float3 forw = normalizesafe(dir);
+			float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
+			float3 up = cross(right, forw);
 		
-		float3 pos = seg.pos_a + right * shift.x + forw * shift.y + up * shift.z;
-		rot += angle2d(forw);
+			float3 shift = light.shift + float3(0,y,0);
+			float3 pos = seg.pos_a + right * shift.x + forw * shift.y + up * shift.z;
+			float rot = light.rot + angle2d(forw);
 
-		return push_prop(streetlight_asset, pos, rot);
+			push_prop(&light.prop, pos, rot, texs);
+
+			y += light.spacing;
+		}
 	}
 
 
@@ -821,8 +834,6 @@ struct Mesher {
 	// OR actually load road mesh as asset and morpth it into shape
 
 	// TODO: fix tangents being wrong sometimes?
-
-	PropAsset* streetlight_asset = nullptr;
 
 	float sidewalk_h = 0.15f;
 	float curbstone_w = 0.25f;
@@ -843,7 +854,7 @@ struct Mesher {
 	float3 norm_up = float3(0,0,1);
 	float3 tang_up = float3(1,0,0);
 
-	void mesh_segment (network::Segment& seg) {
+	void mesh_segment (network::Segment& seg, Textures& texs) {
 		float width = seg.asset->width;
 		
 		float3 dir = seg.node_b->pos - seg.node_a->pos;
@@ -924,19 +935,8 @@ struct Mesher {
 			decals.push_back(decal);
 		}
 
-		for (auto& light : seg.asset->streetlights) {
-			float y = 0;
-			while (y < seg._length) {
-				auto& prop = place_prop(seg, light.shift + float3(0,y,0), light.rot, streetlight_asset);
-
-				auto mat = obj_transform(prop.pos, prop.rot);
-				auto light_pos = mat * light.light.pos;
-				auto col = light.light.col * light.light.strength;
-
-				push_light(light_pos, light.light.radius, col);
-
-				y += light.spacing;
-			}
+		for (auto& streetlight : seg.asset->streetlights) {
+			place_segment_line_props(seg, streetlight, texs);
 		}
 	}
 
@@ -1027,11 +1027,11 @@ struct Mesher {
 		}
 	}
 
-	void remesh_network (network::Network& net) {
+	void remesh_network (network::Network& net, Textures& texs) {
 		ZoneScoped;
 		
 		for (auto& seg : net.segments) {
-			mesh_segment(*seg);
+			mesh_segment(*seg, texs);
 
 			auto v = seg->clac_seg_vecs();
 			
@@ -1103,15 +1103,17 @@ struct Mesher {
 			mesh_node(node.get());
 		}
 	}
-	void push_buildings (App& app) {
+
+	void push_buildings (App& app, Textures& texs) {
 		ZoneScoped;
 
 		building_instances.resize(app.entities.buildings.size());
 
 		for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
 			auto& entity = app.entities.buildings[i];
-
+			
 			building_instances[i].mesh_id = building_renderer.asset2mesh_id[entity->asset];
+			building_instances[i].tex_id = texs.bindless_textures.get_tex_id(entity->asset->tex_filename + ".png");
 			building_instances[i].pos = entity->pos;
 			building_instances[i].rot = entity->rot;
 			building_instances[i].col = 1;
@@ -1129,9 +1131,9 @@ struct Mesher {
 		sidewalk_tex_id = -textures.bindless_textures.get_tex_id(textures.pavement.diffuse);
 		curb_tex_id     = textures.bindless_textures.get_tex_id(textures.curb.diffuse);
 
-		remesh_network(app.net);
+		remesh_network(app.net, textures);
 
-		push_buildings(app);
+		push_buildings(app, textures);
 
 		prop_renderer.update_instances([&] () { return prop_instances; });
 		light_renderer.update_instances([&] () { return light_instances; });
@@ -1146,7 +1148,7 @@ static constexpr int BINDLESS_TEX_SSBO_BINDING = 1;
 //static constexpr int DBGDRAW_INDIRECT_VBO = 2;
 
 struct OglRenderer : public Renderer {
-	SERIALIZE(OglRenderer, lighting, passes)
+	SERIALIZE(OglRenderer, lighting, passes, light_renderer)
 	
 	virtual void to_json (nlohmann::ordered_json& j) {
 		j["ogl_renderer"] = *this;
@@ -1160,6 +1162,7 @@ struct OglRenderer : public Renderer {
 		if (ImGui::Begin("Renderer")) {
 			
 			passes.imgui();
+			light_renderer.imgui();
 			textures.imgui();
 
 		#if OGL_USE_REVERSE_DEPTH
@@ -1172,7 +1175,6 @@ struct OglRenderer : public Renderer {
 
 			lighting.imgui();
 			terrain_renderer.imgui();
-
 		}
 		ImGui::End();
 	}
@@ -1291,8 +1293,6 @@ struct OglRenderer : public Renderer {
 	
 	void upload_static_instances (App& app) {
 		Mesher mesher{ building_renderer, network_renderer, prop_renderer, light_renderer, textures };
-		mesher.streetlight_asset = app.assets.props[0].get();
-
 		mesher.remesh(app);
 	}
 	void upload_car_instances (App& app, View3D& view) {
@@ -1460,9 +1460,9 @@ struct OglRenderer : public Renderer {
 		
 				network_renderer.render(state, textures, true);
 
-				building_renderer.draw(state, textures, textures.house_diff, true);
-				vehicle_renderer .draw(state, textures, textures.house_diff, true); // TODO: house_diff ??? please just make all entities use bindless!
-				prop_renderer    .draw(state, textures, textures.streetlight_diff, true);
+				building_renderer.draw(state, true);
+				vehicle_renderer .draw(state, true);
+				prop_renderer    .draw(state, true);
 			});
 		}
 		
@@ -1479,9 +1479,9 @@ struct OglRenderer : public Renderer {
 			network_renderer.render(state, textures);
 			network_renderer.render_decals(state, passes.gbuf, textures);
 		
-			building_renderer.draw(state, textures, textures.house_diff);
-			vehicle_renderer .draw(state, textures, textures.house_diff); // dummy tex, get rid of textures in general (building and props need bindless too)
-			prop_renderer    .draw(state, textures, textures.streetlight_diff);
+			building_renderer.draw(state);
+			vehicle_renderer .draw(state);
+			prop_renderer    .draw(state);
 
 			// TODO: draw during lighting pass?
 			//  how to draw it without depth buffer? -> could use gbuf_normal == vec3(0) as draw condition?
@@ -1512,7 +1512,6 @@ struct OglRenderer : public Renderer {
 			if (app.trigger_screenshot && !app.screenshot_hud) take_screenshot(app.input.window_size);
 		
 			// draw HUD
-
 			app.draw_imgui();
 
 			if (app.trigger_screenshot && app.screenshot_hud)  take_screenshot(app.input.window_size);

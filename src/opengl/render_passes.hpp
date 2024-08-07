@@ -37,9 +37,6 @@ struct Textures {
 
 	Texture2D clouds, grid, contours;
 	Texture2D terrain_diffuse;
-	
-	Texture2D house_diff;
-	Texture2D streetlight_diff;
 
 	Texture2D cracks;
 	
@@ -110,10 +107,7 @@ struct Textures {
 		grid = load_texture<srgba8>("grid", "misc/grid2.png");
 		contours = load_texture<srgba8>("contours", "misc/contours.png");
 		terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
-	
-		house_diff = load_texture<srgb8>("house_Diff", "buildings/house.png");
-		streetlight_diff = load_texture<srgb8>("streetlight_Diff", "props/streetlight_Diff.png");
-
+		
 		cracks = load_texture<srgb8>("cracks", "misc/cracks.png"); // TODO: support single channel
 
 
@@ -129,11 +123,21 @@ struct Textures {
 		load_bindless<srgb8>(curb);
 		
 		// TODO: make dynamic so that any texture from json works
+		
+		//
 		load_bindless<srgb8>("vehicles/car.diff.png");
 		load_bindless<srgb8>("vehicles/car.pbr.png");
 
 		load_bindless<srgb8>("vehicles/bus.diff.png");
 		load_bindless<srgb8>("vehicles/bus.pbr.png");
+		
+		//
+		load_bindless<srgb8>("buildings/house.png");
+		load_bindless<srgb8>("buildings/house.pbr.png");
+
+		//
+		load_bindless<srgb8>("props/traffic_light.png");
+		load_bindless<srgb8>("props/traffic_light.pbr.png");
 	}
 
 	Textures () {
@@ -835,10 +839,14 @@ struct DecalRenderer {
 };
 
 struct DefferedPointLightRenderer {
+	SERIALIZE(DefferedPointLightRenderer, enable)
+
 	typedef typename VertexPos3 vert_t;
 	typedef typename uint32_t   idx_t;
 
 	Shader* shad = g_shaders.compile("point_lights");
+
+	bool enable = true;
 
 	struct LightInstance {
 		//int    type;
@@ -868,8 +876,8 @@ struct DefferedPointLightRenderer {
 		index_count = (GLsizei)mesh.indices.size();
 	}
 
-	static void imgui () {
-
+	void imgui () {
+		ImGui::Checkbox("enable lights", &enable);
 	}
 
 	template <typename FUNC>
@@ -884,7 +892,7 @@ struct DefferedPointLightRenderer {
 	}
 
 	void draw (StateManager& state, Gbuffer& gbuf, PBR_Render& pbr) {
-		if (shad->prog) {
+		if (enable && shad->prog) {
 			ZoneScoped;
 			OGL_TRACE("draw lights");
 

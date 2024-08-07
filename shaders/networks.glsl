@@ -39,7 +39,7 @@ VS2FS Vertex {
 		}
 		
 		//if (tex_id == 14)
-		//dbgdraw_visualize_normal_tangent(v.pos, v.norm, v.tang);
+		//	dbgdraw_visualize_normal_tangent(v.pos, v.norm, v.tang);
 	}
 #endif
 #ifdef _FRAGMENT

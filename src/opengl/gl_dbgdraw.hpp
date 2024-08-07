@@ -272,28 +272,30 @@ struct glDebugDraw {
 		if (shad_lines->prog) {
 			OGL_TRACE("Dbg.Lines");
 
+			glUseProgram(shad_lines->prog);
+
+			PipelineState s;
+			s.depth_test = false;
+			s.blend_enable = true;
+			state.set_no_override(s);
+
 			vbo_lines.stream(dbg.lines);
 
 			if (dbg.lines.size() > 0) {
-				glUseProgram(shad_lines->prog);
+				glBindVertexArray(vbo_lines.vao);
+				glDrawArrays(GL_LINES, 0, (GLsizei)dbg.lines.size());
+			}
 
-				PipelineState s;
-				s.depth_test = false;
-				s.blend_enable = true;
-				state.set_no_override(s);
-
-				{
-					glBindVertexArray(vbo_lines.vao);
-					glDrawArrays(GL_LINES, 0, (GLsizei)dbg.lines.size());
-				}
-				{
-					glBindVertexArray(indirect_lines_vao);
-					glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_vbo);
+			{
+				//glMemoryBarrier(GL_ALL_BARRIER_BITS); // TODO: Is a barrier needed here?
+				glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT|GL_COMMAND_BARRIER_BIT|GL_ATOMIC_COUNTER_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
+				
+				glBindVertexArray(indirect_lines_vao);
+				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_vbo);
 					
-					glDrawArraysIndirect(GL_LINES, (void*)offsetof(IndirectBuffer, lines.cmd));
+				glDrawArraysIndirect(GL_LINES, (void*)offsetof(IndirectBuffer, lines.cmd));
 
-					glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
-				}
+				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 			}
 		}
 

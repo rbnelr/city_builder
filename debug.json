@@ -1,14 +1,14 @@
 {
 	"cam": {
 		"orbit_pos": [
-			997.8846435546875,
-			998.9368286132813,
+			1000.5423583984375,
+			992.8297119140625,
 			0.0
 		],
-		"zoom_target": -5.5,
+		"zoom_target": -5.25,
 		"rot_aer": [
-			0.42962145805358887,
-			-0.783303439617157,
+			0.5111048221588135,
+			-0.6869395971298218,
 			0.0
 		],
 		"vfov": 1.2217305898666382,
@@ -19,7 +19,6 @@
 		"networks": [
 			{
 				"name": "small road",
-				"filename": "",
 				"road_class": 0,
 				"width": 10.0,
 				"lanes": [
@@ -49,27 +48,34 @@
 				],
 				"streetlights": [
 					{
+						"prop": {
+							"name": "streetlight1",
+							"filename": "props/streetlight1.fbx",
+							"tex_filename": "props/traffic_light",
+							"lights": [
+								{
+									"pos": [
+										3.0,
+										0.0,
+										7.300000190734863
+									],
+									"radius": 15.0,
+									"col": [
+										0.994535505771637,
+										0.9812366366386414,
+										0.9401893019676208
+									],
+									"strength": 1.0
+								}
+							]
+						},
 						"shift": [
-							3.0999999046325684,
+							4.849999904632568,
 							0.0,
 							0.0
 						],
-						"spacing": 10.0,
-						"rot": 1.5707963705062866,
-						"light": {
-							"pos": [
-								0.6000000238418579,
-								0.0,
-								4.199999809265137
-							],
-							"radius": 10.0,
-							"col": [
-								1.0,
-								0.8351697325706482,
-								0.562841534614563
-							],
-							"strength": 1.0
-						}
+						"spacing": 15.0,
+						"rot": 1.5707963705062866
 					}
 				],
 				"sidewalkL": -2.799999952316284,
@@ -78,7 +84,6 @@
 			},
 			{
 				"name": "medium road",
-				"filename": "",
 				"road_class": 1,
 				"width": 20.0,
 				"lanes": [
@@ -140,50 +145,64 @@
 				],
 				"streetlights": [
 					{
+						"prop": {
+							"name": "streetlight1",
+							"filename": "props/streetlight1.fbx",
+							"tex_filename": "props/traffic_light",
+							"lights": [
+								{
+									"pos": [
+										3.0,
+										0.0,
+										7.300000190734863
+									],
+									"radius": 15.0,
+									"col": [
+										0.994535505771637,
+										0.9812366366386414,
+										0.9401893019676208
+									],
+									"strength": 1.0
+								}
+							]
+						},
 						"shift": [
-							-7.300000190734863,
+							-9.850000381469727,
 							0.0,
 							0.0
 						],
-						"spacing": 10.0,
-						"rot": 4.71238899230957,
-						"light": {
-							"pos": [
-								0.6000000238418579,
-								0.0,
-								4.199999809265137
-							],
-							"radius": 10.0,
-							"col": [
-								1.0,
-								0.8351697325706482,
-								0.562841534614563
-							],
-							"strength": 1.0
-						}
+						"spacing": 15.0,
+						"rot": 4.71238899230957
 					},
 					{
+						"prop": {
+							"name": "streetlight1",
+							"filename": "props/streetlight1.fbx",
+							"tex_filename": "props/traffic_light",
+							"lights": [
+								{
+									"pos": [
+										3.0,
+										0.0,
+										7.300000190734863
+									],
+									"radius": 15.0,
+									"col": [
+										0.994535505771637,
+										0.9812366366386414,
+										0.9401893019676208
+									],
+									"strength": 1.0
+								}
+							]
+						},
 						"shift": [
-							7.300000190734863,
+							9.850000381469727,
 							0.0,
 							0.0
 						],
-						"spacing": 10.0,
-						"rot": 1.5707963705062866,
-						"light": {
-							"pos": [
-								0.6000000238418579,
-								0.0,
-								4.199999809265137
-							],
-							"radius": 10.0,
-							"col": [
-								1.0,
-								0.8351697325706482,
-								0.562841534614563
-							],
-							"strength": 1.0
-						}
+						"spacing": 15.0,
+						"rot": 1.5707963705062866
 					}
 				],
 				"sidewalkL": -7.0,
@@ -192,7 +211,6 @@
 			},
 			{
 				"name": "medium road asym",
-				"filename": "",
 				"road_class": 1,
 				"width": 20.0,
 				"lanes": [
@@ -270,50 +288,64 @@
 				],
 				"streetlights": [
 					{
+						"prop": {
+							"name": "streetlight1",
+							"filename": "props/streetlight1.fbx",
+							"tex_filename": "props/traffic_light",
+							"lights": [
+								{
+									"pos": [
+										3.0,
+										0.0,
+										7.300000190734863
+									],
+									"radius": 15.0,
+									"col": [
+										0.994535505771637,
+										0.9812366366386414,
+										0.9401893019676208
+									],
+									"strength": 1.0
+								}
+							]
+						},
 						"shift": [
-							-7.800000190734863,
+							-9.850000381469727,
 							0.0,
 							0.0
 						],
-						"spacing": 10.0,
-						"rot": 4.71238899230957,
-						"light": {
-							"pos": [
-								0.6000000238418579,
-								0.0,
-								4.199999809265137
-							],
-							"radius": 10.0,
-							"col": [
-								1.0,
-								0.8351697325706482,
-								0.562841534614563
-							],
-							"strength": 1.0
-						}
+						"spacing": 15.0,
+						"rot": 4.71238899230957
 					},
 					{
+						"prop": {
+							"name": "streetlight1",
+							"filename": "props/streetlight1.fbx",
+							"tex_filename": "props/traffic_light",
+							"lights": [
+								{
+									"pos": [
+										3.0,
+										0.0,
+										7.300000190734863
+									],
+									"radius": 15.0,
+									"col": [
+										0.994535505771637,
+										0.9812366366386414,
+										0.9401893019676208
+									],
+									"strength": 1.0
+								}
+							]
+						},
 						"shift": [
-							7.800000190734863,
+							9.850000381469727,
 							0.0,
 							0.0
 						],
-						"spacing": 10.0,
-						"rot": 1.5707963705062866,
-						"light": {
-							"pos": [
-								0.6000000238418579,
-								0.0,
-								4.199999809265137
-							],
-							"radius": 10.0,
-							"col": [
-								1.0,
-								0.8351697325706482,
-								0.562841534614563
-							],
-							"strength": 1.0
-						}
+						"spacing": 15.0,
+						"rot": 1.5707963705062866
 					}
 				],
 				"sidewalkL": -7.5,
@@ -325,6 +357,7 @@
 			{
 				"name": "house",
 				"filename": "buildings/house.fbx",
+				"tex_filename": "buildings/house",
 				"type": "RESIDENTIAL",
 				"citizens": 3,
 				"size": [
@@ -336,6 +369,7 @@
 			{
 				"name": "urban_mixed_use",
 				"filename": "buildings/urban_mixed_use.fbx",
+				"tex_filename": "buildings/house",
 				"type": "RESIDENTIAL",
 				"citizens": 20,
 				"size": [
@@ -391,8 +425,25 @@
 		],
 		"props": [
 			{
-				"name": "streetlight",
-				"filename": "props/streetlight.fbx"
+				"name": "streetlight1",
+				"filename": "props/streetlight1.fbx",
+				"tex_filename": "props/traffic_light",
+				"lights": [
+					{
+						"pos": [
+							3.0,
+							0.0,
+							7.300000190734863
+						],
+						"radius": 15.0,
+						"col": [
+							0.994535505771637,
+							0.9812366366386414,
+							0.9401893019676208
+						],
+						"strength": 1.0
+					}
+				]
 			}
 		]
 	},
@@ -414,11 +465,11 @@
 	"time_of_day": {
 		"sun_azim": 1.5707963705062866,
 		"sun_elev": 0.24434608221054077,
-		"day_t": 0.39800000190734863,
+		"day_t": 0.5860000252723694,
 		"day_speed": 0.01666666753590107,
 		"day_pause": true
 	},
-	"sim_paused": false,
+	"sim_paused": true,
 	"sim_speed": 3.0,
 	"test": {
 		"bez": {
@@ -461,7 +512,7 @@
 		},
 		"passes": {
 			"renderscale": {
-				"renderscale": 1.0,
+				"renderscale": 4.0,
 				"nearest": false
 			},
 			"shadowmap": {
@@ -473,7 +524,10 @@
 				"bias_fac_world": 2.0,
 				"bias_max_world": 10.0
 			},
-			"exposure": 0.7239999771118164
+			"exposure": 1.0
+		},
+		"light_renderer": {
+			"enable": false
 		}
 	}
 }

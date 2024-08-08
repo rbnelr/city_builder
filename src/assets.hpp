@@ -117,60 +117,6 @@ struct Asset {
 	}
 };
 
-/*
-template <typename T>
-struct AssetPtr {
-private:
-	T* ptr;
-
-	static void incref (Asset* ptr) {
-		if (ptr) {
-			++ptr.ptr->refcnt;
-		}
-	}
-	static void decref (Asset* ptr) {
-		if (ptr) {
-			--ptr.ptr->refcnt;
-		}
-	}
-public:
-	T& operator* () { // deref
-		return *ptr;
-	}
-	operator bool () { return ptr != nullptr; }
-	
-	AssetPtr (): ptr{nullptr} {}
-	AssetPtr (nullptr_t): ptr{nullptr} {}
-	AssetPtr (AssetPtr const& other): ptr{other.ptr} {
-		incref(other.ptr);
-	}
-	AssetPtr (AssetPtr&& other): ptr{other.ptr} {
-		other.ptr = nullptr;
-	}
-	AssetPtr& operator= (AssetPtr const& other) {
-		if (this != &other) {
-			incref(other.ptr);
-			decref(ptr);
-			ptr = other.ptr;
-		}
-		return *this;
-	}
-	AssetPtr& operator= (AssetPtr&& other) {
-		if (this != &other) {
-			decref(ptr);
-			ptr = other.ptr;
-			other.ptr = nullptr;
-		}
-		return *this;
-	}
-	
-	~AssetPtr () {
-		decref(ptr);
-	}
-
-	template <typename T> friend void to_json (json& j, AssetPtr<T> const& ptr);
-	template <typename T> friend void from_json (json const& j, AssetPtr<T>& ptr);
-};*/
 template <typename T> using AssetPtr = std::shared_ptr<T>;
 
 template <typename T> void to_json (json& j, AssetPtr<T> const& ptr);
@@ -191,6 +137,17 @@ enum class LineMarkingType {
 };
 NLOHMANN_JSON_SERIALIZE_ENUM(LineMarkingType, { { LineMarkingType::LINE, "LINE" }, { LineMarkingType::STRIPED, "STRIPED" } })
 
+template <typename T>
+inline AssetPtr<T> dummy_asset () {
+	static AssetPtr<T> asset = [] () {
+		T a;
+		a.name = "<dummy>";
+		// TODO: ???
+		return std::make_shared<T>(std::move(a));
+	} ();
+	return asset;
+}
+
 struct PointLight {
 	SERIALIZE(PointLight, pos, radius, col, strength)
 
@@ -199,7 +156,7 @@ struct PointLight {
 	lrgb   col = srgb(255, 246, 215);
 	float  strength = 1;
 
-	bool imgui (const char* name) {
+	bool imgui () {
 		bool changed = ImGui::DragFloat3("pos", &pos.x, 0.1f);
 		changed = ImGui::DragFloat("radius", &radius, 0.1f) || changed;
 		changed = ImGui::ColorEdit3("col", &col.x, ImGuiColorEditFlags_DisplayHSV) || changed;
@@ -210,9 +167,9 @@ struct PointLight {
 };
 
 struct PropAsset : public Asset {
-	SERIALIZE(PropAsset, filename, tex_filename, lights)
+	SERIALIZE(PropAsset, mesh_filename, tex_filename, lights)
 
-	std::string filename;
+	std::string mesh_filename;
 	std::string tex_filename;
 
 	AssetMesh<BasicVertex> mesh;
@@ -226,7 +183,7 @@ struct PropAsset : public Asset {
 		for (int i=0; i<(int)lights.size(); ++i) {
 			if (ImGui::TreeNode(&lights[i], "[%d]", i)) {
 				if (ImGui::TableNextColumn()) {
-					changed = lights[i].imgui("light") || changed;
+					changed = lights[i].imgui() || changed;
 				}
 				ImGui::PopID();
 			}
@@ -240,12 +197,38 @@ struct PropAsset : public Asset {
 	}
 
 	void reload () {
-		assimp::load_basic(prints("assets/%s", filename.c_str()).c_str(), &mesh);
+		assimp::load_basic(prints("assets/%s", mesh_filename.c_str()).c_str(), &mesh);
+	}
+};
+struct TrafficLightAsset : public Asset {
+	SERIALIZE(TrafficLightAsset, mast_prop, signal_prop, mast_base, mast_dir)
+
+	AssetPtr<PropAsset> mast_prop = dummy_asset<PropAsset>();
+	AssetPtr<PropAsset> signal_prop = dummy_asset<PropAsset>();
+
+	float3 mast_base = float3(0,0,4);
+	float3 mast_dir = float3(-1,0,0);
+
+	float3 get_signal_pos (float x) {
+		x -= mast_base.x;
+		float t = x / mast_dir.x;
+		return mast_base + mast_dir * t;
+	}
+
+	bool imgui (Settings& settings) {
+		bool changed = ImGui::DragFloat3("mast_base", &mast_base.x, 0.1f);
+		changed = ImGui::DragFloat3("mast_dir", &mast_dir.x, 0.1f) || changed;
+		mast_dir = normalizesafe(mast_dir);
+		return changed;
+	}
+
+	void reload () {
+		
 	}
 };
 
 struct NetworkAsset : public Asset {
-	SERIALIZE(NetworkAsset, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
+	SERIALIZE(NetworkAsset, road_class, width, sidewalkL, sidewalkR, lanes, line_markings, streetlights, traffic_light_prop, traffic_light_shift, sidewalkL, sidewalkR, speed_limit)
 
 	struct Lane {
 		SERIALIZE(Lane, shift, width, direction)
@@ -271,7 +254,7 @@ struct NetworkAsset : public Asset {
 		float spacing = 10;
 		float rot = deg(90);
 
-		AssetPtr<PropAsset> prop;
+		AssetPtr<PropAsset> prop = dummy_asset<PropAsset>();
 	};
 	
 	std::string name = "<unnamed>";
@@ -281,17 +264,20 @@ struct NetworkAsset : public Asset {
 
 	float width = 16;
 
+	float sidewalkL = -6;
+	float sidewalkR = +6;
+
 	// for now: (RHD) inner forward, outer forward, ..., inner reverse, outer reverse
 	// ie. sorted from left to right per direction
 	// (relevant for pathing)
 	std::vector<Lane> lanes;
 
 	std::vector<LineMarking> line_markings;
-
-	float sidewalkL = -6;
-	float sidewalkR = +6;
 	
 	std::vector<Streetlight> streetlights;
+	
+	AssetPtr<TrafficLightAsset> traffic_light_prop = dummy_asset<TrafficLightAsset>();
+	float2 traffic_light_shift = 0;
 
 	float speed_limit = 40 / KPH_PER_MS;
 
@@ -360,6 +346,8 @@ struct NetworkAsset : public Asset {
 			changed = ImGui::DragFloat("sidewalkR", &sidewalkR, 0.1f) || changed;
 		//}
 
+		changed = ImGui::DragFloat2("traffic_light_shift", &traffic_light_shift.x, 0.1f) || changed;
+		
 		changed = imgui_slider_speed(settings, "speed_limit", &speed_limit, 0, 200/KPH_PER_MS) || changed;
 
 		if (changed) update_cached();
@@ -397,9 +385,9 @@ constexpr const char* VEHICLE_BONE_NAMES[] = {
 };
 
 struct BuildingAsset : public Asset {
-	SERIALIZE(BuildingAsset, filename, tex_filename, type, citizens, size)
+	SERIALIZE(BuildingAsset, mesh_filename, tex_filename, type, citizens, size)
 
-	std::string filename;
+	std::string mesh_filename;
 	std::string tex_filename;
 
 	BuildingType type = BuildingType::RESIDENTIAL;
@@ -423,13 +411,13 @@ struct BuildingAsset : public Asset {
 	}
 
 	void reload () {
-		assimp::load_basic(prints("assets/%s", filename.c_str()).c_str(), &mesh);
+		assimp::load_basic(prints("assets/%s", mesh_filename.c_str()).c_str(), &mesh);
 	}
 };
 struct VehicleAsset : public Asset {
-	SERIALIZE(VehicleAsset, filename, tex_filename, spawn_weight)
+	SERIALIZE(VehicleAsset, mesh_filename, tex_filename, spawn_weight)
 
-	std::string filename;
+	std::string mesh_filename;
 	std::string tex_filename;
 
 	float spawn_weight = 1;
@@ -441,20 +429,9 @@ struct VehicleAsset : public Asset {
 	AssetMesh<SimpleAnimVertex> mesh;
 
 	void reload () {
-		assimp::load_simple_anim(prints("assets/%s", filename.c_str()).c_str(), &mesh, bone_mats, &wheel_r);
+		assimp::load_simple_anim(prints("assets/%s", mesh_filename.c_str()).c_str(), &mesh, bone_mats, &wheel_r);
 	}
 };
-
-// Asset loading scheme:
-//  Assets class and each object is always constructed empty
-//  debug.json contains all parameters for all asset objects
-//  On app start json is loaded, this creates asset objects which call their reload() (through SERIALIZE_ASSET)
-//  Each asset stores the data needed to reload without involving the json (eg. filenames, which usually would not be needed after load)
-//   so that each object can be reloaded as desired (through UI, based on file changes or through json reload)
-//  Assets class keeps assets_reloaded flag, and application has the responsibility of updating itself (stale asset pointers or stale data, meshes etc.)
-//  NOTE: json load does not preserve anything inside containers, and any unique ptr is always recreated as well, so you always have to update anything using a asset ptr
-//        but asset reload() does keep the asset ptr valid, but you might have to decide case by case what can stay, ex. lane changes in roads have to despawn cars etc.
-//  TODO: the reload could possibly be handled better?, but probably fast enough for now, as it is mostly a dev thing
 
 namespace {
 	// allow from_json to query for assets by name
@@ -493,6 +470,7 @@ struct AssetCollection {
 	Hashset set;
 
 	friend SERIALIZE_TO_JSON(AssetCollection) {
+		j = json::object();
 		for (auto& item : t.set) {
 			j.emplace(item->name, *item);
 		}
@@ -512,7 +490,7 @@ struct AssetCollection {
 	AssetPtr<T> operator[] (std::string_view name) {
 		auto it = set.find(name);
 		if (it == set.end()) {
-			assert(false);
+			return dummy_asset<T>();
 		}
 		return *it;
 	}
@@ -541,20 +519,32 @@ struct AssetCollection {
 	}
 };
 
+// Asset loading scheme:
+//  Assets class and each object is always constructed empty
+//  debug.json contains all parameters for all asset objects
+//  On app start json is loaded, this creates asset objects which call their reload() (through SERIALIZE_ASSET)
+//  Each asset stores the data needed to reload without involving the json (eg. filenames, which usually would not be needed after load)
+//   so that each object can be reloaded as desired (through UI, based on file changes or through json reload)
+//  Assets class keeps assets_reloaded flag, and application has the responsibility of updating itself (stale asset pointers or stale data, meshes etc.)
+//  NOTE: json load does not preserve anything inside containers, and any unique ptr is always recreated as well, so you always have to update anything using a asset ptr
+//        but asset reload() does keep the asset ptr valid, but you might have to decide case by case what can stay, ex. lane changes in roads have to despawn cars etc.
+//  TODO: the reload could possibly be handled better?, but probably fast enough for now, as it is mostly a dev thing
+
 struct Assets {
-	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(props, networks, buildings, vehicles) }
+	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(props, traffic_lights, networks, buildings, vehicles) }
 	friend SERIALIZE_FROM_JSON(Assets) {
 		g_assets = &t;
-		SERIALIZE_FROM_JSON_EXPAND(props, networks, buildings, vehicles)
+		SERIALIZE_FROM_JSON_EXPAND(props, traffic_lights, networks, buildings, vehicles)
 		t.assets_reloaded = true;
 	}
 
 	bool assets_reloaded = false;
 
-	AssetCollection<PropAsset>     props;
-	AssetCollection<NetworkAsset>  networks;
-	AssetCollection<BuildingAsset> buildings;
-	AssetCollection<VehicleAsset>  vehicles;
+	AssetCollection<PropAsset>         props;
+	AssetCollection<TrafficLightAsset> traffic_lights;
+	AssetCollection<NetworkAsset>      networks;
+	AssetCollection<BuildingAsset>     buildings;
+	AssetCollection<VehicleAsset>      vehicles;
 	
 	template <typename T>
 	AssetPtr<T> query (std::string_view str);
@@ -562,12 +552,16 @@ struct Assets {
 	template<> AssetPtr<PropAsset> query<PropAsset> (std::string_view str) {
 		return props[str];
 	}
+	template<> AssetPtr<TrafficLightAsset> query<TrafficLightAsset> (std::string_view str) {
+		return traffic_lights[str];
+	}
 
 	void reload_all () {
-		for (auto& a : props    ) a->reload();
-		for (auto& a : networks ) a->reload();
-		for (auto& a : buildings) a->reload();
-		for (auto& a : vehicles ) a->reload();
+		for (auto& a : props         ) a->reload();
+		for (auto& a : traffic_lights) a->reload();
+		for (auto& a : networks      ) a->reload();
+		for (auto& a : buildings     ) a->reload();
+		for (auto& a : vehicles      ) a->reload();
 		assets_reloaded = true;
 	}
 
@@ -577,9 +571,10 @@ struct Assets {
 		if (ImGui::Button("Reload All"))
 			reload_all();
 		
-		props    .imgui("props",     settings);
-		networks .imgui("networks",  settings);
-		buildings.imgui("buildings", settings);
+		props         .imgui("props",          settings);
+		traffic_lights.imgui("traffic_lights", settings);
+		networks      .imgui("networks",       settings);
+		buildings     .imgui("buildings",      settings);
 
 		ImGui::PopID();
 	}

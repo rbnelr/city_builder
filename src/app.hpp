@@ -76,8 +76,8 @@ struct Person {
 		this->cur_building = initial_building;
 		this->owned_vehicle = owned_vehicle;
 
-		bool van = owned_vehicle->filename == "vehicles/van.fbx";
-		bool bus = owned_vehicle->filename == "vehicles/bus.fbx";
+		bool van = owned_vehicle->mesh_filename == "vehicles/van.fbx";
+		bool bus = owned_vehicle->mesh_filename == "vehicles/bus.fbx";
 
 		if (r.chance(0.5f) && !bus) {
 			lrgb std_colors[] = {

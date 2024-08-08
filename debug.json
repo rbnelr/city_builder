@@ -1,14 +1,14 @@
 {
 	"cam": {
 		"orbit_pos": [
-			1000.5423583984375,
-			992.8297119140625,
+			1004.1493530273438,
+			398.7171630859375,
 			0.0
 		],
 		"zoom_target": -5.25,
 		"rot_aer": [
-			0.5111048221588135,
-			-0.6869395971298218,
+			1.4771997928619385,
+			-0.15705396234989166,
 			0.0
 		],
 		"vfov": 1.2217305898666382,
@@ -16,10 +16,55 @@
 		"clip_far": 10000.0
 	},
 	"assets": {
+		"props": {
+			"streetlight1": {
+				"mesh_filename": "props/streetlight1.fbx",
+				"tex_filename": "props/traffic_light",
+				"lights": [
+					{
+						"pos": [
+							3.0,
+							0.0,
+							7.300000190734863
+						],
+						"radius": 15.0,
+						"col": [
+							0.994535505771637,
+							0.9812366366386414,
+							0.9401893019676208
+						],
+						"strength": 1.0
+					}
+				]
+			},
+			"traffic_signal1": {
+				"mesh_filename": "props/traffic_signal1.fbx",
+				"tex_filename": "props/traffic_light",
+				"lights": []
+			}
+		},
+		"traffic_lights": {
+			"traffic_light1": {
+				"mast_prop": "streetlight1",
+				"signal_prop": "traffic_signal1",
+				"mast_base": [
+					0.0,
+					0.0,
+					5.400000095367432
+				],
+				"mast_dir": [
+					-0.9886891841888428,
+					0.0,
+					0.14997918903827667
+				]
+			}
+		},
 		"networks": {
 			"small road": {
 				"road_class": 0,
 				"width": 10.0,
+				"sidewalkL": -2.799999952316284,
+				"sidewalkR": 2.799999952316284,
 				"lanes": [
 					{
 						"shift": 1.399999976158142,
@@ -47,23 +92,28 @@
 				],
 				"streetlights": [
 					{
-						"prop": "streetlight1",
 						"shift": [
 							4.849999904632568,
 							0.0,
 							0.0
 						],
 						"spacing": 15.0,
-						"rot": 1.5707963705062866
+						"rot": 1.5707963705062866,
+						"prop": "streetlight1"
 					}
 				],
-				"sidewalkL": -2.799999952316284,
-				"sidewalkR": 2.799999952316284,
+				"traffic_light_prop": "traffic_light1",
+				"traffic_light_shift": [
+					3.0999999046325684,
+					0.20000000298023224
+				],
 				"speed_limit": 8.333333969116211
 			},
 			"medium road": {
 				"road_class": 1,
 				"width": 20.0,
+				"sidewalkL": -7.0,
+				"sidewalkR": 7.0,
 				"lanes": [
 					{
 						"shift": 2.0,
@@ -123,33 +173,38 @@
 				],
 				"streetlights": [
 					{
-						"prop": "streetlight1",
 						"shift": [
 							-9.850000381469727,
 							0.0,
 							0.0
 						],
 						"spacing": 15.0,
-						"rot": 4.71238899230957
+						"rot": 4.71238899230957,
+						"prop": "streetlight1"
 					},
 					{
-						"prop": "streetlight1",
 						"shift": [
 							9.850000381469727,
 							0.0,
 							0.0
 						],
 						"spacing": 15.0,
-						"rot": 1.5707963705062866
+						"rot": 1.5707963705062866,
+						"prop": "streetlight1"
 					}
 				],
-				"sidewalkL": -7.0,
-				"sidewalkR": 7.0,
+				"traffic_light_prop": "traffic_light1",
+				"traffic_light_shift": [
+					7.599999904632568,
+					0.5
+				],
 				"speed_limit": 13.88888931274414
 			},
 			"medium road asym": {
 				"road_class": 1,
 				"width": 20.0,
+				"sidewalkL": -7.5,
+				"sidewalkR": 7.5,
 				"lanes": [
 					{
 						"shift": 0.0,
@@ -225,34 +280,37 @@
 				],
 				"streetlights": [
 					{
-						"prop": "streetlight1",
 						"shift": [
 							-9.850000381469727,
 							0.0,
 							0.0
 						],
 						"spacing": 15.0,
-						"rot": 4.71238899230957
+						"rot": 4.71238899230957,
+						"prop": "streetlight1"
 					},
 					{
-						"prop": "streetlight1",
 						"shift": [
 							9.850000381469727,
 							0.0,
 							0.0
 						],
 						"spacing": 15.0,
-						"rot": 1.5707963705062866
+						"rot": 1.5707963705062866,
+						"prop": "streetlight1"
 					}
 				],
-				"sidewalkL": -7.5,
-				"sidewalkR": 7.5,
+				"traffic_light_prop": "traffic_light1",
+				"traffic_light_shift": [
+					8.100000381469727,
+					0.800000011920929
+				],
 				"speed_limit": 13.88888931274414
 			}
 		},
 		"buildings": {
 			"house": {
-				"filename": "buildings/house.fbx",
+				"mesh_filename": "buildings/house.fbx",
 				"tex_filename": "buildings/house",
 				"type": "RESIDENTIAL",
 				"citizens": 3,
@@ -263,7 +321,7 @@
 				]
 			},
 			"urban_mixed_use": {
-				"filename": "buildings/urban_mixed_use.fbx",
+				"mesh_filename": "buildings/urban_mixed_use.fbx",
 				"tex_filename": "buildings/house",
 				"type": "RESIDENTIAL",
 				"citizens": 20,
@@ -276,61 +334,39 @@
 		},
 		"vehicles": {
 			"limo": {
-				"filename": "vehicles/limo.fbx",
+				"mesh_filename": "vehicles/limo.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 3.0
 			},
 			"small": {
-				"filename": "vehicles/small.fbx",
+				"mesh_filename": "vehicles/small.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 5.0
 			},
 			"combi": {
-				"filename": "vehicles/combi.fbx",
+				"mesh_filename": "vehicles/combi.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 2.0
 			},
 			"smart": {
-				"filename": "vehicles/smart.fbx",
+				"mesh_filename": "vehicles/smart.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 2.0
 			},
 			"SUV": {
-				"filename": "vehicles/SUV.fbx",
+				"mesh_filename": "vehicles/SUV.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 2.0
 			},
 			"van": {
-				"filename": "vehicles/van.fbx",
+				"mesh_filename": "vehicles/van.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 1.5
 			},
 			"bus": {
-				"filename": "vehicles/bus.fbx",
+				"mesh_filename": "vehicles/bus.fbx",
 				"tex_filename": "vehicles/bus",
 				"spawn_weight": 0.5
-			}
-		},
-		"props": {
-			"streetlight1": {
-				"filename": "props/streetlight1.fbx",
-				"tex_filename": "props/traffic_light",
-				"lights": [
-					{
-						"pos": [
-							3.0,
-							0.0,
-							7.300000190734863
-						],
-						"radius": 15.0,
-						"col": [
-							0.994535505771637,
-							0.9812366366386414,
-							0.9401893019676208
-						],
-						"strength": 1.0
-					}
-				]
 			}
 		}
 	},
@@ -356,8 +392,8 @@
 		"day_speed": 0.01666666753590107,
 		"day_pause": true
 	},
-	"sim_paused": true,
-	"sim_speed": 3.0,
+	"sim_paused": false,
+	"sim_speed": 1.0,
 	"test": {
 		"bez": {
 			"a": [
@@ -399,17 +435,17 @@
 		},
 		"passes": {
 			"renderscale": {
-				"renderscale": 4.0,
+				"renderscale": 2.0,
 				"nearest": false
 			},
 			"shadowmap": {
-				"shadow_res": 1024,
-				"cascades": 3,
-				"cascade_factor": 3.0,
+				"shadow_res": 2048,
+				"cascades": 4,
+				"cascade_factor": 2.5,
 				"size": 128.0,
-				"depth_range": 200.0,
-				"bias_fac_world": 2.0,
-				"bias_max_world": 10.0
+				"depth_range": 512.0,
+				"bias_fac_world": 3.5999999046325684,
+				"bias_max_world": 1.7000000476837158
 			},
 			"exposure": 1.0
 		},

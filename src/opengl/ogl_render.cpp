@@ -786,11 +786,11 @@ struct Mesher {
 		i->radius = radius;
 		i->col = col;
 	}
-	StaticEntityInstance& push_prop (PropAsset* prop, float3 pos, float rot, Textures& texs) {
+	StaticEntityInstance& push_prop (PropAsset* prop, float3 pos, float rot) {
 		auto* i = push_back(prop_instances, 1);
 
 		i->mesh_id = prop_renderer.asset2mesh_id[prop];
-		i->tex_id = texs.bindless_textures.get_tex_id(prop->tex_filename + ".png");
+		i->tex_id = textures.bindless_textures.get_tex_id(prop->tex_filename + ".png");
 		i->pos = pos;
 		i->rot = rot;
 		i->col = 1;
@@ -809,22 +809,44 @@ struct Mesher {
 	void place_segment_line_props (network::Segment& seg, NetworkAsset::Streetlight& light) {
 		float y = 0;
 		while (y < seg._length) {
+			// TODO: introduce curved segments, then rework this!
 			float3 dir = seg.node_b->pos - seg.node_a->pos;
-
 			float3 forw = normalizesafe(dir);
 			float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
 			float3 up = cross(right, forw);
-		
+			float rot = light.rot + angle2d(forw);
 			float3 shift = light.shift + float3(0,y,0);
 			float3 pos = seg.pos_a + right * shift.x + forw * shift.y + up * shift.z;
-			float rot = light.rot + angle2d(forw);
 
-			push_prop(light.prop.get(), pos, rot, textures);
+			push_prop(light.prop.get(), pos, rot);
 
 			y += light.spacing;
 		}
 	}
+	void place_traffic_light (network::Segment& seg, network::Node* node) {
+		auto* prop = seg.asset->traffic_light_prop.get();
+		
+		auto* other_node = seg.get_other_node(node);
+		float3 dir = node->pos - other_node->pos;
+		float3 forw = normalizesafe(dir);
+		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
+		float3 up = cross(right, forw);
+		float rot = deg(90.0f) + angle2d(forw);
 
+		float2 shift = seg.asset->traffic_light_shift;
+		float3 pos = seg.pos_for_node(node) + right * shift.x + forw * shift.y;
+
+		push_prop(prop->mast_prop.get(), pos, rot);
+
+		for (auto in_lane : seg.in_lanes(node)) {
+			auto& layout = seg.get_lane_layout(&in_lane.get());
+			float x = (seg.get_dir_to_node(node) == LaneDir::FORWARD ? +layout.shift : -layout.shift) - shift.x;
+
+			float3 local_pos = prop->get_signal_pos(x);
+			float3 spos = pos + right * local_pos.x + forw * local_pos.y + up * local_pos.z;
+			push_prop(prop->signal_prop.get(), spos, rot);
+		}
+	}
 
 	// Could be instanced in smart ways, by computing beziers on gpu
 	// for ex. for road segments: store 'cross section' per road time and extrude it along bezier during instancing on gpu
@@ -939,6 +961,9 @@ struct Mesher {
 		for (auto& streetlight : seg.asset->streetlights) {
 			place_segment_line_props(seg, streetlight);
 		}
+
+		if (seg.node_a->traffic_light) place_traffic_light(seg, seg.node_a);
+		if (seg.node_b->traffic_light) place_traffic_light(seg, seg.node_b);
 	}
 
 	void mesh_node (network::Node* node) {

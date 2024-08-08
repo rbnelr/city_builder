@@ -295,6 +295,7 @@ struct Node {
 	Segment* _pred_seg;
 
 	bool _fully_dedicated_turns = false; // TODO: do this differently in the future
+	bool traffic_light = false;
 
 	NodeVehicles vehicles;
 	
@@ -590,18 +591,10 @@ inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowe
 	return (classify_turn(node, in, out) & allowed) != Turns::NONE;
 }
 
-inline int calc_node_class (Node& node) {
-	int max_seg_class = 0;
-	for (auto& seg : node.segments)
-		max_seg_class = max(max_seg_class, seg->asset->road_class);
-	return max_seg_class;
-}
-
 inline int default_lane_yield (int node_class, Segment& seg) {
 	return seg.asset->road_class < node_class;
 }
-inline void set_default_lane_options (Node& node, bool fully_dedicated=false) {
-	int node_class = calc_node_class(node);
+inline void set_default_lane_options (Node& node, bool fully_dedicated, int node_class) {
 	
 	for (auto& seg : node.segments) {
 		auto dir = seg->get_dir_to_node(&node);
@@ -662,8 +655,24 @@ inline void Node::update_cached () {
 	for (auto* seg : segments) {
 		_radius = max(_radius, distance(pos, seg->pos_for_node(this)));
 	}
+	
+	int node_class;
+	{
+		node_class = 0;
+		for (auto& seg : segments) {
+			node_class = max(node_class, seg->asset->road_class);
+		}
+		
+		int count = 0;
+		for (auto& seg : segments) {
+			if (seg->asset->road_class == node_class)
+				count++;
+		}
 
-	set_default_lane_options(*this, _fully_dedicated_turns);
+		traffic_light = count > 2;
+	}
+
+	set_default_lane_options(*this, _fully_dedicated_turns, node_class);
 }
 
 inline float get_cur_speed_limit (ActiveVehicle* vehicle) {

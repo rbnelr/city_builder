@@ -48,27 +48,7 @@
 				],
 				"streetlights": [
 					{
-						"prop": {
-							"name": "streetlight1",
-							"filename": "props/streetlight1.fbx",
-							"tex_filename": "props/traffic_light",
-							"lights": [
-								{
-									"pos": [
-										3.0,
-										0.0,
-										7.300000190734863
-									],
-									"radius": 15.0,
-									"col": [
-										0.994535505771637,
-										0.9812366366386414,
-										0.9401893019676208
-									],
-									"strength": 1.0
-								}
-							]
-						},
+						"prop": "streetlight1",
 						"shift": [
 							4.849999904632568,
 							0.0,
@@ -145,27 +125,7 @@
 				],
 				"streetlights": [
 					{
-						"prop": {
-							"name": "streetlight1",
-							"filename": "props/streetlight1.fbx",
-							"tex_filename": "props/traffic_light",
-							"lights": [
-								{
-									"pos": [
-										3.0,
-										0.0,
-										7.300000190734863
-									],
-									"radius": 15.0,
-									"col": [
-										0.994535505771637,
-										0.9812366366386414,
-										0.9401893019676208
-									],
-									"strength": 1.0
-								}
-							]
-						},
+						"prop": "streetlight1",
 						"shift": [
 							-9.850000381469727,
 							0.0,
@@ -175,27 +135,7 @@
 						"rot": 4.71238899230957
 					},
 					{
-						"prop": {
-							"name": "streetlight1",
-							"filename": "props/streetlight1.fbx",
-							"tex_filename": "props/traffic_light",
-							"lights": [
-								{
-									"pos": [
-										3.0,
-										0.0,
-										7.300000190734863
-									],
-									"radius": 15.0,
-									"col": [
-										0.994535505771637,
-										0.9812366366386414,
-										0.9401893019676208
-									],
-									"strength": 1.0
-								}
-							]
-						},
+						"prop": "streetlight1",
 						"shift": [
 							9.850000381469727,
 							0.0,
@@ -288,27 +228,7 @@
 				],
 				"streetlights": [
 					{
-						"prop": {
-							"name": "streetlight1",
-							"filename": "props/streetlight1.fbx",
-							"tex_filename": "props/traffic_light",
-							"lights": [
-								{
-									"pos": [
-										3.0,
-										0.0,
-										7.300000190734863
-									],
-									"radius": 15.0,
-									"col": [
-										0.994535505771637,
-										0.9812366366386414,
-										0.9401893019676208
-									],
-									"strength": 1.0
-								}
-							]
-						},
+						"prop": "streetlight1",
 						"shift": [
 							-9.850000381469727,
 							0.0,
@@ -318,27 +238,7 @@
 						"rot": 4.71238899230957
 					},
 					{
-						"prop": {
-							"name": "streetlight1",
-							"filename": "props/streetlight1.fbx",
-							"tex_filename": "props/traffic_light",
-							"lights": [
-								{
-									"pos": [
-										3.0,
-										0.0,
-										7.300000190734863
-									],
-									"radius": 15.0,
-									"col": [
-										0.994535505771637,
-										0.9812366366386414,
-										0.9401893019676208
-									],
-									"strength": 1.0
-								}
-							]
-						},
+						"prop": "streetlight1",
 						"shift": [
 							9.850000381469727,
 							0.0,

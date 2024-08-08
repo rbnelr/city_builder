@@ -63,10 +63,8 @@ struct Person {
 	// (while inside building car does not exist)
 	std::unique_ptr<network::ActiveVehicle> vehicle = nullptr;
 
-
 	VehicleAsset* owned_vehicle;
 
-	// random color for better debug visualization
 	lrgb col;
 	float agressiveness;
 
@@ -102,6 +100,8 @@ struct Person {
 
 		float agressiveness_deviation = 0.15f;
 		agressiveness = r.normalf(agressiveness_deviation, 0.0f);
+
+		stay_timer = r.uniformf(0,1);
 	}
 
 	bool selectable () {

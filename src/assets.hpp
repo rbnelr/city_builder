@@ -5,6 +5,8 @@
 #include "kisslib/collision.hpp"
 #include "engine/camera.hpp"
 
+struct Assets;
+
 // TODO: properly factor in base_size and custom lod curves into assets (especially if things like trees/rocks can be scaled)
 // -> large buildings should only lod at very large distances (assuming their details are also large)
 // -> also need to factor in fov -> calc visible resolution at x distance -> use this determine lod
@@ -106,12 +108,84 @@ struct AssetMesh {
 	AABB<float3> aabb;
 };
 
-#define SERIALIZE_ASSET(Type, ...) \
-	friend SERIALIZE_TO_JSON(Type)   { SERIALIZE_TO_JSON_EXPAND(__VA_ARGS__) } \
-	friend SERIALIZE_FROM_JSON(Type) { SERIALIZE_FROM_JSON_EXPAND(__VA_ARGS__) \
-		t.reload(); \
-	}
+////
+#define SERIALIZE2_TO(member) _call_to_json(j[#member], t.member, ctx, _to_json_has_ctx<decltype(t.member), decltype(ctx)>{});
+#define SERIALIZE2_FROM(member) if (j.contains(#member)) _call_from_json(j.at(#member), t.member, ctx, _from_json_has_ctx<decltype(t.member), decltype(ctx)>{});
+#define SERIALIZE2_TO_MEMBERS(...)   _JSON_EXPAND(_JSON_PASTE(SERIALIZE2_TO, __VA_ARGS__))
+#define SERIALIZE2_FROM_MEMBERS(...) _JSON_EXPAND(_JSON_PASTE(SERIALIZE2_FROM, __VA_ARGS__))
 
+#define SERIALIZE2(Type, ...) \
+	template<typename CTX> friend void to_json (nlohmann::ordered_json& j, Type const& t, CTX& ctx) { SERIALIZE2_TO_MEMBERS(__VA_ARGS__) } \
+	template<typename CTX> friend void from_json (nlohmann::ordered_json const& j, Type& t, CTX& ctx) { SERIALIZE2_FROM_MEMBERS(__VA_ARGS__) }
+
+template <typename T, typename CTX, typename = void>
+struct _from_json_has_ctx : std::false_type {};
+template <typename T, typename CTX, typename = void>
+struct _to_json_has_ctx : std::false_type {};
+
+template <typename T, typename CTX>
+struct _from_json_has_ctx<T, CTX, std::void_t<decltype(
+	from_json(std::declval<nlohmann::ordered_json const&>(), std::declval<T&>(), std::declval<CTX&>()))>> : std::true_type {};
+template <typename T, typename CTX>
+struct _to_json_has_ctx<T, CTX, std::void_t<decltype(
+	to_json(std::declval<nlohmann::ordered_json&>(), std::declval<T const&>(), std::declval<CTX&>()))>> : std::true_type {};
+
+template <typename T, typename CTX>
+inline void _call_to_json(nlohmann::ordered_json& j, T const& t, CTX& ctx, std::true_type) {
+    to_json(j, t, ctx);
+}
+template <typename T, typename CTX>
+inline void _call_to_json(nlohmann::ordered_json& j, T const& t, CTX&, std::false_type) {
+    to_json(j, t);
+}
+template <typename T, typename CTX>
+inline void _call_from_json(nlohmann::ordered_json const& j, T& t, CTX& ctx, std::true_type) {
+    from_json(j, t, ctx);
+}
+template <typename T, typename CTX>
+inline void _call_from_json(nlohmann::ordered_json const& j, T& t, CTX&, std::false_type) {
+    from_json(j, t);
+}
+
+template <typename T, typename CTX>
+inline void to_json (nlohmann::ordered_json& j, std::vector<T> const& t, CTX& ctx) {
+	auto arr = nlohmann::ordered_json::array();
+	for (auto& item : t) {
+		_call_to_json(arr.emplace_back(), item, ctx, _from_json_has_ctx<T, CTX>{});
+	}
+	j = arr;
+}
+template <typename T, typename CTX>
+inline void from_json (nlohmann::ordered_json const& j, std::vector<T>& t, CTX& ctx) {
+	t = std::vector<T>();
+	for (auto& item : j) {
+		_call_from_json(item, t.emplace_back(), ctx, _from_json_has_ctx<T, CTX>{});
+	}
+}
+
+struct Asset {
+private:
+	std::string _name = "<unnamed>";
+	int refcnt = 0;
+public:
+	std::string_view name () { return _name; }
+
+	bool imgui () {
+		return ImGui::InputText("name", &_name);
+	}
+};
+
+template <typename T>
+struct AssetPtr {
+	T* ptr;
+
+	friend void to_json (json& j, AssetPtr const& ptr) {
+		j = ptr.ptr->name;
+	}
+	friend void from_json (json const& j, AssetPtr& ptr, Assets& assets);
+};
+
+////
 enum class LaneDir : uint8_t {
 	FORWARD = 0,
 	BACKWARD = 1,
@@ -127,7 +201,7 @@ enum class LineMarkingType {
 NLOHMANN_JSON_SERIALIZE_ENUM(LineMarkingType, { { LineMarkingType::LINE, "LINE" }, { LineMarkingType::STRIPED, "STRIPED" } })
 
 struct PointLight {
-	SERIALIZE(PointLight, pos, radius, col, strength)
+	SERIALIZE2(PointLight, pos, radius, col, strength)
 
 	float3 pos = 0;
 	float  radius = 5;
@@ -148,10 +222,9 @@ struct PointLight {
 	}
 };
 
-struct PropAsset {
-	SERIALIZE_ASSET(PropAsset, name, filename, tex_filename, lights)
+struct PropAsset : public Asset {
+	SERIALIZE2(PropAsset, filename, tex_filename, lights)
 
-	std::string name = "<unnamed>";
 	std::string filename;
 	std::string tex_filename;
 
@@ -160,9 +233,7 @@ struct PropAsset {
 	std::vector<PointLight> lights;
 
 	bool imgui () {
-		bool changed = false;
-
-		changed = ImGui::InputText("name", &name) || changed;
+		bool changed = Asset::imgui();
 		
 		changed = imgui_edit_vector("lights", lights, [&] (int i, PointLight& l) {
 			return l.imgui("light");
@@ -177,10 +248,10 @@ struct PropAsset {
 };
 
 struct NetworkAsset {
-	SERIALIZE_ASSET(NetworkAsset, name, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
+	SERIALIZE2(NetworkAsset, name, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
 
 	struct Lane {
-		SERIALIZE(Lane, shift, width, direction)
+		SERIALIZE2(Lane, shift, width, direction)
 
 		float shift = 0;
 		float width = 3;
@@ -189,7 +260,7 @@ struct NetworkAsset {
 	};
 
 	struct LineMarking {
-		SERIALIZE(LineMarking, type, shift, scale)
+		SERIALIZE2(LineMarking, type, shift, scale)
 
 		LineMarkingType type = LineMarkingType::LINE;
 		float2 shift = 0;
@@ -197,15 +268,13 @@ struct NetworkAsset {
 	};
 
 	struct Streetlight {
-		SERIALIZE(Streetlight, prop, shift, spacing, rot)
-
-		// TODO: need to create a system where this is saved by name, and stored ref counted at runtime
-		//PropAsset* prop = nullptr;
-		PropAsset prop; // tmp fix
+		SERIALIZE2(Streetlight, shift, spacing, rot, prop)
 
 		float3 shift = 0;
 		float spacing = 10;
 		float rot = deg(90);
+
+		AssetPtr<PropAsset> prop;
 	};
 	
 	std::string name = "<unnamed>";
@@ -284,7 +353,7 @@ struct NetworkAsset {
 			changed = ImGui::DragFloat("spacing", &l.spacing, 0.1f) || changed;
 			changed = ImGui::SliderAngle("rot", &l.rot, 0, 360) || changed;
 
-			changed = l.prop.imgui() || changed;
+			//changed = l.prop.imgui() || changed;
 			return changed;
 		}) || changed;
 
@@ -331,7 +400,7 @@ constexpr const char* VEHICLE_BONE_NAMES[] = {
 };
 
 struct BuildingAsset {
-	SERIALIZE_ASSET(BuildingAsset, name, filename, tex_filename, type, citizens, size)
+	SERIALIZE2(BuildingAsset, name, filename, tex_filename, type, citizens, size)
 
 	std::string name = "<unnamed>";
 	std::string filename;
@@ -362,7 +431,7 @@ struct BuildingAsset {
 	}
 };
 struct VehicleAsset {
-	SERIALIZE_ASSET(VehicleAsset, name, filename, tex_filename, spawn_weight)
+	SERIALIZE2(VehicleAsset, name, filename, tex_filename, spawn_weight)
 
 	std::string name = "<unnamed>";
 	std::string filename;
@@ -393,8 +462,13 @@ struct VehicleAsset {
 //  TODO: the reload could possibly be handled better?, but probably fast enough for now, as it is mostly a dev thing
 
 struct Assets {
-	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(networks, buildings, vehicles, props) }
-	friend SERIALIZE_FROM_JSON(Assets) { SERIALIZE_FROM_JSON_EXPAND(networks, buildings, vehicles, props)
+	friend SERIALIZE_TO_JSON(Assets) {
+		auto& ctx = t;
+		SERIALIZE2_TO_MEMBERS(networks, buildings, vehicles, props)
+	}
+	friend SERIALIZE_FROM_JSON(Assets) {
+		auto& ctx = t;
+		SERIALIZE2_FROM_MEMBERS(networks, buildings, vehicles, props)
 		t.assets_reloaded = true;
 	}
 
@@ -409,6 +483,11 @@ struct Assets {
 	Collection<VehicleAsset>  vehicles;
 	Collection<PropAsset>     props;
 	
+	template <typename T>
+	AssetPtr<T> query (std::string_view str) {
+		return AssetPtr<T>{}; // TODO
+	}
+
 	void reload_all () {
 		for (auto& a : networks ) a->reload();
 		for (auto& a : buildings) a->reload();
@@ -439,3 +518,8 @@ struct Assets {
 		ImGui::TreePop();
 	}
 };
+
+template <typename T>
+void from_json (json& j, AssetPtr<T>& ptr, Assets& assets) {
+	ptr = assets.query<T>(j.value<std::string>());
+}

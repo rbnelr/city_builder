@@ -769,6 +769,7 @@ struct Mesher {
 	NetworkRenderer                                    & network_renderer;
 	EntityRenderer<PropAsset, StaticEntityInstance>    & prop_renderer;
 	DefferedPointLightRenderer                         & light_renderer;
+	App                                                & app;
 	Textures                                           & textures;
 	
 	std::vector<StaticEntityInstance> building_instances;
@@ -805,7 +806,7 @@ struct Mesher {
 		return *i;
 	}
 	
-	void place_segment_line_props (network::Segment& seg, NetworkAsset::Streetlight& light, Textures& texs) {
+	void place_segment_line_props (network::Segment& seg, NetworkAsset::Streetlight& light) {
 		float y = 0;
 		while (y < seg._length) {
 			float3 dir = seg.node_b->pos - seg.node_a->pos;
@@ -818,7 +819,8 @@ struct Mesher {
 			float3 pos = seg.pos_a + right * shift.x + forw * shift.y + up * shift.z;
 			float rot = light.rot + angle2d(forw);
 
-			push_prop(&light.prop, pos, rot, texs);
+			auto* prop = app.assets.props[0].get(); // streetlight1
+			push_prop(prop, pos, rot, textures);
 
 			y += light.spacing;
 		}
@@ -854,7 +856,7 @@ struct Mesher {
 	float3 norm_up = float3(0,0,1);
 	float3 tang_up = float3(1,0,0);
 
-	void mesh_segment (network::Segment& seg, Textures& texs) {
+	void mesh_segment (network::Segment& seg) {
 		float width = seg.asset->width;
 		
 		float3 dir = seg.node_b->pos - seg.node_a->pos;
@@ -936,7 +938,7 @@ struct Mesher {
 		}
 
 		for (auto& streetlight : seg.asset->streetlights) {
-			place_segment_line_props(seg, streetlight, texs);
+			place_segment_line_props(seg, streetlight);
 		}
 	}
 
@@ -1027,11 +1029,11 @@ struct Mesher {
 		}
 	}
 
-	void remesh_network (network::Network& net, Textures& texs) {
+	void remesh_network () {
 		ZoneScoped;
 		
-		for (auto& seg : net.segments) {
-			mesh_segment(*seg, texs);
+		for (auto& seg : app.net.segments) {
+			mesh_segment(*seg);
 
 			auto v = seg->clac_seg_vecs();
 			
@@ -1099,12 +1101,12 @@ struct Mesher {
 			}
 		}
 
-		for (auto& node : net.nodes) {
+		for (auto& node : app.net.nodes) {
 			mesh_node(node.get());
 		}
 	}
 
-	void push_buildings (App& app, Textures& texs) {
+	void push_buildings () {
 		ZoneScoped;
 
 		building_instances.resize(app.entities.buildings.size());
@@ -1113,7 +1115,7 @@ struct Mesher {
 			auto& entity = app.entities.buildings[i];
 			
 			building_instances[i].mesh_id = building_renderer.asset2mesh_id[entity->asset];
-			building_instances[i].tex_id = texs.bindless_textures.get_tex_id(entity->asset->tex_filename + ".png");
+			building_instances[i].tex_id = textures.bindless_textures.get_tex_id(entity->asset->tex_filename + ".png");
 			building_instances[i].pos = entity->pos;
 			building_instances[i].rot = entity->rot;
 			building_instances[i].col = 1;
@@ -1131,9 +1133,9 @@ struct Mesher {
 		sidewalk_tex_id = -textures.bindless_textures.get_tex_id(textures.pavement.diffuse);
 		curb_tex_id     = textures.bindless_textures.get_tex_id(textures.curb.diffuse);
 
-		remesh_network(app.net, textures);
+		remesh_network();
 
-		push_buildings(app, textures);
+		push_buildings();
 
 		prop_renderer.update_instances([&] () { return prop_instances; });
 		light_renderer.update_instances([&] () { return light_instances; });
@@ -1292,7 +1294,7 @@ struct OglRenderer : public Renderer {
 	}
 	
 	void upload_static_instances (App& app) {
-		Mesher mesher{ building_renderer, network_renderer, prop_renderer, light_renderer, textures };
+		Mesher mesher{ building_renderer, network_renderer, prop_renderer, light_renderer, app, textures };
 		mesher.remesh(app);
 	}
 	void upload_car_instances (App& app, View3D& view) {

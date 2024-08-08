@@ -80,6 +80,8 @@
 #include "engine/kisslib/serialization.hpp"
 using namespace kiss;
 
+#include "engine/ankerl/unordered_dense.h"
+
 #include "tracy/Tracy.hpp"
 #include "dear_imgui.hpp"
 #include "engine.hpp"

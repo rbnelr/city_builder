@@ -609,8 +609,8 @@ struct App : public Engine {
 			Random rand(0);
 
 			auto base_pos = float3(100,100,0);
-			auto* house0 = assets.buildings[0].get();
-			auto* house1 = assets.buildings[1].get();
+			auto* house0 = assets.buildings["house"].get();
+			auto* house1 = assets.buildings["urban_mixed_use"].get();
 
 			net.nodes.resize((_grid_n+1)*(_grid_n+1));
 			
@@ -618,9 +618,9 @@ struct App : public Engine {
 				return net.nodes[y * (_grid_n+1) + x].get();
 			};
 			
-			auto* small_road  = assets.networks[0].get();
-			auto* medium_road = assets.networks[1].get();
-			auto* medium_road_asym = assets.networks[2].get();
+			auto* small_road  = assets.networks["small road"].get();
+			auto* medium_road = assets.networks["medium road"].get();
+			auto* medium_road_asym = assets.networks["medium road asym"].get();
 			
 			float2 spacing = float2(60, 60);
 
@@ -766,7 +766,8 @@ struct App : public Engine {
 			entities.persons.resize(_persons_n);
 
 			Random rand(0);
-			auto rand_car = weighted_choice(assets.vehicles, [] (std::unique_ptr<VehicleAsset> const& car) { return car->spawn_weight; });
+			auto rand_car = WeightedChoice(assets.vehicles.begin(), assets.vehicles.end(),
+				[] (AssetPtr<VehicleAsset> const& car) { return car->spawn_weight; });
 
 			test_rand = Random(0);
 

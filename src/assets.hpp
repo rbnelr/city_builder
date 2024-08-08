@@ -109,81 +109,72 @@ struct AssetMesh {
 };
 
 ////
-#define SERIALIZE2_TO(member) _call_to_json(j[#member], t.member, ctx, _to_json_has_ctx<decltype(t.member), decltype(ctx)>{});
-#define SERIALIZE2_FROM(member) if (j.contains(#member)) _call_from_json(j.at(#member), t.member, ctx, _from_json_has_ctx<decltype(t.member), decltype(ctx)>{});
-#define SERIALIZE2_TO_MEMBERS(...)   _JSON_EXPAND(_JSON_PASTE(SERIALIZE2_TO, __VA_ARGS__))
-#define SERIALIZE2_FROM_MEMBERS(...) _JSON_EXPAND(_JSON_PASTE(SERIALIZE2_FROM, __VA_ARGS__))
-
-#define SERIALIZE2(Type, ...) \
-	template<typename CTX> friend void to_json (nlohmann::ordered_json& j, Type const& t, CTX& ctx) { SERIALIZE2_TO_MEMBERS(__VA_ARGS__) } \
-	template<typename CTX> friend void from_json (nlohmann::ordered_json const& j, Type& t, CTX& ctx) { SERIALIZE2_FROM_MEMBERS(__VA_ARGS__) }
-
-template <typename T, typename CTX, typename = void>
-struct _from_json_has_ctx : std::false_type {};
-template <typename T, typename CTX, typename = void>
-struct _to_json_has_ctx : std::false_type {};
-
-template <typename T, typename CTX>
-struct _from_json_has_ctx<T, CTX, std::void_t<decltype(
-	from_json(std::declval<nlohmann::ordered_json const&>(), std::declval<T&>(), std::declval<CTX&>()))>> : std::true_type {};
-template <typename T, typename CTX>
-struct _to_json_has_ctx<T, CTX, std::void_t<decltype(
-	to_json(std::declval<nlohmann::ordered_json&>(), std::declval<T const&>(), std::declval<CTX&>()))>> : std::true_type {};
-
-template <typename T, typename CTX>
-inline void _call_to_json(nlohmann::ordered_json& j, T const& t, CTX& ctx, std::true_type) {
-    to_json(j, t, ctx);
-}
-template <typename T, typename CTX>
-inline void _call_to_json(nlohmann::ordered_json& j, T const& t, CTX&, std::false_type) {
-    to_json(j, t);
-}
-template <typename T, typename CTX>
-inline void _call_from_json(nlohmann::ordered_json const& j, T& t, CTX& ctx, std::true_type) {
-    from_json(j, t, ctx);
-}
-template <typename T, typename CTX>
-inline void _call_from_json(nlohmann::ordered_json const& j, T& t, CTX&, std::false_type) {
-    from_json(j, t);
-}
-
-template <typename T, typename CTX>
-inline void to_json (nlohmann::ordered_json& j, std::vector<T> const& t, CTX& ctx) {
-	auto arr = nlohmann::ordered_json::array();
-	for (auto& item : t) {
-		_call_to_json(arr.emplace_back(), item, ctx, _from_json_has_ctx<T, CTX>{});
-	}
-	j = arr;
-}
-template <typename T, typename CTX>
-inline void from_json (nlohmann::ordered_json const& j, std::vector<T>& t, CTX& ctx) {
-	t = std::vector<T>();
-	for (auto& item : j) {
-		_call_from_json(item, t.emplace_back(), ctx, _from_json_has_ctx<T, CTX>{});
-	}
-}
-
 struct Asset {
-private:
-	std::string _name = "<unnamed>";
-	int refcnt = 0;
-public:
-	std::string_view name () { return _name; }
+	std::string name = "<unnamed>";
 
 	bool imgui () {
-		return ImGui::InputText("name", &_name);
+		return ImGui::InputText("name", &name);
 	}
 };
 
+/*
 template <typename T>
 struct AssetPtr {
+private:
 	T* ptr;
 
-	friend void to_json (json& j, AssetPtr const& ptr) {
-		j = ptr.ptr->name;
+	static void incref (Asset* ptr) {
+		if (ptr) {
+			++ptr.ptr->refcnt;
+		}
 	}
-	friend void from_json (json const& j, AssetPtr& ptr, Assets& assets);
-};
+	static void decref (Asset* ptr) {
+		if (ptr) {
+			--ptr.ptr->refcnt;
+		}
+	}
+public:
+	T& operator* () { // deref
+		return *ptr;
+	}
+	operator bool () { return ptr != nullptr; }
+	
+	AssetPtr (): ptr{nullptr} {}
+	AssetPtr (nullptr_t): ptr{nullptr} {}
+	AssetPtr (AssetPtr const& other): ptr{other.ptr} {
+		incref(other.ptr);
+	}
+	AssetPtr (AssetPtr&& other): ptr{other.ptr} {
+		other.ptr = nullptr;
+	}
+	AssetPtr& operator= (AssetPtr const& other) {
+		if (this != &other) {
+			incref(other.ptr);
+			decref(ptr);
+			ptr = other.ptr;
+		}
+		return *this;
+	}
+	AssetPtr& operator= (AssetPtr&& other) {
+		if (this != &other) {
+			decref(ptr);
+			ptr = other.ptr;
+			other.ptr = nullptr;
+		}
+		return *this;
+	}
+	
+	~AssetPtr () {
+		decref(ptr);
+	}
+
+	template <typename T> friend void to_json (json& j, AssetPtr<T> const& ptr);
+	template <typename T> friend void from_json (json const& j, AssetPtr<T>& ptr);
+};*/
+template <typename T> using AssetPtr = std::shared_ptr<T>;
+
+template <typename T> void to_json (json& j, AssetPtr<T> const& ptr);
+template <typename T> void from_json (json const& j, AssetPtr<T>& ptr);
 
 ////
 enum class LaneDir : uint8_t {
@@ -201,7 +192,7 @@ enum class LineMarkingType {
 NLOHMANN_JSON_SERIALIZE_ENUM(LineMarkingType, { { LineMarkingType::LINE, "LINE" }, { LineMarkingType::STRIPED, "STRIPED" } })
 
 struct PointLight {
-	SERIALIZE2(PointLight, pos, radius, col, strength)
+	SERIALIZE(PointLight, pos, radius, col, strength)
 
 	float3 pos = 0;
 	float  radius = 5;
@@ -209,21 +200,17 @@ struct PointLight {
 	float  strength = 1;
 
 	bool imgui (const char* name) {
-		if (!ImGui::TreeNode(name)) return false;
-		
 		bool changed = ImGui::DragFloat3("pos", &pos.x, 0.1f);
 		changed = ImGui::DragFloat("radius", &radius, 0.1f) || changed;
 		changed = ImGui::ColorEdit3("col", &col.x, ImGuiColorEditFlags_DisplayHSV) || changed;
 		changed = ImGui::DragFloat("strength", &strength, 0.1f) || changed;
-
-		ImGui::TreePop();
 
 		return changed;
 	}
 };
 
 struct PropAsset : public Asset {
-	SERIALIZE2(PropAsset, filename, tex_filename, lights)
+	SERIALIZE(PropAsset, filename, tex_filename, lights)
 
 	std::string filename;
 	std::string tex_filename;
@@ -232,12 +219,22 @@ struct PropAsset : public Asset {
 
 	std::vector<PointLight> lights;
 
-	bool imgui () {
+	bool imgui (Settings& settings) {
 		bool changed = Asset::imgui();
 		
-		changed = imgui_edit_vector("lights", lights, [&] (int i, PointLight& l) {
-			return l.imgui("light");
-		}) || changed;
+		// TODO: implement generic vector/set iteration with item add/remove feature (sort by name for sets?)
+		for (int i=0; i<(int)lights.size(); ++i) {
+			if (ImGui::TreeNode(&lights[i], "[%d]", i)) {
+				if (ImGui::TableNextColumn()) {
+					changed = lights[i].imgui("light") || changed;
+				}
+				ImGui::PopID();
+			}
+		}
+
+		//changed = imgui_edit_vector("lights", lights, [&] (int i, PointLight& l) {
+		//	return l.imgui("light");
+		//}) || changed;
 
 		return changed;
 	}
@@ -247,11 +244,11 @@ struct PropAsset : public Asset {
 	}
 };
 
-struct NetworkAsset {
-	SERIALIZE2(NetworkAsset, name, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
+struct NetworkAsset : public Asset {
+	SERIALIZE(NetworkAsset, road_class, width, lanes, line_markings, streetlights, sidewalkL, sidewalkR, speed_limit)
 
 	struct Lane {
-		SERIALIZE2(Lane, shift, width, direction)
+		SERIALIZE(Lane, shift, width, direction)
 
 		float shift = 0;
 		float width = 3;
@@ -260,7 +257,7 @@ struct NetworkAsset {
 	};
 
 	struct LineMarking {
-		SERIALIZE2(LineMarking, type, shift, scale)
+		SERIALIZE(LineMarking, type, shift, scale)
 
 		LineMarkingType type = LineMarkingType::LINE;
 		float2 shift = 0;
@@ -268,7 +265,7 @@ struct NetworkAsset {
 	};
 
 	struct Streetlight {
-		SERIALIZE2(Streetlight, shift, spacing, rot, prop)
+		SERIALIZE(Streetlight, shift, spacing, rot, prop)
 
 		float3 shift = 0;
 		float spacing = 10;
@@ -399,10 +396,9 @@ constexpr const char* VEHICLE_BONE_NAMES[] = {
 	"Wheel.BR",
 };
 
-struct BuildingAsset {
-	SERIALIZE2(BuildingAsset, name, filename, tex_filename, type, citizens, size)
+struct BuildingAsset : public Asset {
+	SERIALIZE(BuildingAsset, filename, tex_filename, type, citizens, size)
 
-	std::string name = "<unnamed>";
 	std::string filename;
 	std::string tex_filename;
 
@@ -430,10 +426,9 @@ struct BuildingAsset {
 		assimp::load_basic(prints("assets/%s", filename.c_str()).c_str(), &mesh);
 	}
 };
-struct VehicleAsset {
-	SERIALIZE2(VehicleAsset, name, filename, tex_filename, spawn_weight)
+struct VehicleAsset : public Asset {
+	SERIALIZE(VehicleAsset, filename, tex_filename, spawn_weight)
 
-	std::string name = "<unnamed>";
 	std::string filename;
 	std::string tex_filename;
 
@@ -461,65 +456,138 @@ struct VehicleAsset {
 //        but asset reload() does keep the asset ptr valid, but you might have to decide case by case what can stay, ex. lane changes in roads have to despawn cars etc.
 //  TODO: the reload could possibly be handled better?, but probably fast enough for now, as it is mostly a dev thing
 
-struct Assets {
-	friend SERIALIZE_TO_JSON(Assets) {
-		auto& ctx = t;
-		SERIALIZE2_TO_MEMBERS(networks, buildings, vehicles, props)
+namespace {
+	// allow from_json to query for assets by name
+	// This sucks but trying to pass a Assets& context along the from_json call chain is a nightmare since the library (or my macro scheme?) is not designed for this
+	// This works for singlethreaded at least (and we probably won't multithread json->objects), but even then a theadlocal global could work(?)
+	Assets* g_assets = nullptr;
+}
+
+template <typename T>
+struct AssetCollection {
+	struct Hasher {
+		using is_transparent = void; // enable heterogeneous overloads
+		using is_avalanching = void; // mark class as high quality avalanching hash
+
+		uint64_t operator() (AssetPtr<T> const& val) const noexcept {
+			return this->operator()(val->name);
+		}
+		uint64_t operator() (std::string_view key) const noexcept {
+			static_assert(std::has_unique_object_representations_v<std::string_view>);
+			return std::hash<std::string_view>()(key);
+		}
+	};
+	struct Comparer {
+		using is_transparent = void;
+
+		bool operator() (std::string_view l, AssetPtr<T> const& r) const noexcept {
+			return l == r->name;
+		}
+		bool operator() (AssetPtr<T> const& l, AssetPtr<T> const& r) const noexcept {
+			return l->name == r->name;
+		}
+	};
+
+	typedef ankerl::unordered_dense::set<AssetPtr<T>, Hasher, Comparer> Hashset;
+
+	Hashset set;
+
+	friend SERIALIZE_TO_JSON(AssetCollection) {
+		for (auto& item : t.set) {
+			j.emplace(item->name, *item);
+		}
 	}
+	friend SERIALIZE_FROM_JSON(AssetCollection) {
+		for (auto& item : j.items()) {
+			auto val = std::make_shared<T>();
+
+			val->name = item.key();
+			item.value().get_to(*val);
+
+			val->reload();
+			t.set.emplace(std::move(val));
+		}
+	}
+
+	AssetPtr<T> operator[] (std::string_view name) {
+		auto it = set.find(name);
+		if (it == set.end()) {
+			assert(false);
+		}
+		return *it;
+	}
+
+	auto begin () const { return set.begin(); }
+	auto end () const { return set.end(); }
+
+	void imgui (const char* label, Settings& settings) {
+		if (!ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_NoTreePushOnOpen)) return;
+		ImGui::PushID(label);
+
+		auto flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Resizable;
+		if (ImGui::BeginTable("##Table", 1, flags)) {
+			for (auto& item : set) {
+				if (ImGui::TableNextColumn()) {
+					if (ImGui::TreeNode(item.get(), item->name.c_str())) {
+						item->imgui(settings);
+						ImGui::TreePop();
+					}
+				}
+			}
+
+			ImGui::EndTable();
+		}
+		ImGui::PopID();
+	}
+};
+
+struct Assets {
+	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(props, networks, buildings, vehicles) }
 	friend SERIALIZE_FROM_JSON(Assets) {
-		auto& ctx = t;
-		SERIALIZE2_FROM_MEMBERS(networks, buildings, vehicles, props)
+		g_assets = &t;
+		SERIALIZE_FROM_JSON_EXPAND(props, networks, buildings, vehicles)
 		t.assets_reloaded = true;
 	}
 
 	bool assets_reloaded = false;
 
-	// use a vector of pointers for now, asset pointers stay valid on edit, but need ordered data for gpu-side data
-	template <typename T>
-	using Collection = std::vector< std::unique_ptr<T> >;
-	
-	Collection<NetworkAsset>  networks;
-	Collection<BuildingAsset> buildings;
-	Collection<VehicleAsset>  vehicles;
-	Collection<PropAsset>     props;
+	AssetCollection<PropAsset>     props;
+	AssetCollection<NetworkAsset>  networks;
+	AssetCollection<BuildingAsset> buildings;
+	AssetCollection<VehicleAsset>  vehicles;
 	
 	template <typename T>
-	AssetPtr<T> query (std::string_view str) {
-		return AssetPtr<T>{}; // TODO
+	AssetPtr<T> query (std::string_view str);
+
+	template<> AssetPtr<PropAsset> query<PropAsset> (std::string_view str) {
+		return props[str];
 	}
 
 	void reload_all () {
+		for (auto& a : props    ) a->reload();
 		for (auto& a : networks ) a->reload();
 		for (auto& a : buildings) a->reload();
 		for (auto& a : vehicles ) a->reload();
-		for (auto& a : props    ) a->reload();
 		assets_reloaded = true;
 	}
 
 	void imgui (Settings& settings) {
-		if (!ImGui::TreeNode("Assets")) return;
+		if (!imgui_Header("Assets")) return;
 
 		if (ImGui::Button("Reload All"))
 			reload_all();
 		
-		imgui_edit_vector("props", props, [&] (int i, std::unique_ptr<PropAsset>& prop) {
-			prop->imgui();
-			return false;
-		});
-		imgui_edit_vector("networks", networks, [&] (int i, std::unique_ptr<NetworkAsset>& network) {
-			network->imgui(settings);
-			return false;
-		});
-		imgui_edit_vector("buildings", buildings, [&] (int i, std::unique_ptr<BuildingAsset>& building) {
-			building->imgui(settings);
-			return false;
-		});
+		props    .imgui("props",     settings);
+		networks .imgui("networks",  settings);
+		buildings.imgui("buildings", settings);
 
-		ImGui::TreePop();
+		ImGui::PopID();
 	}
 };
 
-template <typename T>
-void from_json (json& j, AssetPtr<T>& ptr, Assets& assets) {
-	ptr = assets.query<T>(j.value<std::string>());
+template <typename T> void to_json (json& j, AssetPtr<T> const& ptr) {
+	j = ptr->name;
+}
+template <typename T> void from_json<> (json const& j, AssetPtr<T>& ptr) {
+	ptr = g_assets->query<T>(j.get<std::string>());
 }

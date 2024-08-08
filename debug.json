@@ -16,9 +16,8 @@
 		"clip_far": 10000.0
 	},
 	"assets": {
-		"networks": [
-			{
-				"name": "small road",
+		"networks": {
+			"small road": {
 				"road_class": 0,
 				"width": 10.0,
 				"lanes": [
@@ -62,8 +61,7 @@
 				"sidewalkR": 2.799999952316284,
 				"speed_limit": 8.333333969116211
 			},
-			{
-				"name": "medium road",
+			"medium road": {
 				"road_class": 1,
 				"width": 20.0,
 				"lanes": [
@@ -149,8 +147,7 @@
 				"sidewalkR": 7.0,
 				"speed_limit": 13.88888931274414
 			},
-			{
-				"name": "medium road asym",
+			"medium road asym": {
 				"road_class": 1,
 				"width": 20.0,
 				"lanes": [
@@ -252,10 +249,9 @@
 				"sidewalkR": 7.5,
 				"speed_limit": 13.88888931274414
 			}
-		],
-		"buildings": [
-			{
-				"name": "house",
+		},
+		"buildings": {
+			"house": {
 				"filename": "buildings/house.fbx",
 				"tex_filename": "buildings/house",
 				"type": "RESIDENTIAL",
@@ -266,8 +262,7 @@
 					16.0
 				]
 			},
-			{
-				"name": "urban_mixed_use",
+			"urban_mixed_use": {
 				"filename": "buildings/urban_mixed_use.fbx",
 				"tex_filename": "buildings/house",
 				"type": "RESIDENTIAL",
@@ -278,54 +273,46 @@
 					16.0
 				]
 			}
-		],
-		"vehicles": [
-			{
-				"name": "limo",
+		},
+		"vehicles": {
+			"limo": {
 				"filename": "vehicles/limo.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 3.0
 			},
-			{
-				"name": "small",
+			"small": {
 				"filename": "vehicles/small.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 5.0
 			},
-			{
-				"name": "combi",
+			"combi": {
 				"filename": "vehicles/combi.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 2.0
 			},
-			{
-				"name": "smart",
+			"smart": {
 				"filename": "vehicles/smart.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 2.0
 			},
-			{
-				"name": "SUV",
+			"SUV": {
 				"filename": "vehicles/SUV.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 2.0
 			},
-			{
-				"name": "van",
+			"van": {
 				"filename": "vehicles/van.fbx",
 				"tex_filename": "vehicles/car",
 				"spawn_weight": 1.5
 			},
-			{
-				"name": "bus",
+			"bus": {
 				"filename": "vehicles/bus.fbx",
 				"tex_filename": "vehicles/bus",
 				"spawn_weight": 0.5
 			}
-		],
-		"props": [
-			{
-				"name": "streetlight1",
+		},
+		"props": {
+			"streetlight1": {
 				"filename": "props/streetlight1.fbx",
 				"tex_filename": "props/traffic_light",
 				"lights": [
@@ -345,7 +332,7 @@
 					}
 				]
 			}
-		]
+		}
 	},
 	"net": {
 		"settings": {

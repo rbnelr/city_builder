@@ -567,7 +567,7 @@ struct EntityRenderer {
 		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 2, &cnt.z);
 	}
 
-	void upload_meshes (Assets::Collection<ASSET_T> const& assets) {
+	void upload_meshes (AssetCollection<ASSET_T> const& assets) {
 		std::vector<MeshInfo> mesh_infos;
 		std::vector<MeshLodInfo> mesh_lod_infos;
 
@@ -819,8 +819,7 @@ struct Mesher {
 			float3 pos = seg.pos_a + right * shift.x + forw * shift.y + up * shift.z;
 			float rot = light.rot + angle2d(forw);
 
-			auto* prop = app.assets.props[0].get(); // streetlight1
-			push_prop(prop, pos, rot, textures);
+			push_prop(light.prop.get(), pos, rot, textures);
 
 			y += light.spacing;
 		}

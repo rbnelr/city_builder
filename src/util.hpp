@@ -494,7 +494,7 @@ struct NullableVariant {
 	}
 
 	template<>
-	NullableVariant (nullptr_t ref) {
+	NullableVariant (nullptr_t) {
 		var = null_t();
 	}
 

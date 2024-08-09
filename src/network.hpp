@@ -297,11 +297,12 @@ struct Node {
 	Segment* _pred_seg;
 
 	bool _fully_dedicated_turns = false; // TODO: do this differently in the future
-	bool traffic_light = false;
+	bool has_traffic_light = false;
 
 	NodeVehicles vehicles;
 	
 	void update_cached ();
+	void set_defaults ();
 	
 	SelCircle get_sel_shape () {
 		return { pos, _radius, lrgb(0.04f, 0.04f, 1) };
@@ -657,7 +658,8 @@ inline void Node::update_cached () {
 	for (auto* seg : segments) {
 		_radius = max(_radius, distance(pos, seg->pos_for_node(this)));
 	}
-	
+}
+inline void Node::set_defaults () {
 	int node_class;
 	{
 		node_class = 0;
@@ -665,13 +667,17 @@ inline void Node::update_cached () {
 			node_class = max(node_class, seg->asset->road_class);
 		}
 		
-		int count = 0;
-		for (auto& seg : segments) {
-			if (seg->asset->road_class == node_class)
-				count++;
-		}
+		auto want_traffic_light = [&] () {
+			int non_small_segs = 0;
+			for (auto& seg : segments) {
+				if (seg->asset->road_class > 0)
+					non_small_segs++;
+			}
 
-		traffic_light = count > 2;
+			// only have traffic light if more than 2 at least medium roads intersect
+			return non_small_segs > 2;
+		};
+		has_traffic_light = want_traffic_light();
 	}
 
 	set_default_lane_options(*this, _fully_dedicated_turns, node_class);

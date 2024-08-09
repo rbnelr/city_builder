@@ -962,8 +962,8 @@ struct Mesher {
 			place_segment_line_props(seg, streetlight);
 		}
 
-		if (seg.node_a->traffic_light) place_traffic_light(seg, seg.node_a);
-		if (seg.node_b->traffic_light) place_traffic_light(seg, seg.node_b);
+		if (seg.node_a->has_traffic_light) place_traffic_light(seg, seg.node_a);
+		if (seg.node_b->has_traffic_light) place_traffic_light(seg, seg.node_b);
 	}
 
 	void mesh_node (network::Node* node) {

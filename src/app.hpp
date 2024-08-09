@@ -415,6 +415,7 @@ struct TestMapBuilder {
 
 			for (auto& node : net.nodes) {
 				node->update_cached();
+				node->set_defaults();
 			}
 
 			for (int y=0; y<_grid_n+1; ++y)
@@ -679,7 +680,7 @@ struct App : public Engine {
 		g_dbgdraw.axis_gizmo(view, input.window_size);
 
 		// select after updating positions
-		interact.update_selection(entities, net, view, input);
+		interact.update(entities, net, view, input);
 
 		return view;
 	}

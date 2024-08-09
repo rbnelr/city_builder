@@ -3,9 +3,10 @@
 #include "engine/engine.hpp"
 #include "game_camera.hpp"
 #include "assets.hpp"
-#include "util.hpp"
-#include "network.hpp"
 #include "heightmap.hpp"
+#include "network.hpp"
+#include "entities.hpp"
+#include "interaction.hpp"
 
 struct App;
 
@@ -25,105 +26,6 @@ struct Renderer {
 };
 
 std::unique_ptr<Renderer> create_ogl_backend ();
-
-inline int length2int (float len) {
-	return ceili(len * 100.0f);
-}
-inline constexpr float LANE_COLLISION_R = 1.3f;
-
-inline constexpr float SAFETY_DIST = 1.0f;
-
-
-struct Person;
-struct Building;
-
-typedef NullableVariant<Person*, network::Node*> sel_ptr;
-
-struct Building {
-	BuildingAsset* asset;
-
-	float3 pos = 0;
-	float  rot = 0;
-
-	network::Segment* connected_segment = nullptr;
-};
-
-struct Person {
-	// TODO: needs to be some kind of state like in car, or in building
-	// OR car/building etc needs to track citizen and we dont know where the citizen is
-	// probably best to first use double pointers everywhere, likely that this is not a problem in terms of memory
-
-	//Building* home = nullptr;
-	//Building* work = nullptr;
-	
-	Building* cur_building = nullptr;
-	float stay_timer = 0;
-
-	// while driving this is non null and represents the currently driving car
-	// (while inside building car does not exist)
-	std::unique_ptr<network::ActiveVehicle> vehicle = nullptr;
-
-	VehicleAsset* owned_vehicle;
-
-	lrgb col;
-	float agressiveness;
-
-	float topspeed_accel_mul () {
-		return clamp(1.1f + agressiveness, 0.7f, 1.5f);
-	}
-
-	Person (Random& r, Building* initial_building, VehicleAsset* owned_vehicle) {
-		this->cur_building = initial_building;
-		this->owned_vehicle = owned_vehicle;
-
-		bool van = owned_vehicle->mesh_filename == "vehicles/van.fbx";
-		bool bus = owned_vehicle->mesh_filename == "vehicles/bus.fbx";
-
-		if (r.chance(0.5f) && !bus) {
-			lrgb std_colors[] = {
-				lrgb(0,0,0),
-				lrgb(0,0,0),
-				lrgb(0.1f,0.1f,0.1f),
-				lrgb(0.5f,0.5f,0.55f),
-				lrgb(1,1,1),
-				lrgb(0.95f,0.1f,0.1f),
-			};
-			col = std_colors[r.uniformi(0, ARRLEN(std_colors))];
-		}
-		else {
-			col = hsv2rgb(r.uniformf(), 1.0f, 0.8f); // debug-like colorful colors
-		}
-
-		if (van && r.chance(0.8f)) {
-			col = lrgb(1,1,1);
-		}
-
-		float agressiveness_deviation = 0.15f;
-		agressiveness = r.normalf(agressiveness_deviation, 0.0f);
-
-		stay_timer = r.uniformf(0,1);
-	}
-
-	bool selectable () {
-		// can only select while driving currently
-		return vehicle != nullptr;
-	}
-	SelCircle get_sel_shape () {
-		auto c = lrgb(0.04f, 1, 0.04f);
-		if (vehicle)
-			return { vehicle->center(), vehicle->car_len()*0.5f, c };
-		return { cur_building->pos, 1, c };
-	}
-};
-
-struct Entities {
-
-	std::vector<std::unique_ptr<Building>> buildings;
-	std::vector<std::unique_ptr<Person>> persons;
-
-	// building and streets
-	bool buildings_changed = true;
-};
 
 struct Test {
 	SERIALIZE(Test, bez, speed)
@@ -376,199 +278,8 @@ struct CameraTrack {
 	}
 };
 
-struct App : public Engine {
-
-	App (): Engine{"City Builder"} {}
-	virtual ~App () {}
-	
-	friend SERIALIZE_TO_JSON(App) {
-		SERIALIZE_TO_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed, test,
-			_grid_n, _persons_n);
-		t.renderer->to_json(j);
-	}
-	friend SERIALIZE_FROM_JSON(App) {
-		SERIALIZE_FROM_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed, test,
-			_grid_n, _persons_n);
-		t.renderer->from_json(j);
-	}
-
-	virtual void json_load () { deserialize("debug.json", this); }
-	virtual void json_save () { serialize("debug.json", *this); }
-
-	virtual void imgui () {
-		ZoneScoped;
-
-		renderer->imgui(*this);
-
-		ImGui::Separator();
-
-		settings.imgui();
-
-		cam.imgui("cam");
-		dbg_cam.imgui("dbg_cam");
-		ImGui::SameLine();
-		ImGui::Checkbox("View", &view_dbg_cam);
-
-		cam_track.imgui();
-
-		time_of_day.imgui();
-
-		ImGui::Checkbox("sim_paused", &sim_paused);
-		ImGui::SliderFloat("sim_speed", &sim_speed, 0, 10);
-
-		assets.imgui(settings);
-		
-		heightmap.imgui();
-		net.imgui();
-	}
-	
-	virtual bool update_files_changed (kiss::ChangedFiles& changed_files) {
-		bool success = true;
-		
-		if (changed_files.any_starts_with("assets")) {
-			//assets.reload_all();
-			//renderer->reload_textures(changed_files);
-		}
-
-		return success;
-	}
-
-	float _test_time = 0;
-
-	Settings settings;
-	
-	Assets assets;
-
-	std::unique_ptr<Renderer> renderer = create_ogl_backend();
-
-	Heightmap heightmap;
-	Entities entities;
-	network::Network net;
-
-	GameCamera cam = GameCamera{ float3(8,8,0) * 1024 };
-	
-	CameraTrack cam_track;
-
-	Flycam dbg_cam = Flycam(0, 0, 100);
-	bool view_dbg_cam = false;
-	bool dbg_cam_cursor_was_enabled;
-
-	struct TimeOfDay {
-		SERIALIZE(TimeOfDay, sun_azim, sun_elev, day_t, day_speed, day_pause)
-
-		float sun_azim = deg(50); // degrees from east, counter clockwise
-		float sun_elev = deg(14);
-		float day_t = 0.6f; // [0,1] -> [0,24] hours
-		float day_speed = 1.0f / 60.0f;
-		bool  day_pause = true;
-
-		float3 sun_dir;
-
-		float3x3 sun2world;
-		float3x3 world2sun;
-
-		void imgui () {
-			if (ImGui::TreeNode("Time of Day")) {
-
-				ImGui::SliderAngle("sun_azim", &sun_azim, 0, 360);
-				ImGui::SliderAngle("sun_elev", &sun_elev, -90, 90);
-				ImGui::SliderFloat("day_t", &day_t, 0,1);
-
-				ImGui::SliderFloat("day_speed", &day_speed, 0, 0.25f, "%.3f", ImGuiSliderFlags_Logarithmic);
-				ImGui::Checkbox("day_pause", &day_pause);
-			
-				ImGui::TreePop();
-			}
-		}
-
-		void update (App& app) {
-			if (!day_pause) day_t = wrap(day_t + day_speed * app.input.dt, 1.0f);
-
-			// move ang into [-0.5, +0.5] range to make default sun be from top
-			// (can use sun2world matrix with -Z facing camera to render shadow map, instead of having wierd camera from below)
-			float ang = wrap(day_t - 0.5f, 0.0f, 1.0f) * deg(360);
-
-			// sun rotates from east (+X) to west (-X) -> CW around Y with day_t=0 => midnight, ie sun at -Z
-			
-			sun2world = rotate3_Z(sun_azim) * rotate3_X(sun_elev) * rotate3_Y(-ang);
-			world2sun = rotate3_Y(ang) * rotate3_X(-sun_elev) * rotate3_Z(-sun_azim);
-
-			sun_dir = sun2world * float3(0,0,-1);
-		}
-	};
-	TimeOfDay time_of_day;
-
-
-	bool sim_paused = false;
-	float sim_speed = 1;
-
-	float sim_dt () {
-		return sim_paused ? 0 : input.dt * sim_speed;
-	}
-
-	Random test_rand;
-
-	Test test;
-
-	sel_ptr selection;
-	sel_ptr selection2;
-
-	template <typename T>
-	void clear_sel () {
-		if (selection.get<T>())
-			selection = nullptr;
-		if (selection2.get<T>())
-			selection2 = nullptr;
-	}
-
-	void update_selection (View3D const& view) {
-		Ray ray;
-		if (!view.cursor_ray(input, &ray.pos, &ray.dir))
-			return;
-
-		sel_ptr hover;
-		float dist = INF;
-
-		for (auto& person : entities.persons) {
-			if (person->selectable()) {
-				auto shape = person->get_sel_shape();
-				float hit_dist;
-				if (shape.test(ray, &hit_dist) && hit_dist < dist) {
-					hover = person.get();
-					dist = hit_dist;
-				}
-			}
-		}
-		for (auto& node : net.nodes) {
-			auto shape = node->get_sel_shape();
-			float hit_dist;
-			if (shape.test(ray, &hit_dist) && hit_dist < dist) {
-				hover = node.get();
-				dist = hit_dist;
-			}
-		}
-		
-		if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
-			auto& s = input.buttons[KEY_LEFT_CONTROL].is_down ? selection2 : selection;
-			s = hover;
-		}
-		if (hover) {
-			hover.visit([&] (auto& x) {
-				x->get_sel_shape().highlight();
-			});
-		}
-		if (selection) {
-			selection.visit([&] (auto& x) {
-				x->get_sel_shape().highlight_selected();
-			});
-		}
-		if (selection2) {
-			selection2.visit([&] (auto& x) {
-				x->get_sel_shape().highlight_selected(0.3f, lrgba(1,0,0, 1));
-			});
-		}
-	}
-
+struct TestMapBuilder {
+	SERIALIZE(TestMapBuilder, _grid_n, _persons_n)
 	
 	int _grid_n = 10;
 	int _persons_n = 600;
@@ -577,7 +288,7 @@ struct App : public Engine {
 
 	float _connection_chance = 0.7f;
 
-	void spawn () {
+	void update (Assets& assets, Entities& entities, Network& net, Interaction& interact, Random& sim_rand) {
 		using namespace network;
 
 		bool buildings = ImGui::SliderInt("grid_n", &_grid_n, 1, 1000)
@@ -600,7 +311,7 @@ struct App : public Engine {
 		if (buildings) {
 			ZoneScopedN("spawn buildings");
 
-			clear_sel<Node*>();
+			interact.clear_sel<Node*>();
 			//clear_sel<Segment*>();
 
 			entities.buildings.clear();
@@ -749,7 +460,7 @@ struct App : public Engine {
 		if (persons) {
 			ZoneScopedN("spawn persons");
 
-			clear_sel<Person*>();
+			interact.clear_sel<Person*>();
 
 			// remove references
 			for (auto& node : net.nodes) {
@@ -764,24 +475,162 @@ struct App : public Engine {
 
 			entities.persons.clear();
 			entities.persons.resize(_persons_n);
+			
+			sim_rand = Random(0);
 
-			Random rand(0);
 			auto rand_car = WeightedChoice(assets.vehicles.begin(), assets.vehicles.end(),
 				[] (AssetPtr<VehicleAsset> const& car) { return car->spawn_weight; });
 
-			test_rand = Random(0);
 
 			if (entities.buildings.size() > 0) {
 				for (int i=0; i<_persons_n; ++i) {
-					auto* building = entities.buildings[rand.uniformi(0, (int)entities.buildings.size())].get();
-					auto* car_asset = rand_car.get_random(rand)->get();
+					auto* building = entities.buildings[sim_rand.uniformi(0, (int)entities.buildings.size())].get();
+					auto* car_asset = rand_car.get_random(sim_rand)->get();
 					
-					entities.persons[i] = std::make_unique<Person>(Person{rand, building, car_asset});
+					entities.persons[i] = std::make_unique<Person>(Person{sim_rand, building, car_asset});
 				}
 			}
 		}
 	}
+};
+
+struct App : public Engine {
+
+	App (): Engine{"City Builder"} {}
+	virtual ~App () {}
 	
+	friend SERIALIZE_TO_JSON(App) {
+		SERIALIZE_TO_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed, test, test_map_builder);
+		t.renderer->to_json(j);
+	}
+	friend SERIALIZE_FROM_JSON(App) {
+		SERIALIZE_FROM_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed, test, test_map_builder);
+		t.renderer->from_json(j);
+	}
+
+	virtual void json_load () { deserialize("debug.json", this); }
+	virtual void json_save () { serialize("debug.json", *this); }
+
+	virtual void imgui () {
+		ZoneScoped;
+
+		renderer->imgui(*this);
+		
+		ImGui::Separator();
+		interact.imgui();
+		ImGui::Separator();
+
+		settings.imgui();
+
+		cam.imgui("cam");
+		dbg_cam.imgui("dbg_cam");
+		ImGui::SameLine();
+		ImGui::Checkbox("View", &view_dbg_cam);
+
+		cam_track.imgui();
+
+		time_of_day.imgui();
+
+		ImGui::Checkbox("sim_paused", &sim_paused);
+		ImGui::SliderFloat("sim_speed", &sim_speed, 0, 10);
+
+		assets.imgui(settings);
+		
+		heightmap.imgui();
+		net.imgui();
+	}
+	
+	virtual bool update_files_changed (kiss::ChangedFiles& changed_files) {
+		bool success = true;
+		
+		if (changed_files.any_starts_with("assets")) {
+			//assets.reload_all();
+			//renderer->reload_textures(changed_files);
+		}
+
+		return success;
+	}
+
+	float _test_time = 0;
+
+	Settings settings;
+	
+	Assets assets;
+
+	std::unique_ptr<Renderer> renderer = create_ogl_backend();
+
+	Heightmap heightmap;
+	Entities entities;
+	Network net;
+	Interaction interact;
+
+	GameCamera cam = GameCamera{ float3(8,8,0) * 1024 };
+	
+	CameraTrack cam_track;
+
+	Flycam dbg_cam = Flycam(0, 0, 100);
+	bool view_dbg_cam = false;
+	bool dbg_cam_cursor_was_enabled;
+
+	struct TimeOfDay {
+		SERIALIZE(TimeOfDay, sun_azim, sun_elev, day_t, day_speed, day_pause)
+
+		float sun_azim = deg(50); // degrees from east, counter clockwise
+		float sun_elev = deg(14);
+		float day_t = 0.6f; // [0,1] -> [0,24] hours
+		float day_speed = 1.0f / 60.0f;
+		bool  day_pause = true;
+
+		float3 sun_dir;
+
+		float3x3 sun2world;
+		float3x3 world2sun;
+
+		void imgui () {
+			if (ImGui::TreeNode("Time of Day")) {
+
+				ImGui::SliderAngle("sun_azim", &sun_azim, 0, 360);
+				ImGui::SliderAngle("sun_elev", &sun_elev, -90, 90);
+				ImGui::SliderFloat("day_t", &day_t, 0,1);
+
+				ImGui::SliderFloat("day_speed", &day_speed, 0, 0.25f, "%.3f", ImGuiSliderFlags_Logarithmic);
+				ImGui::Checkbox("day_pause", &day_pause);
+			
+				ImGui::TreePop();
+			}
+		}
+
+		void update (App& app) {
+			if (!day_pause) day_t = wrap(day_t + day_speed * app.input.dt, 1.0f);
+
+			// move ang into [-0.5, +0.5] range to make default sun be from top
+			// (can use sun2world matrix with -Z facing camera to render shadow map, instead of having wierd camera from below)
+			float ang = wrap(day_t - 0.5f, 0.0f, 1.0f) * deg(360);
+
+			// sun rotates from east (+X) to west (-X) -> CW around Y with day_t=0 => midnight, ie sun at -Z
+			
+			sun2world = rotate3_Z(sun_azim) * rotate3_X(sun_elev) * rotate3_Y(-ang);
+			world2sun = rotate3_Y(ang) * rotate3_X(-sun_elev) * rotate3_Z(-sun_azim);
+
+			sun_dir = sun2world * float3(0,0,-1);
+		}
+	};
+	TimeOfDay time_of_day;
+
+	TestMapBuilder test_map_builder;
+
+	bool sim_paused = false;
+	float sim_speed = 1;
+
+	float sim_dt () {
+		return sim_paused ? 0 : input.dt * sim_speed;
+	}
+	
+	// rand set by TestMapBuilder to get consistent paths for testing
+	Random sim_rand;
+
+	Test test;
+
 	View3D update () {
 		ZoneScoped;
 		
@@ -804,11 +653,11 @@ struct App : public Engine {
 		if (input.buttons[KEY_SPACE].went_down)
 			sim_paused = !sim_paused;
 
-		spawn();
+		test_map_builder.update(assets, entities, net, interact, sim_rand);
 
 		time_of_day.update(*this);
 		
-		cam_track.update(selection, &cam.orbit_pos, &cam.rot_aer.x);
+		cam_track.update(interact.selection, &cam.orbit_pos, &cam.rot_aer.x);
 
 		//view = view_dbg_cam ?
 		//	dbg_cam.update(input, (float2)input.window_size) :
@@ -816,7 +665,8 @@ struct App : public Engine {
 
 		net.simulate(*this);
 		
-		cam_track.update(selection, &cam.orbit_pos, &cam.rot_aer.x);
+		// TODO: why did we need to update cam_track twice? because network changes positions? why is it needed before net.simulate then?
+		cam_track.update(interact.selection, &cam.orbit_pos, &cam.rot_aer.x);
 
 		View3D view = view_dbg_cam ?
 			dbg_cam.update(input, (float2)input.window_size) :
@@ -829,7 +679,7 @@ struct App : public Engine {
 		g_dbgdraw.axis_gizmo(view, input.window_size);
 
 		// select after updating positions
-		update_selection(view);
+		interact.update_selection(entities, net, view, input);
 
 		return view;
 	}

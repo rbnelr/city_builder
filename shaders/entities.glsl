@@ -44,6 +44,7 @@ void main () {
 		vec3 TRM = texture(bindless_tex(v.tex_id+1), v.uv).rgb;
 		
 		//col.rgb += mix(vec3(1.0), v.col, TRM.r);
+		col.rgb += (vec3(1.0,.5,0.0) * TRM.r) * 2.2;
 		
 		frag_col = col;
 		frag_norm = vec4(v.world_normal, 1.0);

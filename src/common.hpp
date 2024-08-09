@@ -89,6 +89,8 @@ using namespace kiss;
 
 inline render::DebugDraw g_dbgdraw; // really need something like this to be global
 
+#include "util.hpp"
+
 inline void imgui_style () {
 	auto& style = ImGui::GetStyle();
 	ImVec4* colors = style.Colors;

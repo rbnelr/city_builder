@@ -1,7 +1,6 @@
 #pragma once
 #include "common.hpp"
 #include "assets.hpp"
-#include "util.hpp"
 
 struct Person;
 struct Building;
@@ -12,6 +11,9 @@ namespace network {
 // path should be reserved for pathfinding
 // general name to call a network edges? (road, pedestrian path, rail track etc.)
 // how to call intersections? node seems fine
+
+inline constexpr float LANE_COLLISION_R = 1.3f;
+inline constexpr float SAFETY_DIST = 1.0f;
 
 struct Node;
 struct Segment;
@@ -482,8 +484,8 @@ struct Metrics {
 	}
 };
 
-struct NetworkSettings {
-	SERIALIZE(NetworkSettings, car_accel, car_deccel, car_rear_drag_ratio, intersec_heur);
+struct Settings {
+	SERIALIZE(Settings, car_accel, car_deccel, car_rear_drag_ratio, intersec_heur);
 	
 	float car_accel = 4.5f;
 	float car_deccel = 5;
@@ -544,7 +546,7 @@ struct Network {
 	std::vector<std::unique_ptr<Segment>> segments;
 
 	Metrics metrics;
-	NetworkSettings settings;
+	Settings settings;
 	
 	int _dijk_iter = 0;
 	int _dijk_iter_dupl = 0;
@@ -691,3 +693,4 @@ inline float get_cur_speed_limit (ActiveVehicle* vehicle) {
 }
 
 } // namespace network
+using network::Network;

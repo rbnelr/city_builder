@@ -4,6 +4,8 @@
 
 namespace network {
 
+// TODO: remove app as dependency? What is it actually needed for?
+
 // Pathfinding ignores lanes other than checking if any lane allows the turn to a node being visited
 // Note: lane selection happens later during car path follwing, a few segments into the future
 bool Network::pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle) {
@@ -506,13 +508,13 @@ void dbg_brake_for (App& app, ActiveVehicle* cur, float dist, float3 obstacle, l
 	g_dbgdraw.line(end - normal, end + normal, col);
 }
 void _FORCEINLINE dbg_brake_for_vehicle (App& app, ActiveVehicle* cur, float dist, ActiveVehicle* obstacle) {
-	if (app.selection.get<Person*>() == cur->cit) {
+	if (app.interact.selection.get<Person*>() == cur->cit) {
 		float3 center = (obstacle->rear_pos + obstacle->front_pos) * 0.5f;
 		dbg_brake_for(app, cur, dist, center, lrgba(1,0.1f,0,1));
 	}
 }
 void _FORCEINLINE dbg_brake_for_blocked_lane (App& app, NodeVehicle& v, float dist) {
-	if (app.selection.get<Person*>() == v.vehicle->cit) {
+	if (app.interact.selection.get<Person*>() == v.vehicle->cit) {
 		dbg_brake_for(app, v.vehicle, dist, v.conn.conn.b.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
 	}
 }
@@ -858,10 +860,10 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 }
 
 void update_node (App& app, Node* node, float dt) {
-	bool node_dbg = app.selection.get<Node*>() == node;
+	bool node_dbg = app.interact.selection.get<Node*>() == node;
 	
-	auto* sel  = app.selection .get<Person*>() ? app.selection .get<Person*>()->vehicle.get() : nullptr;
-	auto* sel2 = app.selection2.get<Person*>() ? app.selection2.get<Person*>()->vehicle.get() : nullptr;
+	auto* sel  = app.interact.selection.get<Person*>() ? app.interact.selection.get<Person*>()->vehicle.get() : nullptr;
+	auto* sel2 = app.interact.hover    .get<Person*>() ? app.interact.hover    .get<Person*>()->vehicle.get() : nullptr;
 	
 	auto dbg_avail_space = [&] (SegLane const& lane_out, ActiveVehicle* a) {
 		auto li = lane_out.clac_lane_info();
@@ -1207,7 +1209,7 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 		float2 center_vel   = dt == 0 ? 0 : (new_center - old_center) / dt;
 		float2 center_accel = dt == 0 ? 0 : (center_vel - float2(vehicle->center_vel)) / dt;
 
-		if (vehicle->cit == app.selection.get<Person*>()) {
+		if (vehicle->cit == app.interact.selection.get<Person*>()) {
 			g_dbgdraw.arrow(float3(new_front, vehicle->state.pos_z), float3(center_vel, 0), 0.2f, lrgba(0,0,1,1));
 			g_dbgdraw.arrow(float3(new_front, vehicle->state.pos_z), float3(center_accel*0.1f, 0), 0.2f, lrgba(0,1,0,1));
 		}
@@ -1220,7 +1222,7 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 		center_accel.y = dot(center_accel, forw );
 		update_vehicle_suspension(app, *vehicle, -center_accel, dt);
 		
-		if (vehicle->cit == app.selection.get<Person*>()) {
+		if (vehicle->cit == app.interact.selection.get<Person*>()) {
 			//printf("%7.3f %7.3f  |  %7.3f %7.3f\n", center_accel.x, center_accel.y, center_vel.x, center_vel.y);
 			
 			float2 a = right * vehicle->suspension_ang.x + forw * vehicle->suspension_ang.y;
@@ -1255,7 +1257,7 @@ void Network::simulate (App& app) {
 	app._test_time += dt;
 
 	auto start_trip = [&] (Person* person) {
-		auto* target = app.entities.buildings[ app.test_rand.uniformi(0, (int)app.entities.buildings.size()) ].get();
+		auto* target = app.entities.buildings[ app.sim_rand.uniformi(0, (int)app.entities.buildings.size()) ].get();
 		
 		assert(person->cur_building->connected_segment);
 		if (person->cur_building->connected_segment) {
@@ -1343,8 +1345,8 @@ void Network::simulate (App& app) {
 }
 
 void Network::draw_debug (App& app, View3D& view) {
-	debug_node(app, app.selection.get<Node*>(), view);
-	debug_person(app, app.selection.get<Person*>(), view);
+	debug_node(app, app.interact.selection.get<Node*>(), view);
+	debug_person(app, app.interact.hover.get<Person*>(), view);
 }
 
 } // namespace network

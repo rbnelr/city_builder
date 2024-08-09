@@ -1,14 +1,14 @@
 {
 	"cam": {
 		"orbit_pos": [
-			1004.1493530273438,
-			398.7171630859375,
+			999.9195556640625,
+			398.63616943359375,
 			0.0
 		],
-		"zoom_target": -5.25,
+		"zoom_target": -5.5,
 		"rot_aer": [
-			1.4771997928619385,
-			-0.15705396234989166,
+			1.5840132236480713,
+			-0.7518628239631653,
 			0.0
 		],
 		"vfov": 1.2217305898666382,
@@ -17,8 +17,8 @@
 	},
 	"assets": {
 		"props": {
-			"streetlight1": {
-				"mesh_filename": "props/streetlight1.fbx",
+			"Streetlight1": {
+				"mesh_filename": "props/Streetlight1.fbx",
 				"tex_filename": "props/traffic_light",
 				"lights": [
 					{
@@ -37,16 +37,21 @@
 					}
 				]
 			},
-			"traffic_signal1": {
-				"mesh_filename": "props/traffic_signal1.fbx",
+			"TrafficLightPole1": {
+				"mesh_filename": "props/TrafficLightPole1.fbx",
+				"tex_filename": "props/traffic_light",
+				"lights": []
+			},
+			"TrafficSignal1": {
+				"mesh_filename": "props/TrafficSignal1.fbx",
 				"tex_filename": "props/traffic_light",
 				"lights": []
 			}
 		},
 		"traffic_lights": {
-			"traffic_light1": {
-				"mast_prop": "streetlight1",
-				"signal_prop": "traffic_signal1",
+			"TrafficLight": {
+				"mast_prop": "TrafficLightPole1",
+				"signal_prop": "TrafficSignal1",
 				"mast_base": [
 					0.0,
 					0.0,
@@ -99,10 +104,10 @@
 						],
 						"spacing": 15.0,
 						"rot": 1.5707963705062866,
-						"prop": "streetlight1"
+						"prop": "Streetlight1"
 					}
 				],
-				"traffic_light_prop": "traffic_light1",
+				"traffic_light_prop": "TrafficLight",
 				"traffic_light_shift": [
 					3.0999999046325684,
 					0.20000000298023224
@@ -180,7 +185,7 @@
 						],
 						"spacing": 15.0,
 						"rot": 4.71238899230957,
-						"prop": "streetlight1"
+						"prop": "Streetlight1"
 					},
 					{
 						"shift": [
@@ -190,10 +195,10 @@
 						],
 						"spacing": 15.0,
 						"rot": 1.5707963705062866,
-						"prop": "streetlight1"
+						"prop": "Streetlight1"
 					}
 				],
-				"traffic_light_prop": "traffic_light1",
+				"traffic_light_prop": "TrafficLight",
 				"traffic_light_shift": [
 					7.599999904632568,
 					0.5
@@ -287,7 +292,7 @@
 						],
 						"spacing": 15.0,
 						"rot": 4.71238899230957,
-						"prop": "streetlight1"
+						"prop": "Streetlight1"
 					},
 					{
 						"shift": [
@@ -297,10 +302,10 @@
 						],
 						"spacing": 15.0,
 						"rot": 1.5707963705062866,
-						"prop": "streetlight1"
+						"prop": "Streetlight1"
 					}
 				],
-				"traffic_light_prop": "traffic_light1",
+				"traffic_light_prop": "TrafficLight",
 				"traffic_light_shift": [
 					8.100000381469727,
 					0.800000011920929
@@ -393,7 +398,7 @@
 		"day_pause": true
 	},
 	"sim_paused": false,
-	"sim_speed": 1.0,
+	"sim_speed": 3.0,
 	"test": {
 		"bez": {
 			"a": [
@@ -411,8 +416,10 @@
 		},
 		"speed": 2.0
 	},
-	"_grid_n": 25,
-	"_persons_n": 600,
+	"test_map_builder": {
+		"_grid_n": 20,
+		"_persons_n": 600
+	},
 	"ogl_renderer": {
 		"lighting": {
 			"sun_col": [

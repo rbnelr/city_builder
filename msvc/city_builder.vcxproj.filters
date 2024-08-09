@@ -237,6 +237,8 @@
       <Filter>opengl</Filter>
     </ClInclude>
     <ClInclude Include="..\src\heightmap.hpp" />
+    <ClInclude Include="..\src\interaction.hpp" />
+    <ClInclude Include="..\src\entities.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\shaders\common.glsl">

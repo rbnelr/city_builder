@@ -1,8 +1,5 @@
 #pragma once
 #include "common.hpp"
-#include "agnostic_render.hpp"
-#include "util.hpp"
-#include "kisslib/collision.hpp"
 #include "engine/camera.hpp"
 
 struct Assets;
@@ -197,6 +194,7 @@ struct PropAsset : public Asset {
 	}
 
 	void reload () {
+		mesh = {}; // need to clear mesh
 		assimp::load_basic(prints("assets/%s", mesh_filename.c_str()).c_str(), &mesh);
 	}
 };
@@ -411,6 +409,7 @@ struct BuildingAsset : public Asset {
 	}
 
 	void reload () {
+		mesh = {}; // need to clear mesh
 		assimp::load_basic(prints("assets/%s", mesh_filename.c_str()).c_str(), &mesh);
 	}
 };
@@ -429,6 +428,7 @@ struct VehicleAsset : public Asset {
 	AssetMesh<SimpleAnimVertex> mesh;
 
 	void reload () {
+		mesh = {}; // need to clear mesh
 		assimp::load_simple_anim(prints("assets/%s", mesh_filename.c_str()).c_str(), &mesh, bone_mats, &wheel_r);
 	}
 };

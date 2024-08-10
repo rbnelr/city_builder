@@ -153,11 +153,14 @@ struct Textures {
 struct Gbuffer {
 	Fbo fbo;
 
+	// WARNING: can't really use alpha channel in gbuf because decal
+
 	// only depth -> reconstruct position  float32 format for resonable infinite far plane (float16 only works with ~1m near plane)
 	static constexpr GLenum depth_format = GL_DEPTH_COMPONENT32F; // GL_R32F causes GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT
 	// rgb albedo (emmisive is simply very bright)
 	// might be able to afford using GL_RGB8 since it's mostly just albedo from textures
 	static constexpr GLenum col_format   = GL_RGB16F; // GL_RGB16F GL_RGB8
+	static constexpr GLenum emiss_format = GL_RGB16F;
 	// rgb normal
 	// GL_RGB8 requires encoding normals, might be better to have camera space normals without z
 	// seems like 8 bits might be to little for normals
@@ -167,6 +170,7 @@ struct Gbuffer {
 
 	Render_Texture depth  = {};
 	Render_Texture col    = {};
+	Render_Texture emiss  = {};
 	Render_Texture norm   = {};
 	Render_Texture pbr    = {};
 
@@ -177,6 +181,7 @@ struct Gbuffer {
 		
 		depth  = Render_Texture("gbuf.depth", size, depth_format);
 		col    = Render_Texture("gbuf.col",   size, col_format);
+		emiss  = Render_Texture("gbuf.emiss", size, emiss_format);
 		norm   = Render_Texture("gbuf.norm",  size, norm_format);
 		pbr    = Render_Texture("gbuf.pbr",   size, pbr_format);
 		
@@ -185,11 +190,12 @@ struct Gbuffer {
 		
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,  GL_TEXTURE_2D, depth, 0);
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, col, 0);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, norm, 0);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, pbr, 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, emiss, 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, norm, 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, pbr, 0);
 		
 		// needed so layout(location = x) out vec3 frag_x; works
-		GLuint bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+		GLuint bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
 		glDrawBuffers(ARRLEN(bufs), bufs);
 		
 		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
@@ -204,6 +210,7 @@ struct Gbuffer {
 		return TextureBinds{{
 			{ "gbuf_depth", { GL_TEXTURE_2D, depth }, sampler },
 			{ "gbuf_col",   { GL_TEXTURE_2D, col   }, sampler },
+			{ "gbuf_emiss", { GL_TEXTURE_2D, emiss }, sampler },
 			{ "gbuf_norm",  { GL_TEXTURE_2D, norm  }, sampler },
 			{ "gbuf_pbr",   { GL_TEXTURE_2D, pbr   }, sampler },
 		}};
@@ -825,7 +832,7 @@ struct DecalRenderer {
 			s.cull_face = true;
 			s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
 
-			s.blend_enable = true;
+			s.blend_enable = true; // default blend mode (standard alpha)
 			state.set(s);
 
 			if (instance_count > 0) {
@@ -880,12 +887,10 @@ struct DefferedPointLightRenderer {
 		ImGui::Checkbox("enable lights", &enable);
 	}
 
-	template <typename FUNC>
-	void update_instances (FUNC get_instances) {
+	void update_instances (std::vector<LightInstance> const& instances) {
 		ZoneScoped;
 		OGL_TRACE("update lights");
 
-		auto instances = get_instances();
 		vbo.stream_instances(instances);
 
 		instance_count = (GLsizei)instances.size();

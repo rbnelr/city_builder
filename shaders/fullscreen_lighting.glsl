@@ -77,6 +77,8 @@
 					//col = pbr_IBL_test(g);
 				//}
 				
+				col += g.emissive;
+				
 				float shadow = sun_shadowmap(g.pos_world, g.normal_world);
 				if (shadow >= 0.0f) {
 					vec3 sun_light = atmos_scattering(lighting.sun_col);

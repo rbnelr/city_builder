@@ -8,7 +8,7 @@ VS2FS Vertex {
 	vec3 world_normal;
 	vec2 uv;
 	
-	flat vec3 col;
+	flat vec3 tint_col;
 	flat int tex_id;
 } v;
 
@@ -21,9 +21,10 @@ layout(location = 3) in uint  mesh_boneID;
 
 //layout(location = 4) in int   mesh_id;
 layout(location = 5) in int   instance_id;
-layout(location = 6) in int   tex_id;
-layout(location = 7) in vec3  instance_pos;
-layout(location = 8) in vec3  instance_col;
+layout(location = 6) in int   light_id;
+layout(location = 7) in int   tex_id;
+layout(location = 8) in vec3  instance_pos;
+layout(location = 9) in vec3  instance_col;
 // could get these like this as well, if ssbo is needed anyway for bone array like access
 // -> instance[gl_InstanceID].posx, instance[gl_InstanceID].posy ...
 
@@ -34,7 +35,7 @@ void main () {
 	v.world_normal = mat3(bone_transform) * mesh_normal;
 	
 	v.uv           = mesh_uv;
-	v.col          = instance_col;
+	v.tint_col     = instance_col;
 	v.tex_id       = tex_id;
 	
 	gl_Position = view.world2clip * vec4(v.world_pos, 1.0);
@@ -50,11 +51,12 @@ void main () {
 		vec4 diff = texture(bindless_tex(v.tex_id), v.uv);
 		vec3 TRM = texture(bindless_tex(v.tex_id+1), v.uv).rgb;
 		
-		// tint based on pbr.r and instance color
-		diff.rgb *= mix(vec3(1.0), v.col, TRM.r);
+		// PBR.R as tint channel to tint albedo with instance color
+		diff.rgb *= mix(vec3(1.0), v.tint_col, TRM.r);
 		
-		frag_col = diff;
-		frag_norm = vec4(v.world_normal, 1.0);
-		frag_pbr  = vec4(TRM.gb, 0,1);
+		frag_col   = diff;
+		frag_emiss = vec4(0,0,0,1);
+		frag_norm  = vec4(v.world_normal, 1.0);
+		frag_pbr   = vec4(TRM.gb, 0,1);
 	}
 #endif

@@ -120,8 +120,9 @@ VS2FS Vertex {
 		//col = overlay_grid(col, v.pos);
 		//col = overlay_countour_lines(col, v.pos);
 		
-		frag_col = vec4(col, 1.0);
-		frag_norm = vec4(v.normal, 1.0);
-		frag_pbr = pbr;
+		frag_col   = vec4(col, 1.0);
+		frag_emiss = vec4(0,0,0,1);
+		frag_norm  = vec4(v.normal, 1.0);
+		frag_pbr   = pbr;
 	}
 #endif

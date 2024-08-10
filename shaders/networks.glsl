@@ -52,8 +52,9 @@ VS2FS Vertex {
 		           texture(bindless_tex(v.tex_id+1), v.uv).rgb );
 		vec3 col = texture(bindless_tex(v.tex_id), v.uv).rgb;
 		
-		frag_col = vec4(col, 1.0);
-		frag_norm = vec4(norm, 1.0);
-		frag_pbr = pbr;
+		frag_col   = vec4(col, 1.0);
+		frag_emiss = vec4(0,0,0,1);
+		frag_norm  = vec4(norm, 1.0);
+		frag_pbr   = pbr;
 	}
 #endif

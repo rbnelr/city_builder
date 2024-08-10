@@ -74,6 +74,7 @@ VS2FS Vertex {
 		col.rgb *= 0.7;
 		
 		frag_col  = col;
+		frag_emiss = vec4(vec3(0), col.a); // cover up emissive, decals currently never emissive
 		frag_norm = vec4(norm, 0.7 * col.a);
 		frag_pbr = vec4(pbr.rgb, col.a);
 		

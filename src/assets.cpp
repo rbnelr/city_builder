@@ -21,6 +21,14 @@ namespace assimp {
 		return transform * get_matrix(node->mTransformation);
 	}
 
+	uint8_t find_light_id (aiString const& mat_name) {
+		for (int i=0; i<ARRLEN(LightID_Map); ++i) {
+			if (kiss::contains(mat_name.C_Str(), LightID_Map[i].first))
+				return LightID_Map[i].second;
+		}
+		return (uint8_t)0;
+	}
+
 	void print_scene (aiNode const* node, int depth, float4x4 const& transform) {
 		float4x4 mat = node_transform(node, transform);
 
@@ -53,11 +61,20 @@ namespace assimp {
 				scl *= fac;
 			}
 		}
+		
+		printf("Materials: {");
+		for (unsigned int i=0; i<scene->mNumMaterials; ++i) {
+			auto* mat = scene->mMaterials[i];
+			auto name = mat->GetName();
+			
+			printf(" %s", name.C_Str());
+		}
+		printf(" }\n");
 
 		for (unsigned int i=0; i<scene->mNumMeshes; ++i) {
 			auto* m = scene->mMeshes[i];
 
-			printf("  mesh[%d]: \"%s\" %d verts %d faces Bones: {\n", i, m->mName.C_Str(), m->mNumVertices, m->mNumFaces);
+			printf("  mesh[%d]: \"%s\" %d verts %d faces material: %d Bones: {\n", i, m->mName.C_Str(), m->mNumVertices, m->mNumFaces, m->mMaterialIndex);
 			
 			for (unsigned j=0; j<m->mNumBones; ++j) {
 				auto& b = m->mBones[j];
@@ -66,6 +83,14 @@ namespace assimp {
 				//auto mat = get_matrix(b->mOffsetMatrix);
 				//printf("");
 			}
+
+			//for (unsigned j=0; j<m->mg; ++j) {
+			//	auto& b = m->mBones[j];
+			//	printf("    bone[%d]: \"%s\"\n", j, b->mName.C_Str());
+			//
+			//	//auto mat = get_matrix(b->mOffsetMatrix);
+			//	//printf("");
+			//}
 
 			printf("  }\n");
 		}
@@ -104,7 +129,7 @@ namespace assimp {
 		}
 	}
 	
-	void load_mesh_data (aiMesh const* mesh, float4x4 const& transform, SimpleMesh& data) {
+	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, SimpleMesh& data) {
 		unsigned base_vertex = (unsigned)data.vertices.size();
 		
 		for (unsigned j=0; j<mesh->mNumVertices; ++j) {
@@ -118,9 +143,11 @@ namespace assimp {
 
 		push_face_indices(mesh, data.indices, base_vertex);
 	}
-	void load_mesh_data (aiMesh const* mesh, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB3& aabb) {
+	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB3& aabb) {
 		unsigned base_vertex = (unsigned)data.vertices.size();
 		
+		auto lightID = material ? find_light_id(material->GetName()) : (uint8_t)0;
+
 		for (unsigned i=0; i<mesh->mNumVertices; ++i) {
 			data.vertices.emplace_back();
 			auto& v = data.vertices.back();
@@ -134,13 +161,14 @@ namespace assimp {
 			v.normal = (float3)(transform * float4(norm.x, norm.y, norm.z, 0.0f));
 			v.uv     = mesh->mTextureCoords[0] ? float2(uv->x, uv->y) : float2(0.0f);
 			//v.col  = mesh->mColors[0] ? float4(col->r, col->g, col->b, col->a) : lrgba(1,1,1,1);
+			v.lightID = lightID;
 
 			aabb.add(v.pos);
 		}
 
 		push_face_indices(mesh, data.indices, base_vertex);
 	}
-	void load_mesh_data (aiMesh const* mesh, float4x4 const& transform, Mesh<SimpleAnimVertex, uint16_t>& data, AABB3& aabb, std::unordered_map<int, int>& bone_id_map) {
+	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, Mesh<SimpleAnimVertex, uint16_t>& data, AABB3& aabb, std::unordered_map<int, int>& bone_id_map) {
 		unsigned base_vertex = (unsigned)data.vertices.size();
 		
 		for (unsigned i=0; i<mesh->mNumVertices; ++i) {
@@ -181,17 +209,21 @@ namespace assimp {
 
 	template <typename... ARGS>
 	// Recursively load fbx tree, applying transformations to vertices
-	void load_join_mesh_recurse (aiScene const* scene, aiNode const* node, float4x4 const& transform, ARGS&... args) {
-		float4x4 mat = node_transform(node, transform);
+	void load_join_mesh_recurse (aiScene const* scene, aiNode const* node, float4x4 const& parent_transform, ARGS&... args) {
+		float4x4 transform = node_transform(node, parent_transform);
 	
 		for (unsigned int i=0; i<node->mNumMeshes; ++i) {
-			unsigned int mesh_idx = node->mMeshes[i];
-			assert(mesh_idx < scene->mNumMeshes);
-			load_mesh_data(scene->mMeshes[mesh_idx], mat, args...);
+			assert(node->mMeshes[i] < scene->mNumMeshes);
+			if (node->mMeshes[i] >= scene->mNumMeshes) continue; // for good measure
+			auto* mesh = scene->mMeshes[node->mMeshes[i]];
+			
+			assert(mesh->mMaterialIndex < scene->mNumMaterials);
+			auto* material = mesh->mMaterialIndex < scene->mNumMaterials ? scene->mMaterials[mesh->mMaterialIndex] : nullptr; // for good measure
+			load_mesh_data(mesh, material, transform, args...);
 		}
 	
 		for (unsigned int i=0; i<node->mNumChildren; ++i)
-			load_join_mesh_recurse(scene, node->mChildren[i], mat, args...);
+			load_join_mesh_recurse(scene, node->mChildren[i], transform, args...);
 	}
 	
 	bool load_basic (char const* filename, AssetMesh<BasicVertex, uint16_t>* out_mesh) {
@@ -201,7 +233,7 @@ namespace assimp {
 
 		importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS,
 			aiComponent_TEXTURES | aiComponent_LIGHTS | aiComponent_CAMERAS | aiComponent_MATERIALS |
-			aiComponent_BONEWEIGHTS | aiComponent_ANIMATIONS);
+			aiComponent_ANIMATIONS); // aiComponent_BONEWEIGHTS
 		
 		auto* scene = importer.ReadFile(filename, aiProcess_Triangulate|aiProcess_JoinIdenticalVertices|
 			aiProcess_CalcTangentSpace|aiProcess_ImproveCacheLocality);
@@ -210,7 +242,7 @@ namespace assimp {
 			return false;
 		}
 
-		//print_scene(scene, filename);
+		print_scene(scene, filename);
 
 		auto transform = get_base_transform(scene);
 		

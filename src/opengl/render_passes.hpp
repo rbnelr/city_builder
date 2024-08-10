@@ -4,6 +4,14 @@
 #include "bindless_textures.hpp"
 
 namespace ogl {
+
+static constexpr int UBO_BINDING_COMMON = 0;
+static constexpr int SSBO_BINDING_BINDLESS_TEX_LUT = 0;
+static constexpr int SSBO_BINDING_DBGDRAW_INDIRECT = 1;
+static constexpr int SSBO_BINDING_ENTITY_INSTANCES = 2;
+static constexpr int SSBO_BINDING_ENTITY_MDI       = 3;
+static constexpr int SSBO_BINDING_ENTITY_MESH_INFO = 4;
+static constexpr int SSBO_BINDING_ENTITY_LOD_INFO  = 5;
 	
 struct Textures {
 	// TODO: need some sort of texture array or atlas system! (atlas sucks tho)

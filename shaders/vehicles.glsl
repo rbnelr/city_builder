@@ -18,25 +18,23 @@ layout(location = 0) in vec3  mesh_pos;
 layout(location = 1) in vec3  mesh_normal;
 layout(location = 2) in vec2  mesh_uv;
 layout(location = 3) in uint  mesh_boneID;
-
-//layout(location = 4) in int   mesh_id;
-layout(location = 5) in int   instance_id;
-layout(location = 6) in int   light_id;
-layout(location = 7) in int   tex_id;
-layout(location = 8) in vec3  instance_pos;
-layout(location = 9) in vec3  instance_col;
+//layout(location = 4) in int   inst_mesh_id;
+layout(location = 5) in int   inst_instance_id;
+layout(location = 6) in int   inst_tex_id;
+layout(location = 7) in vec3  inst_pos;
+layout(location = 8) in vec3  inst_tint;
 // could get these like this as well, if ssbo is needed anyway for bone array like access
 // -> instance[gl_InstanceID].posx, instance[gl_InstanceID].posy ...
 
 void main () {
-	mat4x3 bone_transform = mat4x3(instance[instance_id].bone_rot[mesh_boneID]);
+	mat4x3 bone_transform = mat4x3(instance[inst_instance_id].bone_rot[mesh_boneID]);
 	
-	v.world_pos    = (bone_transform * vec4(mesh_pos, 1.0)).xyz + instance_pos;
+	v.world_pos    = (bone_transform * vec4(mesh_pos, 1.0)).xyz + inst_pos;
 	v.world_normal = mat3(bone_transform) * mesh_normal;
 	
 	v.uv           = mesh_uv;
-	v.tint_col     = instance_col;
-	v.tex_id       = tex_id;
+	v.tint_col     = inst_tint;
+	v.tex_id       = inst_tex_id;
 	
 	gl_Position = view.world2clip * vec4(v.world_pos, 1.0);
 }

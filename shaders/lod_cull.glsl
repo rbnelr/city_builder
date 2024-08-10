@@ -17,13 +17,13 @@ struct MeshLodInfo {
 	uint index_count;
 };
 
-layout(std430, binding = 4) writeonly restrict buffer CommandsBuf {
+layout(std430, binding = 3) writeonly restrict buffer CommandsBuf {
 	glDrawElementsIndirectCommand cmd[];
 };
-layout(std430, binding = 5) readonly restrict buffer MeshInfoBuf {
+layout(std430, binding = 4) readonly restrict buffer MeshInfoBuf {
 	MeshInfo mesh_info[];
 };
-layout(std430, binding = 6) readonly restrict buffer MeshLodInfoBuf {
+layout(std430, binding = 5) readonly restrict buffer MeshLodInfoBuf {
 	MeshLodInfo mesh_lod_info[];
 };
 
@@ -39,13 +39,15 @@ uint pick_lod (vec3 obj_pos, uint lod_count) {
 	return lod;
 }
 
+uniform uint instance_count;
+
 void main () {
 	// might want to do this once we want to stop rendering objects once they get to far away
 	// ie. mostly props, citizens etc.
 	//uint idx = atomicAdd(_dbgdrawbuf.lines.cmd.count, 2u);
 	
 	uint i = gl_GlobalInvocationID.x;
-	if (i >= instances_count) return;
+	if (i >= instance_count) return;
 	
 	vec3 pos = vec3(instance[i].posx, instance[i].posy, instance[i].posz);
 	uint mesh_id = instance[i].mesh_id;

@@ -469,62 +469,20 @@ struct SkyboxRenderer {
 };
 #endif
 
-struct StaticEntityInstance {
-	int    mesh_id;
-	int    tex_id;
-	int    light_id;
-	float3 pos;
-	float  rot;
-	float3 col; // Just for debug?
-
-	static constexpr const char* name = "StaticEntityInstance";
-	
-	VERTEX_CONFIG(
-		ATTRIB(INT,1, StaticEntityInstance, mesh_id),
-		ATTRIB(INT,1, StaticEntityInstance, tex_id),
-		ATTRIB(INT,1, StaticEntityInstance, light_id),
-		ATTRIB(FLT,3, StaticEntityInstance, pos),
-		ATTRIB(FLT,1, StaticEntityInstance, rot),
-		ATTRIB(FLT,3, StaticEntityInstance, col),
-	)
-};
-struct VehicleInstance {
-	int    mesh_id;
-	int    instance_id; // uGH!!! avoiding this (gl_BaseInstance + gl_InstanceID) requires opengl 4.6
-	int    light_id;
-	int    tex_id;
-	float3 pos;
-	float3 col; // Just for debug?
-	
-	float _pad[2] = {};
-
-	// can't be float3x4 even though that would be more efficient because that involves absurd hack where you load every float manually
-	float4x4 bone_rot[5];
-
-	static constexpr const char* name = "VehicleInstance";
-
-	VERTEX_CONFIG(
-		ATTRIB(INT,1, VehicleInstance, mesh_id),
-		ATTRIB(INT,1, VehicleInstance, instance_id),
-		ATTRIB(INT,1, VehicleInstance, light_id),
-		ATTRIB(INT,1, VehicleInstance, tex_id),
-		ATTRIB(FLT,3, VehicleInstance, pos),
-		ATTRIB(FLT,3, VehicleInstance, col),
-	)
-};
-
-template <typename ASSET_T, typename INSTANCE_T>
-struct EntityRenderer {
+template <typename ASSET_T>
+struct AssetMeshes {
 	typedef typename decltype(ASSET_T().mesh)::vert_t vert_t;
 	typedef typename decltype(ASSET_T().mesh)::idx_t  idx_t;
 
 	static constexpr uint32_t COMPUTE_GROUPSZ = 512;
+	
+	Vbo vbo = {"entities.mesh.vbo"};
+	Ebo ebo = {"entities.mesh.ebo"};
+	
+	Ssbo ssbo_mesh_info = {"mesh_info"};
+	Ssbo ssbo_mesh_lod_info = {"mesh_lod_info"};
 
-	Shader* shad;
-	Shader* shad_lod_cull = g_shaders.compile("lod_cull", {
-			{"GROUPSZ", prints("%d", COMPUTE_GROUPSZ)},
-			{"INSTANCE_T", INSTANCE_T::name},
-		}, { shader::COMPUTE_SHADER });
+	std::unordered_map<ASSET_T*, int> asset2mesh_id;
 
 	struct MeshInfo {
 		uint32_t mesh_lod_id; // index of MeshLodInfos [lods]
@@ -537,57 +495,25 @@ struct EntityRenderer {
 		uint32_t index_count;
 	};
 
-	struct InstanceUploadData {
-		std::vector<INSTANCE_T> instances;
-		std::vector<float4> light_cols;
-
-		void reserve (size_t num_instances) {
-			instances.reserve(num_instances);
-			light_cols.reserve(num_instances * 3);
-		}
-	};
-
-	// All meshes/lods vbo (indexed) GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER
-	// All entities instance data GL_ARRAY_BUFFER
-	VertexBufferInstancedI vbo = vertex_buffer_instancedI<vert_t, INSTANCE_T>("entities");
-	Ssbo ssbo_light_cols = Ssbo("entities.lights");
-	
-	Ssbo ssbo_mesh_info = {"mesh_info"};
-	Ssbo ssbo_mesh_lod_info = {"mesh_lod_info"};
-
-	// All entities lodded draw commands
-	Vbo indirect_vbo = {"DebugDraw.indirect_draw"};
-
-	std::unordered_map<ASSET_T*, int> asset2mesh_id;
-	
-	uint32_t entities_count = 0;
-	
-	EntityRenderer (const char* shad_name) {
-		shad = g_shaders.compile(shad_name, {
-			{"INSTANCE_T", INSTANCE_T::name},
-		});
-		shad_lod_cull = g_shaders.compile("lod_cull", {
-			{"GROUPSZ", prints("%d", COMPUTE_GROUPSZ)},
-			{"INSTANCE_T", INSTANCE_T::name},
-		}, { shader::COMPUTE_SHADER });
-
-		//int3 sz = -1;
-		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &sz.x);
-		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &sz.y);
-		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &sz.z);
-		//
-		//int3 cnt = -1;
-		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &cnt.x);
-		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 1, &cnt.y);
-		//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 2, &cnt.z);
-	}
+	//int3 sz = -1;
+	//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &sz.x);
+	//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &sz.y);
+	//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &sz.z);
+	//
+	//int3 cnt = -1;
+	//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &cnt.x);
+	//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 1, &cnt.y);
+	//glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 2, &cnt.z);
 
 	void upload_meshes (AssetCollection<ASSET_T> const& assets) {
+		ZoneScoped;
+		OGL_TRACE("upload meshes");
+
 		std::vector<MeshInfo> mesh_infos;
 		std::vector<MeshLodInfo> mesh_lod_infos;
 
-		glBindBuffer(GL_ARRAY_BUFFER, vbo.vbo);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo.ebo);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
 			
 		uint32_t indices=0, vertices=0;
 		uint32_t mesh_id=0;
@@ -635,46 +561,117 @@ struct EntityRenderer {
 		upload_buffer(GL_SHADER_STORAGE_BUFFER, ssbo_mesh_lod_info, sizeof(mesh_lod_infos[0]) * mesh_lod_infos.size(), mesh_lod_infos.data(), GL_STATIC_DRAW);
 	}
 
-	void update_instances (InstanceUploadData const& data) {
-		ZoneScoped;
-		OGL_TRACE("update instances");
+	int compute_indirect_cmds (Shader* shad, Vbo& MDI_vbo, uint32_t instance_count) {
+		if (!shad->prog) return 0;
+		OGL_TRACE("lod_cull compute");
+		
+		// resize/clear cmd buf
+		glBindBuffer(GL_ARRAY_BUFFER, MDI_vbo);
+		glBufferData(GL_ARRAY_BUFFER, instance_count * sizeof(glDrawElementsIndirectCommand), nullptr, GL_STREAM_DRAW);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		
+		// assume (GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITIY_INSTANCES) is instance buffer
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_MDI, MDI_vbo);
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_MESH_INFO, ssbo_mesh_info);
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_LOD_INFO, ssbo_mesh_lod_info);
 
-		vbo.stream_instances(data.instances);
-		stream_buffer(GL_SHADER_STORAGE_BUFFER, ssbo_light_cols, data.light_cols, GL_STREAM_DRAW);
+		glUseProgram(shad->prog);
 
-		entities_count = (uint32_t)data.instances.size();
+		shad->set_uniform("instance_count", instance_count);
+
+		uint32_t groups_x = (instance_count + COMPUTE_GROUPSZ-1) / COMPUTE_GROUPSZ;
+		glDispatchCompute(groups_x, 1, 1);
+
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_MDI, 0);
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_MESH_INFO, 0);
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_LOD_INFO, 0);
+
+		glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
+
+		return instance_count; // resulting commands count
+	}
+};
+
+// A bit of a horrible class based around variadic template and std::tuple to allow to split instance data into multiple vbos for cleaner updates of only the dynamic parts
+template <typename ASSET_T, typename... INSTANCE_PARTS>
+struct EntityRenderer {
+
+	Shader* shad;
+	Shader* shad_lod_cull;
+
+	AssetMeshes<ASSET_T>& meshes;
+
+	EntityRenderer (AssetMeshes<ASSET_T>& meshes, const char* shad_name, const char* variant_name="_VARIANT"):
+			meshes{meshes} {
+
+		shad = g_shaders.compile(shad_name, {{variant_name, "1"}}); // #define <variant_name> to select specific shader
+
+		shad_lod_cull = g_shaders.compile("lod_cull", {{variant_name, "1"},
+			{"GROUPSZ", prints("%d", AssetMeshes<ASSET_T>::COMPUTE_GROUPSZ)},
+		}, { shader::COMPUTE_SHADER });
+
+		setup_vao();
 	}
 
+	// Really complicated variadic/tuple system that allows to easily split instance data into seperate structs/vbos that can then be individually uploaded
+	template <typename T>
+	struct VboPart {
+		Vbo vbo = {"entities.vbo"};
+		
+		void upload (std::vector<T> const& data, GLenum usage=GL_STATIC_DRAW) {
+			stream_buffer(GL_ARRAY_BUFFER, vbo, data, usage);
+		}
+
+		void setup (int& idx) {
+			glBindBuffer(GL_ARRAY_BUFFER, vbo);
+			idx = setup_vao_attribs(T::attribs(), idx, 1);
+		}
+	};
+
+	Vao vao;
+	std::tuple<VboPart<INSTANCE_PARTS>...> vbos;
+
+	uint32_t instance_count = 0;
+
+	template <int IDX, typename T>
+	void upload (std::vector<T>& data, bool streaming) {
+		std::get<IDX>(vbos).upload(data, streaming ? GL_STREAM_DRAW : GL_STATIC_DRAW);
+
+		if (IDX == 0) instance_count = (uint32_t)data.size();
+		else assert(instance_count == (uint32_t)data.size());
+	}
+
+	void setup_vao () {
+		vao = {"entities.vao"};
+		vbos = {};
+
+		glBindVertexArray(vao);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, meshes.ebo);
+
+		glBindBuffer(GL_ARRAY_BUFFER, meshes.vbo);
+		int idx = setup_vao_attribs(AssetMeshes<ASSET_T>::vert_t::attribs(), 0, 0);
+
+		// horrible syntax, essentially just loops of heterogenous elements in tuple vbos
+		std::apply([&](auto&... vbos) {
+			(vbos.setup(idx), ...);
+		}, vbos);
+
+		glBindBuffer(GL_ARRAY_BUFFER, 0); // glVertexAttribPointer remembers VAO
+		glBindVertexArray(0);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); // VAO remembers EBO (note that we need to unbind VAO first)
+	}
+
+	// All entities lodded draw commands
+	Vbo MDI_vbo = {"DebugDraw.MDI_vbo"};
+	
 	void draw (StateManager& state, bool shadow_pass=false) {
 		ZoneScoped;
 		OGL_TRACE("draw entities");
 		
-		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, vbo.instances);
-		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, ssbo_light_cols);
-		
-		{
-			OGL_TRACE("lod_cull compute");
-				
-			glBindBuffer(GL_ARRAY_BUFFER, indirect_vbo);
-			glBufferData(GL_ARRAY_BUFFER, entities_count * sizeof(glDrawElementsIndirectCommand), nullptr, GL_STREAM_DRAW);
-			glBindBuffer(GL_ARRAY_BUFFER, 0);
-			
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, indirect_vbo);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ssbo_mesh_info);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, ssbo_mesh_lod_info);
+		auto& instance_vbo0 = std::get<0>(vbos).vbo;
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_INSTANCES, instance_vbo0);
 
-			glUseProgram(shad_lod_cull->prog);
-
-			shad_lod_cull->set_uniform("instances_count", entities_count);
-
-			uint32_t groups_x = (entities_count + COMPUTE_GROUPSZ-1) / COMPUTE_GROUPSZ;
-			glDispatchCompute(groups_x, 1, 1);
-			glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
-
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, 0);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, 0);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, 0);
-		}
+		int cmds_count = meshes.compute_indirect_cmds(shad_lod_cull, MDI_vbo, instance_count);
 
 		if (shad->prog) {
 			OGL_TRACE("draw indirect");
@@ -693,21 +690,86 @@ struct EntityRenderer {
 
 			glUseProgram(shad->prog);
 
-			glBindVertexArray(vbo.vao);
-			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_vbo);
+			glBindVertexArray(vao);
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, MDI_vbo);
 
 			state.bind_textures(shad, {});
 
-			glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, entities_count, 0);
+			glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0, cmds_count, 0);
 				
 			glBindVertexArray(0);
 			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 		}
-		
-		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
-		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, 0);
+
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_INSTANCES, 0);
 
 		//ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f); // TODO: ????? How to get this info?
+	}
+};
+
+struct StaticEntity {
+	int    mesh_id;
+	int    tex_id;
+	float3 pos;
+	float  rot;
+	float3 tint; // Just for debug?
+
+	static constexpr const char* name = "StaticEntity";
+	VERTEX_CONFIG(
+		ATTRIB(INT,1, StaticEntity, mesh_id),
+		ATTRIB(INT,1, StaticEntity, tex_id),
+		ATTRIB(FLT,3, StaticEntity, pos),
+		ATTRIB(FLT,1, StaticEntity, rot),
+		ATTRIB(FLT,3, StaticEntity, tint),
+	)
+};
+struct DynamicTrafficSignal {
+	float3 colors[3];
+	
+	static constexpr const char* name = "DynamicTrafficSignal";
+	VERTEX_CONFIG(
+		ATTRIB(FLT,3, DynamicTrafficSignal, colors[0]),
+		ATTRIB(FLT,3, DynamicTrafficSignal, colors[1]),
+		ATTRIB(FLT,3, DynamicTrafficSignal, colors[2]),
+	)
+};
+struct DynamicVehicle {
+	int    mesh_id;
+	int    instance_id; // uGH!!! avoiding this (gl_BaseInstance + gl_InstanceID) requires opengl 4.6
+	int    tex_id;
+	float3 pos;
+	float3 tint;
+	
+	float _pad[3] = {};
+
+	// can't be float3x4 even though that would be more efficient because that involves absurd hack where you load every float manually
+	float4x4 bone_rot[5];
+
+	static constexpr const char* name = "DynamicVehicle";
+	VERTEX_CONFIG(
+		ATTRIB(INT,1, DynamicVehicle, mesh_id),
+		ATTRIB(INT,1, DynamicVehicle, instance_id),
+		ATTRIB(INT,1, DynamicVehicle, tex_id),
+		ATTRIB(FLT,3, DynamicVehicle, pos),
+		ATTRIB(FLT,3, DynamicVehicle, tint),
+	)
+};
+
+struct EntityRenderers {
+	AssetMeshes<BuildingAsset> building_meshes;
+	AssetMeshes<PropAsset>     prop_meshes;
+	AssetMeshes<VehicleAsset>  vehicle_meshes;
+
+	EntityRenderer<BuildingAsset, StaticEntity>                       buildings       = {building_meshes, "entities", "BUILDINGS"};
+	EntityRenderer<PropAsset,     StaticEntity>                       lamps           = {prop_meshes,    "entities", "LAMPS"};
+	EntityRenderer<PropAsset,     StaticEntity, DynamicTrafficSignal> traffic_signals = {prop_meshes,    "entities", "TRAFFIC_SIGNALS"};
+	EntityRenderer<VehicleAsset,  DynamicVehicle>                     vehicles        = {vehicle_meshes, "vehicles", "VEHICLES"};
+
+	void draw_all (StateManager& state, bool shadow_pass=false) {
+		buildings      .draw(state, shadow_pass);
+		lamps          .draw(state, shadow_pass);
+		traffic_signals.draw(state, shadow_pass);
+		vehicles       .draw(state, shadow_pass);
 	}
 };
 
@@ -781,15 +843,14 @@ struct NetworkRenderer {
 };
 
 struct Mesher {
-	EntityRenderer<BuildingAsset, StaticEntityInstance>& building_renderer;
-	NetworkRenderer                                    & network_renderer;
-	EntityRenderer<PropAsset, StaticEntityInstance>    & prop_renderer;
+	EntityRenderers                                    & entity_renderers;
 	DefferedPointLightRenderer                         & light_renderer;
+	NetworkRenderer                                    & network_renderer;
 	App                                                & app;
 	Textures                                           & textures;
 	
-	EntityRenderer<BuildingAsset, StaticEntityInstance>::InstanceUploadData building_instances;
-	EntityRenderer<PropAsset, StaticEntityInstance>    ::InstanceUploadData prop_instances;
+	std::vector<StaticEntity> building_instances;
+	std::vector<StaticEntity> prop_instances;
 	std::vector<DefferedPointLightRenderer::LightInstance> light_instances;
 	
 	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
@@ -803,14 +864,13 @@ struct Mesher {
 		inst->col = col;
 	}
 	void push_prop (PropAsset* prop, float3 pos, float rot, int num_light_ids=1, float4** out_cols=nullptr) {
-		auto* inst = push_back(prop_instances.instances, 1);
+		auto* inst = push_back(prop_instances, 1);
 
-		inst->mesh_id = prop_renderer.asset2mesh_id[prop];
+		inst->mesh_id = entity_renderers.prop_meshes.asset2mesh_id[prop];
 		inst->tex_id = textures.bindless_textures.get_tex_id(prop->tex_filename + ".png");
-		inst->light_id = (int)prop_instances.light_cols.size();
 		inst->pos = pos;
 		inst->rot = rot;
-		inst->col = 1;
+		inst->tint = 1;
 
 		auto mat = obj_transform(pos, rot);
 		for (auto& light : prop->lights) {
@@ -820,12 +880,12 @@ struct Mesher {
 			push_light(light_pos, light.radius, col);
 		}
 
-		auto* cols = push_back(prop_instances.light_cols, num_light_ids);
-		if (out_cols) *out_cols = cols;
-		else {
-			for (int i=0; i<num_light_ids; ++i)
-				cols[i] = float4(1,1,1,1);
-		}
+		//auto* cols = push_back(prop_instances.light_cols, num_light_ids);
+		//if (out_cols) *out_cols = cols;
+		//else {
+		//	for (int i=0; i<num_light_ids; ++i)
+		//		cols[i] = float4(1,1,1,1);
+		//}
 	}
 	
 	void place_segment_line_props (network::Segment& seg, NetworkAsset::Streetlight& light) {
@@ -870,9 +930,9 @@ struct Mesher {
 			float4* light_cols = nullptr;
 			push_prop(prop->signal_prop.get(), spos, rot, 3, &light_cols);
 
-			light_cols[0] = in_lane.lane == 0 ? float4(1,0,0,1) : float4(0);
-			light_cols[1] = in_lane.lane == 1 ? float4(1,1,0,1) : float4(0);
-			light_cols[2] = in_lane.lane == 2 ? float4(0,1,0,1) : float4(0);
+			//light_cols[0] = in_lane.lane == 0 ? float4(1,0,0,1) : float4(0);
+			//light_cols[1] = in_lane.lane == 1 ? float4(1,1,0,1) : float4(0);
+			//light_cols[2] = in_lane.lane == 2 ? float4(0,1,0,1) : float4(0);
 		}
 	}
 
@@ -1161,30 +1221,26 @@ struct Mesher {
 	void push_buildings () {
 		ZoneScoped;
 
-		building_instances.instances.resize(app.entities.buildings.size());
-		building_instances.light_cols.resize(app.entities.buildings.size());
+		building_instances.resize(app.entities.buildings.size());
 
 		for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
 			auto& entity = app.entities.buildings[i];
 			
-			building_instances.instances[i].mesh_id = building_renderer.asset2mesh_id[entity->asset];
-			building_instances.instances[i].tex_id = textures.bindless_textures.get_tex_id(entity->asset->tex_filename + ".png");
-			building_instances.instances[i].light_id = (int)i;
-			building_instances.instances[i].pos = entity->pos;
-			building_instances.instances[i].rot = entity->rot;
-			building_instances.instances[i].col = 1;
-
-			building_instances.light_cols[i] = float4(1,1,1,1); // TODO: do I actually need this..? probably not a 
+			building_instances[i].mesh_id = entity_renderers.building_meshes.asset2mesh_id[entity->asset];
+			building_instances[i].tex_id = textures.bindless_textures.get_tex_id(entity->asset->tex_filename + ".png");
+			building_instances[i].pos = entity->pos;
+			building_instances[i].rot = entity->rot;
+			building_instances[i].tint = 1;
 		}
 
-		building_renderer.update_instances(building_instances);
+		entity_renderers.buildings.upload<0>(building_instances, false);
 	}
 
 	void remesh (App& app) {
 		ZoneScoped;
 
-		prop_instances.reserve(4096);
 		building_instances.reserve(4096);
+		prop_instances.reserve(4096);
 		light_instances.reserve(4096);
 		
 		// get diffuse texture id (normal is +1)
@@ -1193,21 +1249,18 @@ struct Mesher {
 		sidewalk_tex_id = -textures.bindless_textures.get_tex_id(textures.pavement.diffuse);
 		curb_tex_id     = textures.bindless_textures.get_tex_id(textures.curb.diffuse);
 
-		remesh_network();
-
 		push_buildings();
+
+		remesh_network();
 		
-		prop_renderer.update_instances(prop_instances);
+		entity_renderers.lamps.upload<0>(prop_instances, false);
+
 		light_renderer.update_instances(light_instances);
 		
 		network_renderer.upload(network_mesh);
 		network_renderer.decal_renderer.upload(decals);
 	}
 };
-
-static constexpr int COMMON_UBO_BINDING = 0;
-static constexpr int BINDLESS_TEX_SSBO_BINDING = 1;
-//static constexpr int DBGDRAW_INDIRECT_VBO = 2;
 
 struct OglRenderer : public Renderer {
 	SERIALIZE(OglRenderer, lighting, passes, light_renderer)
@@ -1305,7 +1358,7 @@ struct OglRenderer : public Renderer {
 		void begin () {
 			glBindBuffer(GL_UNIFORM_BUFFER, ubo);
 			glBufferData(GL_UNIFORM_BUFFER, sizeof(Common), nullptr, GL_STREAM_DRAW);
-			glBindBufferBase(GL_UNIFORM_BUFFER, COMMON_UBO_BINDING, ubo);
+			glBindBufferBase(GL_UNIFORM_BUFFER, UBO_BINDING_COMMON, ubo);
 			glBindBuffer(GL_UNIFORM_BUFFER, 0);
 		}
 		void upload (size_t offset, size_t size, void const* data) {
@@ -1330,12 +1383,7 @@ struct OglRenderer : public Renderer {
 	
 	NetworkRenderer network_renderer;
 
-	EntityRenderer<BuildingAsset, StaticEntityInstance>   building_renderer{ "entities" };
-	EntityRenderer<VehicleAsset,  VehicleInstance>        vehicle_renderer{  "vehicles" };
-	// TODO: roll this into building renderer at least (car renderer might want different shader for wheel movement)
-	// but doing so might require some problem solving to unify textures somehow
-	// -> atlas or texture arrays for all texture sizes?
-	EntityRenderer<PropAsset,     StaticEntityInstance>   prop_renderer{     "entities" };
+	EntityRenderers entity_renderer;
 
 	DefferedPointLightRenderer light_renderer;
 
@@ -1354,28 +1402,28 @@ struct OglRenderer : public Renderer {
 	}
 	
 	void upload_static_instances (App& app) {
-		Mesher mesher{ building_renderer, network_renderer, prop_renderer, light_renderer, app, textures };
+		Mesher mesher{ entity_renderer, light_renderer, network_renderer, app, textures };
 		mesher.remesh(app);
 	}
 	void upload_car_instances (App& app, View3D& view) {
 		ZoneScoped;
 		
-		decltype(vehicle_renderer)::InstanceUploadData data;
-		data.reserve(4096); // not all persons have active vehicle, don't overallocate
+		std::vector<DynamicVehicle> instances;
+		instances.reserve(4096); // not all persons have active vehicle, don't overallocate
 
 		for (auto& entity : app.entities.persons) {
 			if (entity->vehicle) {
-				uint32_t instance_idx = (uint32_t)data.instances.size();
-				auto& instance = data.instances.emplace_back();
+				uint32_t instance_idx = (uint32_t)instances.size();
+				auto& instance = instances.emplace_back();
 
 				update_vehicle_instance(instance, *entity, instance_idx, view);
 			}
 		}
 
-		vehicle_renderer.update_instances(data);
+		entity_renderer.vehicles.upload<0>(instances, true);
 	}
 	
-	void update_vehicle_instance (VehicleInstance& instance, Person& entity, int i, View3D& view) {
+	void update_vehicle_instance (DynamicVehicle& instance, Person& entity, int i, View3D& view) {
 		auto& bone_mats = entity.owned_vehicle->bone_mats;
 	
 		int tex_id = textures.bindless_textures.get_tex_id(entity.owned_vehicle->tex_filename + ".diff.png");
@@ -1385,12 +1433,11 @@ struct OglRenderer : public Renderer {
 		float ang;
 		entity.vehicle->calc_pos(&center, &ang);
 
-		instance.mesh_id = vehicle_renderer.asset2mesh_id[entity.owned_vehicle];
+		instance.mesh_id = entity_renderer.vehicle_meshes.asset2mesh_id[entity.owned_vehicle];
 		instance.instance_id = i;
-		instance.light_id = i;
 		instance.tex_id = tex_id;
 		instance.pos = center;
-		instance.col = entity.col;
+		instance.tint = entity.col;
 				
 		float3x3 heading_rot = rotate3_Z(ang);
 
@@ -1461,9 +1508,9 @@ struct OglRenderer : public Renderer {
 		if (app.assets.assets_reloaded) {
 			ZoneScopedN("assets_reloaded");
 
-			building_renderer.upload_meshes(app.assets.buildings);
-			vehicle_renderer.upload_meshes(app.assets.vehicles);
-			prop_renderer.upload_meshes(app.assets.props);
+			entity_renderer.building_meshes.upload_meshes(app.assets.buildings);
+			entity_renderer.vehicle_meshes .upload_meshes(app.assets.vehicles);
+			entity_renderer.prop_meshes    .upload_meshes(app.assets.props);
 		}
 
 		if (app.entities.buildings_changed) {
@@ -1493,9 +1540,9 @@ struct OglRenderer : public Renderer {
 			{
 				common_ubo.begin();
 				common_ubo.set_lighting(lighting);
-				textures.bindless_textures.update_lut(BINDLESS_TEX_SSBO_BINDING);
+				textures.bindless_textures.update_lut(SSBO_BINDING_BINDLESS_TEX_LUT);
 
-				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, gl_dbgdraw.indirect_vbo);
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_DBGDRAW_INDIRECT, gl_dbgdraw.indirect_vbo);
 
 				gl_dbgdraw.update(app.input);
 			}
@@ -1522,9 +1569,7 @@ struct OglRenderer : public Renderer {
 		
 				network_renderer.render(state, textures, true);
 
-				building_renderer.draw(state, true);
-				vehicle_renderer .draw(state, true);
-				prop_renderer    .draw(state, true);
+				entity_renderer.draw_all(state, true);
 			});
 		}
 		
@@ -1541,9 +1586,7 @@ struct OglRenderer : public Renderer {
 			network_renderer.render(state, textures);
 			network_renderer.render_decals(state, passes.gbuf, textures);
 		
-			building_renderer.draw(state);
-			vehicle_renderer .draw(state);
-			prop_renderer    .draw(state);
+			entity_renderer.draw_all(state);
 
 			// TODO: draw during lighting pass?
 			//  how to draw it without depth buffer? -> could use gbuf_normal == vec3(0) as draw condition?

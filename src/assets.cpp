@@ -21,10 +21,10 @@ namespace assimp {
 		return transform * get_matrix(node->mTransformation);
 	}
 
-	uint8_t find_light_id (aiString const& mat_name) {
-		for (int i=0; i<ARRLEN(LightID_Map); ++i) {
-			if (kiss::contains(mat_name.C_Str(), LightID_Map[i].first))
-				return LightID_Map[i].second;
+	uint8_t find_vertex_groupID (aiString const& mat_name) {
+		for (int i=0; i<ARRLEN(VertexGroupID_Map); ++i) {
+			if (kiss::contains(mat_name.C_Str(), VertexGroupID_Map[i].first))
+				return VertexGroupID_Map[i].second;
 		}
 		return (uint8_t)0;
 	}
@@ -146,7 +146,7 @@ namespace assimp {
 	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB3& aabb) {
 		unsigned base_vertex = (unsigned)data.vertices.size();
 		
-		auto lightID = material ? find_light_id(material->GetName()) : (uint8_t)0;
+		auto vtxGrpID = material ? find_vertex_groupID(material->GetName()) : (uint8_t)0;
 
 		for (unsigned i=0; i<mesh->mNumVertices; ++i) {
 			data.vertices.emplace_back();
@@ -161,7 +161,7 @@ namespace assimp {
 			v.normal = (float3)(transform * float4(norm.x, norm.y, norm.z, 0.0f));
 			v.uv     = mesh->mTextureCoords[0] ? float2(uv->x, uv->y) : float2(0.0f);
 			//v.col  = mesh->mColors[0] ? float4(col->r, col->g, col->b, col->a) : lrgba(1,1,1,1);
-			v.lightID = lightID;
+			v.vtxGrpID = vtxGrpID;
 
 			aabb.add(v.pos);
 		}
@@ -242,7 +242,7 @@ namespace assimp {
 			return false;
 		}
 
-		print_scene(scene, filename);
+		//print_scene(scene, filename);
 
 		auto transform = get_base_transform(scene);
 		

@@ -82,7 +82,7 @@ layout(std140, binding = 0) uniform Common {
 };
 
 // Bindless textures
-layout(std430, binding = 1) buffer BindlessTextures {
+layout(std430, binding = 0) buffer BindlessTextures {
 	uint64_t handles[];
 } bindless_LUT;
 

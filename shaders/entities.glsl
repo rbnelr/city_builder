@@ -17,26 +17,25 @@ VS2FS Vertex {
 layout(location = 0) in vec3  mesh_pos;
 layout(location = 1) in vec3  mesh_normal;
 layout(location = 2) in vec2  mesh_uv;
-layout(location = 3) in int   mesh_lightID;
-//layout(location = 4) in int   mesh_id;
-layout(location = 5) in int   tex_id;
-layout(location = 6) in int   light_id;
-layout(location = 7) in vec3  instance_pos;
-layout(location = 8) in float instance_rot;
-layout(location = 9) in vec3  instance_col; // TODO: not being used current?
+layout(location = 3) in int   mesh_vtxGrpID;
+//layout(location = 4) in int   inst_mesh_id;
+layout(location = 5) in int   inst_tex_id;
+layout(location = 6) in vec3  inst_pos;
+layout(location = 7) in float inst_rot;
+layout(location = 8) in vec3  inst_tint; // TODO: not being used current?
 
 void main () {
-	mat3 rot_mat = mat_rotateZ(instance_rot);
+	mat3 rot_mat = mat_rotateZ(inst_rot);
 	
-	v.world_pos    = rot_mat * mesh_pos + instance_pos;
+	v.world_pos    = rot_mat * mesh_pos + inst_pos;
 	v.world_normal = rot_mat * mesh_normal;
 	
 	v.uv           = mesh_uv;
-	//if (mesh_lightID == 0)      v.emissive_col = vec3(1,0,0);
-	//else if (mesh_lightID == 1) v.emissive_col = vec3(0,1,0);
-	//else                        v.emissive_col = vec3(0,0,1);
-	v.emissive_col = lights[light_id + mesh_lightID].rgb;
-	v.tex_id       = tex_id;
+	if (mesh_vtxGrpID == 0)     v.emissive_col = vec3(1,0,0);
+	else if (mesh_vtxGrpID== 1) v.emissive_col = vec3(0,1,0);
+	else                        v.emissive_col = vec3(0,0,1);
+	//v.emissive_col = lights[light_id + mesh_vtxGrpID].rgb;
+	v.tex_id       = inst_tex_id;
 	
 	gl_Position = view.world2clip * vec4(v.world_pos, 1.0);
 }

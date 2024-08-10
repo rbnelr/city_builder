@@ -31,10 +31,9 @@ struct LOD_Func {
 	}
 };
 
-// Vertex shader for traffic lights, car blinkers etc.
-// can get light color and light state from buffers using instance ID and lightID
-// Specified in blender via assigning a material with special naming and passed in mesh vertex data (similar to anim bone IDs)
-inline constexpr std::pair<std::string_view, uint8_t> LightID_Map[] = {
+// Vertex shader for traffic lights, car blinkers etc. can find correct light data based on these IDs
+// Specified in blender via assigning a material with special naming eg: "SomeMaterial.SignalYellow" and passed in mesh vertex data (similar to anim bone IDs)
+inline constexpr std::pair<std::string_view, uint8_t> VertexGroupID_Map[] = {
 	{"SignalRed",0}, {"SignalYellow",1}, {"SignalGreen",2}
 };
 
@@ -42,13 +41,13 @@ struct BasicVertex {
 	float3  pos;
 	float3  normal;
 	float2  uv;
-	uint8_t lightID;
+	uint8_t vtxGrpID;
 	
 	VERTEX_CONFIG(
 		ATTRIB(FLT,3,   BasicVertex, pos),
 		ATTRIB(FLT,3,   BasicVertex, normal),
 		ATTRIB(FLT,2,   BasicVertex, uv),
-		ATTRIB(UBYTE,1, BasicVertex, lightID),
+		ATTRIB(UBYTE,1, BasicVertex, vtxGrpID),
 	)
 };
 // Mesh with anim bones but no interpolation between bones (single bone per vertex and no bone weights)

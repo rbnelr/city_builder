@@ -86,7 +86,7 @@ struct Interaction {
 			if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
 				auto* node = hover.get<network::Node*>();
 				if (node) {
-					node->has_traffic_light = !node->has_traffic_light;
+					node->toggle_traffic_light();
 					entities.buildings_changed = true; // TODO: make more efficient, or refactor at least?
 				}
 			}

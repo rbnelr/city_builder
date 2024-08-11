@@ -59,6 +59,7 @@ struct View3D {
 };
 
 struct Lighting {
+	float time_of_day;
 	vec3 sun_dir;
 	
 	vec3 sun_col;
@@ -119,6 +120,10 @@ vec4 readCubemapLod (samplerCube cubemap, vec3 dir_world, float lod) {
 }
 
 #include "dbg_indirect_draw.glsl"
+
+float sin_hash (vec2 x) {
+	return fract(sin(dot(x, vec2(12.9898, 78.233))) * 43758.5453);
+}
 
 mat3 mat_rotateX (float rot) {
 	float s = sin(rot);

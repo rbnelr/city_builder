@@ -354,8 +354,8 @@ struct TestMapBuilder {
 			// create path nodes grid
 			for (int y=0; y<_grid_n+1; ++y)
 			for (int x=0; x<_grid_n+1; ++x) {
-				float3 pos = base_pos + float3((float)x,(float)y,0) * float3(spacing, 0);
-				auto node = std::make_unique<Node>(Node{pos});
+				auto node = std::make_unique<Node>();
+				node->pos = base_pos + float3((float)x,(float)y,0) * float3(spacing, 0);
 
 				bool big_intersec = wrap(x-5, 0,10) == 0 && wrap(y-5, 0,10) == 0;
 				node->_fully_dedicated_turns = big_intersec;
@@ -370,9 +370,10 @@ struct TestMapBuilder {
 
 				float3 dir = normalizesafe(node_b->pos - node_a->pos);
 
-				auto* seg = net.segments.emplace_back(std::make_unique<Segment>(Segment{
-					layout, node_a, node_b
-				})).get();
+				auto* seg = net.segments.emplace_back(std::make_unique<Segment>()).get();
+				seg->asset = layout;
+				seg->node_a = node_a;
+				seg->node_b = node_b;
 
 				node_a->segments.push_back(seg);
 				node_b->segments.push_back(seg);
@@ -574,13 +575,15 @@ struct App : public Engine {
 	bool dbg_cam_cursor_was_enabled;
 
 	struct TimeOfDay {
-		SERIALIZE(TimeOfDay, sun_azim, sun_elev, day_t, day_speed, day_pause)
+		SERIALIZE(TimeOfDay, sun_azim, sun_elev, time_of_day, day_speed, day_pause)
+			
+		float time_of_day = 0.6f; // [0,1] -> [0,24] hours
+
+		float day_speed = 1.0f / 60.0f;
+		bool  day_pause = true;
 
 		float sun_azim = deg(50); // degrees from east, counter clockwise
 		float sun_elev = deg(14);
-		float day_t = 0.6f; // [0,1] -> [0,24] hours
-		float day_speed = 1.0f / 60.0f;
-		bool  day_pause = true;
 
 		float3 sun_dir;
 
@@ -590,23 +593,24 @@ struct App : public Engine {
 		void imgui () {
 			if (ImGui::TreeNode("Time of Day")) {
 
-				ImGui::SliderAngle("sun_azim", &sun_azim, 0, 360);
-				ImGui::SliderAngle("sun_elev", &sun_elev, -90, 90);
-				ImGui::SliderFloat("day_t", &day_t, 0,1);
+				ImGui::SliderFloat("Time of Day", &time_of_day, 0,1);
 
 				ImGui::SliderFloat("day_speed", &day_speed, 0, 0.25f, "%.3f", ImGuiSliderFlags_Logarithmic);
 				ImGui::Checkbox("day_pause", &day_pause);
+
+				ImGui::SliderAngle("sun_azim", &sun_azim, 0, 360);
+				ImGui::SliderAngle("sun_elev", &sun_elev, -90, 90);
 			
 				ImGui::TreePop();
 			}
 		}
 
 		void update (App& app) {
-			if (!day_pause) day_t = wrap(day_t + day_speed * app.input.dt, 1.0f);
+			if (!day_pause) time_of_day = wrap(time_of_day + day_speed * app.input.dt, 1.0f);
 
 			// move ang into [-0.5, +0.5] range to make default sun be from top
 			// (can use sun2world matrix with -Z facing camera to render shadow map, instead of having wierd camera from below)
-			float ang = wrap(day_t - 0.5f, 0.0f, 1.0f) * deg(360);
+			float ang = wrap(time_of_day - 0.5f, 0.0f, 1.0f) * deg(360);
 
 			// sun rotates from east (+X) to west (-X) -> CW around Y with day_t=0 => midnight, ie sun at -Z
 			

@@ -33,8 +33,10 @@ struct LOD_Func {
 
 // Vertex shader for traffic lights, car blinkers etc. can find correct light data based on these IDs
 // Specified in blender via assigning a material with special naming eg: "SomeMaterial.SignalYellow" and passed in mesh vertex data (similar to anim bone IDs)
+// 0-> default behavoir, likely always albedo tinting based on (PBR.r * instance.tint)
+// other numbers can be used to apply PBR.r as emmisive mask instead, use VertexGroupID to pull the appropriate color
 inline constexpr std::pair<std::string_view, uint8_t> VertexGroupID_Map[] = {
-	{"SignalRed",0}, {"SignalYellow",1}, {"SignalGreen",2}
+	{"SignalRed",1}, {"SignalYellow",2}, {"SignalGreen",3}
 };
 
 struct BasicVertex {
@@ -179,6 +181,9 @@ struct PropAsset : public Asset {
 
 	AssetMesh<BasicVertex> mesh;
 
+	// Optional lights for every prop!
+	// TODO: decide if this makes sense in the end, currently it's now clear how these lights should be controlled
+	//  controlled as in, turn off at night or not etc.
 	std::vector<PointLight> lights;
 
 	bool imgui (Settings& settings) {

@@ -634,7 +634,7 @@ struct EntityRenderer {
 	uint32_t instance_count = 0;
 
 	template <int IDX, typename T>
-	void upload (std::vector<T>& data, bool streaming) {
+	void upload (std::vector<T> const& data, bool streaming) {
 		std::get<IDX>(vbos).upload(data, streaming ? GL_STREAM_DRAW : GL_STATIC_DRAW);
 
 		if (IDX == 0) instance_count = (uint32_t)data.size();
@@ -756,20 +756,98 @@ struct DynamicVehicle {
 };
 
 struct EntityRenderers {
+	SERIALIZE(EntityRenderers, light_renderer)
+
 	AssetMeshes<BuildingAsset> building_meshes;
 	AssetMeshes<PropAsset>     prop_meshes;
 	AssetMeshes<VehicleAsset>  vehicle_meshes;
 
 	EntityRenderer<BuildingAsset, StaticEntity>                       buildings       = {building_meshes, "entities", "BUILDINGS"};
+	EntityRenderer<PropAsset,     StaticEntity>                       props           = {prop_meshes,    "entities", "PROPS"};
 	EntityRenderer<PropAsset,     StaticEntity>                       lamps           = {prop_meshes,    "entities", "LAMPS"};
 	EntityRenderer<PropAsset,     StaticEntity, DynamicTrafficSignal> traffic_signals = {prop_meshes,    "entities", "TRAFFIC_SIGNALS"};
 	EntityRenderer<VehicleAsset,  DynamicVehicle>                     vehicles        = {vehicle_meshes, "vehicles", "VEHICLES"};
 
+	DefferedPointLightRenderer light_renderer;
+
+	void upload_meshes (Assets& assets) {
+		building_meshes.upload_meshes(assets.buildings);
+		vehicle_meshes .upload_meshes(assets.vehicles);
+		prop_meshes    .upload_meshes(assets.props);
+	}
+
 	void draw_all (StateManager& state, bool shadow_pass=false) {
 		buildings      .draw(state, shadow_pass);
+		props          .draw(state, shadow_pass);
 		lamps          .draw(state, shadow_pass);
 		traffic_signals.draw(state, shadow_pass);
 		vehicles       .draw(state, shadow_pass);
+	}
+
+	struct StaticInstances {
+		EntityRenderers& rend;
+		Textures& textures;
+
+		std::vector<StaticEntity> buildings;
+		std::vector<StaticEntity> props;
+		std::vector<StaticEntity> lamps;
+		std::vector<StaticEntity> traffic_signals;
+
+		std::vector<DefferedPointLightRenderer::LightInstance> lights;
+
+		void reserve () {
+			buildings.reserve(4096);
+			props.reserve(4096);
+			lamps.reserve(4096);
+			traffic_signals.reserve(512);
+			lights.reserve(4096);
+		}
+
+		
+		void _push_light (float3 pos, float radius, lrgb col) {
+			auto* inst = push_back(lights, 1);
+			
+			inst->pos = pos;
+			inst->radius = radius;
+			inst->col = col;
+		}
+		void _push_base_prop (std::vector<StaticEntity>& vec, PropAsset* prop, float3 pos, float rot) {
+			auto* inst = push_back(vec, 1);
+
+			inst->mesh_id = rend.prop_meshes.asset2mesh_id[prop];
+			inst->tex_id = textures.bindless_textures.get_tex_id(prop->tex_filename + ".png");
+			inst->pos = pos;
+			inst->rot = rot;
+			inst->tint = 1;
+
+			auto mat = obj_transform(pos, rot);
+			for (auto& light : prop->lights) {
+				auto light_pos = mat * light.pos;
+				auto col = light.col * light.strength;
+
+				_push_light(light_pos, light.radius, col);
+			}
+		}
+		void push_prop (PropAsset* prop, float3 pos, float rot) {
+			_push_base_prop(props, prop, pos, rot);
+		}
+		void push_lamp (PropAsset* prop, float3 pos, float rot) {
+			_push_base_prop(lamps, prop, pos, rot);
+		}
+		void push_traffic_signal (PropAsset* prop, float3 pos, float rot) {
+			_push_base_prop(traffic_signals, prop, pos, rot);
+		}
+	};
+	void upload_static_instances (StaticInstances const& instances) {
+		ZoneScoped;
+		OGL_TRACE("upload_static_instances");
+		
+		buildings      .upload<0>(instances.buildings, false);
+		props          .upload<0>(instances.props, false);
+		lamps          .upload<0>(instances.lamps, false);
+		traffic_signals.upload<0>(instances.traffic_signals, false);
+
+		light_renderer.update_instances(instances.lights);
 	}
 };
 
@@ -843,50 +921,22 @@ struct NetworkRenderer {
 };
 
 struct Mesher {
-	EntityRenderers                                    & entity_renderers;
-	DefferedPointLightRenderer                         & light_renderer;
-	NetworkRenderer                                    & network_renderer;
-	App                                                & app;
-	Textures                                           & textures;
+	EntityRenderers& entity_renderers;
+	NetworkRenderer& network_renderer;
+	App            & app;
+	Textures       & textures;
 	
-	std::vector<StaticEntity> building_instances;
-	std::vector<StaticEntity> prop_instances;
-	std::vector<DefferedPointLightRenderer::LightInstance> light_instances;
+	EntityRenderers::StaticInstances static_inst;
+
+	Mesher (EntityRenderers& entity_renderers,
+	        NetworkRenderer& network_renderer,
+	        App            & app,
+			Textures       & textures):
+		entity_renderers{entity_renderers}, network_renderer{network_renderer}, app{app}, textures{textures},
+		static_inst{ entity_renderers, textures } {}
 	
 	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
 	std::vector<DecalRenderer::Instance> decals;
-	
-	void push_light (float3 pos, float radius, lrgb col) {
-		auto* inst = push_back(light_instances, 1);
-			
-		inst->pos = pos;
-		inst->radius = radius;
-		inst->col = col;
-	}
-	void push_prop (PropAsset* prop, float3 pos, float rot, int num_light_ids=1, float4** out_cols=nullptr) {
-		auto* inst = push_back(prop_instances, 1);
-
-		inst->mesh_id = entity_renderers.prop_meshes.asset2mesh_id[prop];
-		inst->tex_id = textures.bindless_textures.get_tex_id(prop->tex_filename + ".png");
-		inst->pos = pos;
-		inst->rot = rot;
-		inst->tint = 1;
-
-		auto mat = obj_transform(pos, rot);
-		for (auto& light : prop->lights) {
-			auto light_pos = mat * light.pos;
-			auto col = light.col * light.strength;
-
-			push_light(light_pos, light.radius, col);
-		}
-
-		//auto* cols = push_back(prop_instances.light_cols, num_light_ids);
-		//if (out_cols) *out_cols = cols;
-		//else {
-		//	for (int i=0; i<num_light_ids; ++i)
-		//		cols[i] = float4(1,1,1,1);
-		//}
-	}
 	
 	void place_segment_line_props (network::Segment& seg, NetworkAsset::Streetlight& light) {
 		float y = 0;
@@ -900,13 +950,15 @@ struct Mesher {
 			float3 shift = light.shift + float3(0,y,0);
 			float3 pos = seg.pos_a + right * shift.x + forw * shift.y + up * shift.z;
 
-			push_prop(light.prop.get(), pos, rot);
+			static_inst.push_lamp(light.prop.get(), pos, rot);
 
 			y += light.spacing;
 		}
 	}
 	void place_traffic_light (network::Segment& seg, network::Node* node) {
 		auto* prop = seg.asset->traffic_light_prop.get();
+
+		// TODO: don't place mask if no incoming lanes (eg. because of one way road)
 		
 		auto* other_node = seg.get_other_node(node);
 		float3 dir = node->pos - other_node->pos;
@@ -918,7 +970,7 @@ struct Mesher {
 		float2 shift = seg.asset->traffic_light_shift;
 		float3 pos = seg.pos_for_node(node) + right * shift.x + forw * shift.y;
 
-		push_prop(prop->mast_prop.get(), pos, rot);
+		static_inst.push_prop(prop->mast_prop.get(), pos, rot);
 
 		for (auto in_lane : seg.in_lanes(node)) {
 			auto& layout = seg.get_lane_layout(&in_lane.get());
@@ -927,12 +979,7 @@ struct Mesher {
 			float3 local_pos = prop->get_signal_pos(x);
 			float3 spos = pos + right * local_pos.x + forw * local_pos.y + up * local_pos.z;
 
-			float4* light_cols = nullptr;
-			push_prop(prop->signal_prop.get(), spos, rot, 3, &light_cols);
-
-			//light_cols[0] = in_lane.lane == 0 ? float4(1,0,0,1) : float4(0);
-			//light_cols[1] = in_lane.lane == 1 ? float4(1,1,0,1) : float4(0);
-			//light_cols[2] = in_lane.lane == 2 ? float4(0,1,0,1) : float4(0);
+			static_inst.push_traffic_signal(prop->signal_prop.get(), spos, rot);
 		}
 	}
 
@@ -1049,9 +1096,6 @@ struct Mesher {
 		for (auto& streetlight : seg.asset->streetlights) {
 			place_segment_line_props(seg, streetlight);
 		}
-
-		if (seg.node_a->has_traffic_light) place_traffic_light(seg, seg.node_a);
-		if (seg.node_b->has_traffic_light) place_traffic_light(seg, seg.node_b);
 	}
 
 	void mesh_node (network::Node* node) {
@@ -1139,6 +1183,26 @@ struct Mesher {
 
 			network_mesh.push_tri(seg0, seg1, nodeCenter);
 		}
+		
+		if (node->traffic_light) {
+			for (auto& seg : node->segments) {
+				place_traffic_light(*seg, node);
+			}
+		}
+	}
+
+	static void update_dynamic_traffic_signals (Network& net, EntityRenderers& entity_render) {
+		std::vector<DynamicTrafficSignal> signal_colors;
+		signal_colors.reserve(512);
+
+		for (auto& node : net.nodes) {
+			if (node->traffic_light) {
+				assert(node->traffic_light->behavior);
+				node->traffic_light->behavior->push_signal_colors(node.get(), signal_colors);
+			}
+		}
+
+		entity_render.traffic_signals.upload<1>(signal_colors, true);
 	}
 
 	void remesh_network () {
@@ -1221,27 +1285,24 @@ struct Mesher {
 	void push_buildings () {
 		ZoneScoped;
 
-		building_instances.resize(app.entities.buildings.size());
+		static_inst.buildings.resize(app.entities.buildings.size());
 
 		for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
 			auto& entity = app.entities.buildings[i];
+			auto& inst = static_inst.buildings[i];
 			
-			building_instances[i].mesh_id = entity_renderers.building_meshes.asset2mesh_id[entity->asset];
-			building_instances[i].tex_id = textures.bindless_textures.get_tex_id(entity->asset->tex_filename + ".png");
-			building_instances[i].pos = entity->pos;
-			building_instances[i].rot = entity->rot;
-			building_instances[i].tint = 1;
+			inst.mesh_id = entity_renderers.building_meshes.asset2mesh_id[entity->asset];
+			inst.tex_id = textures.bindless_textures.get_tex_id(entity->asset->tex_filename + ".png");
+			inst.pos = entity->pos;
+			inst.rot = entity->rot;
+			inst.tint = 1;
 		}
-
-		entity_renderers.buildings.upload<0>(building_instances, false);
 	}
 
 	void remesh (App& app) {
 		ZoneScoped;
 
-		building_instances.reserve(4096);
-		prop_instances.reserve(4096);
-		light_instances.reserve(4096);
+		static_inst.reserve();
 		
 		// get diffuse texture id (normal is +1)
 		// negative means worldspace uv mapped
@@ -1253,9 +1314,7 @@ struct Mesher {
 
 		remesh_network();
 		
-		entity_renderers.lamps.upload<0>(prop_instances, false);
-
-		light_renderer.update_instances(light_instances);
+		entity_renderers.upload_static_instances(static_inst);
 		
 		network_renderer.upload(network_mesh);
 		network_renderer.decal_renderer.upload(decals);
@@ -1263,7 +1322,7 @@ struct Mesher {
 };
 
 struct OglRenderer : public Renderer {
-	SERIALIZE(OglRenderer, lighting, passes, light_renderer)
+	SERIALIZE(OglRenderer, lighting, passes, entity_render)
 	
 	virtual void to_json (nlohmann::ordered_json& j) {
 		j["ogl_renderer"] = *this;
@@ -1277,7 +1336,7 @@ struct OglRenderer : public Renderer {
 		if (ImGui::Begin("Renderer")) {
 			
 			passes.imgui();
-			light_renderer.imgui();
+			entity_render.light_renderer.imgui();
 			textures.imgui();
 
 		#if OGL_USE_REVERSE_DEPTH
@@ -1289,7 +1348,7 @@ struct OglRenderer : public Renderer {
 			lod.imgui();
 
 			lighting.imgui();
-			terrain_renderer.imgui();
+			terrain_render.imgui();
 		}
 		ImGui::End();
 	}
@@ -1300,17 +1359,20 @@ struct OglRenderer : public Renderer {
 	
 	struct Lighting {
 		SERIALIZE(Lighting, sun_col, sky_col, fog_col, fog_base, fog_falloff)
+		
+		float time_of_day = 0.6f;
+		float3 _pad0;
 
 		float4 sun_dir;
 
 		lrgb sun_col = lrgb(1.0f, 0.95f, 0.8f);
-		float _pad0;
+		float _pad1;
 
 		lrgb sky_col = srgb(210, 230, 255);
-		float _pad1;
+		float _pad2;
 		
 		lrgb skybox_bottom_col = srgb(40,50,60);
-		float _pad2;
+		float _pad3;
 		
 		lrgb fog_col = srgb(210, 230, 255);
 		//float _pad3;
@@ -1325,6 +1387,7 @@ struct OglRenderer : public Renderer {
 		float2 clouds_vel = rotate2(deg(30)) * float2(100.0);	// current cloud velocity in m/s
 
 		void update (App& app) {
+			time_of_day = app.time_of_day.time_of_day;
 			sun_dir = float4(app.time_of_day.sun_dir, 0.0);
 			
 			// TODO: move this to app?
@@ -1379,13 +1442,11 @@ struct OglRenderer : public Renderer {
 
 	Lighting lighting;
 
-	TerrainRenderer terrain_renderer;
+	TerrainRenderer terrain_render;
 	
-	NetworkRenderer network_renderer;
+	NetworkRenderer network_render;
 
-	EntityRenderers entity_renderer;
-
-	DefferedPointLightRenderer light_renderer;
+	EntityRenderers entity_render;
 
 	//SkyboxRenderer skybox;
 	
@@ -1402,7 +1463,7 @@ struct OglRenderer : public Renderer {
 	}
 	
 	void upload_static_instances (App& app) {
-		Mesher mesher{ entity_renderer, light_renderer, network_renderer, app, textures };
+		Mesher mesher{ entity_render, network_render, app, textures };
 		mesher.remesh(app);
 	}
 	void upload_car_instances (App& app, View3D& view) {
@@ -1420,7 +1481,7 @@ struct OglRenderer : public Renderer {
 			}
 		}
 
-		entity_renderer.vehicles.upload<0>(instances, true);
+		entity_render.vehicles.upload<0>(instances, true);
 	}
 	
 	void update_vehicle_instance (DynamicVehicle& instance, Person& entity, int i, View3D& view) {
@@ -1433,7 +1494,7 @@ struct OglRenderer : public Renderer {
 		float ang;
 		entity.vehicle->calc_pos(&center, &ang);
 
-		instance.mesh_id = entity_renderer.vehicle_meshes.asset2mesh_id[entity.owned_vehicle];
+		instance.mesh_id = entity_render.vehicle_meshes.asset2mesh_id[entity.owned_vehicle];
 		instance.instance_id = i;
 		instance.tex_id = tex_id;
 		instance.pos = center;
@@ -1507,10 +1568,7 @@ struct OglRenderer : public Renderer {
 
 		if (app.assets.assets_reloaded) {
 			ZoneScopedN("assets_reloaded");
-
-			entity_renderer.building_meshes.upload_meshes(app.assets.buildings);
-			entity_renderer.vehicle_meshes .upload_meshes(app.assets.vehicles);
-			entity_renderer.prop_meshes    .upload_meshes(app.assets.props);
+			entity_render.upload_meshes(app.assets);
 		}
 
 		if (app.entities.buildings_changed) {
@@ -1518,7 +1576,9 @@ struct OglRenderer : public Renderer {
 
 			upload_static_instances(app);
 		}
+
 		upload_car_instances(app, view);
+		Mesher::update_dynamic_traffic_signals(app.net, entity_render);
 
 		{
 			ZoneScopedN("setup");
@@ -1565,11 +1625,11 @@ struct OglRenderer : public Renderer {
 			passes.shadowmap.draw_cascades(app, view, state, [&] (View3D& view) {
 				common_ubo.set_view(view);
 				
-				terrain_renderer.render_terrain(state, app.heightmap, textures, view, true);
+				terrain_render.render_terrain(state, app.heightmap, textures, view, true);
 		
-				network_renderer.render(state, textures, true);
+				network_render.render(state, textures, true);
 
-				entity_renderer.draw_all(state, true);
+				entity_render.draw_all(state, true);
 			});
 		}
 		
@@ -1581,12 +1641,12 @@ struct OglRenderer : public Renderer {
 			
 			passes.begin_geometry_pass(state);
 
-			terrain_renderer.render_terrain(state, app.heightmap, textures, view);
+			terrain_render.render_terrain(state, app.heightmap, textures, view);
 
-			network_renderer.render(state, textures);
-			network_renderer.render_decals(state, passes.gbuf, textures);
+			network_render.render(state, textures);
+			network_render.render_decals(state, passes.gbuf, textures);
 		
-			entity_renderer.draw_all(state);
+			entity_render.draw_all(state);
 
 			// TODO: draw during lighting pass?
 			//  how to draw it without depth buffer? -> could use gbuf_normal == vec3(0) as draw condition?
@@ -1599,7 +1659,7 @@ struct OglRenderer : public Renderer {
 			
 			passes.begin_lighting_pass();
 
-			passes.fullscreen_lighting_pass(state, textures, light_renderer);
+			passes.fullscreen_lighting_pass(state, textures, entity_render.light_renderer);
 
 			passes.end_lighting_pass();
 		}

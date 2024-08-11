@@ -861,7 +861,12 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 
 void update_node (App& app, Node* node, float dt) {
 	bool node_dbg = app.interact.selection.get<Node*>() == node;
-	
+
+	if (node->traffic_light) {
+		assert(node->traffic_light->behavior);
+		node->traffic_light->behavior->update(node, dt);
+	}
+
 	auto* sel  = app.interact.selection.get<Person*>() ? app.interact.selection.get<Person*>()->vehicle.get() : nullptr;
 	auto* sel2 = app.interact.hover    .get<Person*>() ? app.interact.hover    .get<Person*>()->vehicle.get() : nullptr;
 	

@@ -17,8 +17,14 @@ Lane selection
 Traffic lights
 * -> add props for traffic light poles etc.
 * -> make them actually glow (emmisive with bloom?)
- -> add simple cycle logic
+*-> add simple cycle logic
  -> fix/make nicer traffic light pole texture
+ -> make imgui to simply +/- between current active phase for selected node (Add an "inspector" to imgui UI?)
+ -> Show inspect overlay for selected node that shows signal state on lane, and highlights active lanes to help identify conflict (highlight inacive in transparent red, highlight acive in green, highlight conflict zones in striped way??)
+  -> probably want to add a draw polygon feature to overlay
+ -> actually make cars follow traffic light logic
+  
+-> Use new debug overlay to highlight cars via moving (curved?) boxed by drawing them as polygons based on the allocated lane beziers (instead of ugly circles)
 
 Fix rendering code with new traffic light glow params
  -> need to rethink how drawing many small props etc with unique params by type works

@@ -20,6 +20,7 @@ struct Segment;
 struct Lane;
 struct ActiveVehicle;
 struct LaneVehicles;
+struct TrafficLight;
 
 enum class Turns : uint8_t {
 	NONE     = 0,
@@ -297,7 +298,20 @@ struct Node {
 	Segment* _pred_seg;
 
 	bool _fully_dedicated_turns = false; // TODO: do this differently in the future
-	bool has_traffic_light = false;
+	
+	std::unique_ptr<TrafficLight> traffic_light = nullptr;
+
+	void set_traffic_light (bool has_traffic_light) {
+		if (!has_traffic_light) {
+			traffic_light = nullptr;
+		}
+		else {
+			traffic_light = std::make_unique<TrafficLight>(this);
+		}
+	}
+	void toggle_traffic_light () {
+		set_traffic_light(traffic_light == nullptr);
+	}
 
 	NodeVehicles vehicles;
 	
@@ -677,7 +691,7 @@ inline void Node::set_defaults () {
 			// only have traffic light if more than 2 at least medium roads intersect
 			return non_small_segs > 2;
 		};
-		has_traffic_light = want_traffic_light();
+		set_traffic_light( want_traffic_light() );
 	}
 
 	set_default_lane_options(*this, _fully_dedicated_turns, node_class);
@@ -696,6 +710,110 @@ inline float get_cur_speed_limit (ActiveVehicle* vehicle) {
 	else {
 		return 20 / KPH_PER_MS;
 	}
+}
+
+////
+struct TrafficLightBehavior;
+TrafficLightBehavior* default_TrafficLightBehavior (Node* node);
+
+// One common state shared between all TrafficLightBehaviors, this is simpler than trying to allocate the correct state depending on behavoir
+struct TrafficLight {
+	//Node* node; // shouldn't need this ptr if we always update through node iteration
+	TrafficLightBehavior* behavior;
+
+	// could be a flat seconds, which loop after all cycles
+	// or could map as cycle.progess (floori(timer) numer is cycle, fract(timer) is % progress)
+	float timer = 0;
+
+	TrafficLight (Node* node) {
+		behavior = default_TrafficLightBehavior(node);
+	}
+};
+
+enum class TrafficSignalState {
+	//OFF = 0,
+	RED = 0,
+	YELLOW,
+	GREEN,
+};
+// Allow shared bahavoirs (saves memory while allowing for different behaviors to be selected)
+// TODO: By making this another type of asset, we should be able to vary easily allows custom behavoirs to be added and managed!
+struct TrafficLightBehavior {
+	static constexpr float yellow_time = 2.0f; // 1sec, TODO: make customizable or have it depend on duration of cycle?
+
+	//enum Mode {
+	//	SEGMENT_EXCLUSIVE,
+	//};
+	//Mode mode;
+
+	float phase_go_duration; // how long we have green or yellow
+	float phase_idle_duration; // how long to hold red before next phase starts
+
+	int decode_phase (TrafficLight& state, float* green_remain) {
+		int green_seg = floori(state.timer);
+		float t = state.timer - (float)green_seg;
+
+		float elapsed = t * (phase_go_duration + phase_idle_duration);
+		*green_remain = phase_go_duration - elapsed;
+		return green_seg;
+	}
+
+	void update (Node* node, float dt) {
+		TrafficLight& state = *node->traffic_light;
+
+		float num_seg = (float)node->segments.size();
+
+		state.timer += dt / (phase_go_duration + phase_idle_duration);
+		if (state.timer >= num_seg) {
+			state.timer = fmodf(state.timer, num_seg);
+		}
+	}
+	
+	TrafficSignalState get_signal (Node* node, int seg_i, SegLane& lane) {
+		TrafficLight& state = *node->traffic_light;
+		
+		float green_remain;
+		int green_seg = decode_phase(state, &green_remain);
+
+		if (green_seg == seg_i) {
+			if (green_remain >= yellow_time)
+				return TrafficSignalState::GREEN;
+			if (green_remain >= 0.0f)
+				return TrafficSignalState::YELLOW;
+			// else green_remain < 0 -> phase_idle_duration, so everything red
+		}
+		return TrafficSignalState::RED;
+	}
+
+	void set_color (lrgb* R, lrgb* Y, lrgb* G, TrafficSignalState signal) {
+		constexpr lrgb red    = lrgb(1,0,0); // TODO: make customizable
+		constexpr lrgb yellow = lrgb(1,1,0);
+		constexpr lrgb green  = lrgb(0,1,0);
+
+		*R = signal == TrafficSignalState::RED ? red : lrgb(0);
+		*Y = signal == TrafficSignalState::YELLOW ? yellow : lrgb(0);
+		*G = signal == TrafficSignalState::GREEN ? green : lrgb(0);
+	}
+
+	// In order of segments, then in order of incoming lanes
+	template <typename T>
+	void push_signal_colors (Node* node, std::vector<T>& signal_colors) {
+		for (int seg_i=0; seg_i<(int)node->segments.size(); ++seg_i) {
+			auto& seg = node->segments[seg_i];
+
+			for (auto in_lane : seg->in_lanes(node)) {
+				auto state = get_signal(node, seg_i, in_lane);
+
+				auto* colors = push_back(signal_colors, 1);
+				set_color(&colors->colors[0], &colors->colors[1], &colors->colors[2], state);
+			}
+		}
+	}
+};
+
+inline TrafficLightBehavior traffic_light_basic = { 10.0f, 2.0f };
+inline TrafficLightBehavior* default_TrafficLightBehavior (Node* node) {
+	return &traffic_light_basic;
 }
 
 } // namespace network

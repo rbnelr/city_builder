@@ -21,18 +21,10 @@ TODO (aprox in order of importance):
 
 > fix tracking cam (movement doesn't follow tracked space)
 
- Turn SegLane pointers into lane pointers, where lane contains info about agents, reserved space, maybe cached bezier?
-  -> how do I access the segment then?
-  -> maybe just keep SegLane but make accessing lane directly more convinient
-   -> and maybe turn SegLane into the (unique) lane* for hashing and comparisons, since it's slightly faster
-  -> also lanes can be allocated directly after Segment itself to avoid vector
-  
 > Add actual tick system with interpolation
  
 > Add vehicle with trailer for shits and giggles
 
-> traffic lights for large intersections?
-  
   
 > add glossy effect for sun, and point lights
    add glossyness to gbuffer

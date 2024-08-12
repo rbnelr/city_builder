@@ -24,7 +24,7 @@ VS2FS Vertex {
 		
 		v.pos = pos;
 		
-		vec2 world_uv = pos.xy * 0.5;
+		vec2 world_uv = pos.xy * 0.4;
 		if (tex_id < 0) {
 			v.tex_id = -tex_id;
 			v.uv = world_uv;
@@ -43,14 +43,13 @@ VS2FS Vertex {
 	}
 #endif
 #ifdef _FRAGMENT
-	//uniform vec4 pbr = vec4(0.85, 0,0,1);
-	uniform vec4 pbr = vec4(0.75,0.0, 0,1);
+	uniform vec4 pbr = vec4(0.75, 0.0, 0,1);
 	
 	GBUF_OUT
 	void main () {
 		vec3 norm = normal_map(v.norm, v.tang,
-		           texture(bindless_tex(v.tex_id+1), v.uv).rgb );
-		vec3 col = texture(bindless_tex(v.tex_id), v.uv).rgb;
+		           bindless_tex_scaled(v.tex_id+1, v.uv).rgb );
+		vec3 col = bindless_tex_scaled(v.tex_id  , v.uv).rgb;
 		
 		frag_col   = vec4(col, 1.0);
 		frag_emiss = vec4(0,0,0,1);

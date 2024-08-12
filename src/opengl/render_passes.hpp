@@ -89,18 +89,18 @@ struct Textures {
 	}
 
 	template <typename T>
-	void load_bindless (const char* filename) {
+	void load_bindless (const char* filename, float scale=1) {
 		ZoneScoped;
 
-		bindless_textures.load_texture<T>(filename);
+		bindless_textures.load_texture<T>(filename, scale);
 	}
 	
 	template <typename T>
-	void load_bindless (DiffNorm& df) {
+	void load_bindless (DiffNorm& df, float scale=1) {
 		ZoneScoped;
 
-		bindless_textures.load_texture<T>(df.diffuse);
-		bindless_textures.load_texture<T>(df.normal);
+		bindless_textures.load_texture<T>(df.diffuse, scale);
+		bindless_textures.load_texture<T>(df.normal, scale);
 	}
 
 	void reload_all () {
@@ -127,7 +127,7 @@ struct Textures {
 			load_bindless<srgba8>(fn);
 		
 		load_bindless<srgb8>(asphalt);
-		load_bindless<srgb8>(pavement);
+		load_bindless<srgb8>(pavement, 1.5f);
 		load_bindless<srgb8>(curb);
 		
 		// TODO: make dynamic so that any texture from json works

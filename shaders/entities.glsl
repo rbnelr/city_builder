@@ -37,7 +37,7 @@ layout(location = 11) in vec3 inst_traffic_col3;
 	bool is_lamp_on () {
 		float offs = sin_hash(inst_pos.xy) * 0.05;
 		
-		return sun_strength() + offs < 0.30;
+		return sun_strength() + offs < 0.20;
 	}
 
 	vec3 get_emissive () {
@@ -45,9 +45,9 @@ layout(location = 11) in vec3 inst_traffic_col3;
 	}
 #elif TRAFFIC_SIGNALS
 	vec3 get_emissive () {
-		if      (mesh_vtxGrpID == 1) return inst_traffic_col1;
-		else if (mesh_vtxGrpID == 2) return inst_traffic_col2;
-		else                         return inst_traffic_col3;
+		if      (mesh_vtxGrpID == 1) return inst_traffic_col1 * 0.85;
+		else if (mesh_vtxGrpID == 2) return inst_traffic_col2 * 0.85;
+		else                         return inst_traffic_col3 * 0.85;
 	}
 #else
 	vec3 get_emissive () {

@@ -43,6 +43,7 @@ struct BindlessTextureManager {
 		Type type;
 		int2 size;
 		int  mips;
+		float scale;
 
 		BindlessTexture tex = {};
 	};
@@ -78,14 +79,21 @@ struct BindlessTextureManager {
 
 	// TODO: add flag to allow only calling this when textures are added or removed?
 	void update_lut (int ssbo_binding_slot) {
-		std::vector<GLuint64> data;
+		struct Entry {
+			GLuint64 handle;
+			float scale;
+			float _pad0;
+		};
+		std::vector<Entry> data;
 		data.resize(loaded_textures.size());
-		for (int i=0; i<(int)data.size(); ++i)
-			data[i] = loaded_textures[i].tex.handle;
+		for (int i=0; i<(int)data.size(); ++i) {
+			auto& tex = loaded_textures[i];
+			data[i] = { tex.tex.handle, tex.scale, 0 };
+		}
 
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, bindless_tex_lut);
-		glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint64_t)*data.size(), nullptr, GL_STREAM_DRAW);
-		glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint64_t)*data.size(), data.data(), GL_STREAM_DRAW);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(Entry)*data.size(), nullptr, GL_STREAM_DRAW);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(Entry)*data.size(), data.data(), GL_STREAM_DRAW);
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ssbo_binding_slot, bindless_tex_lut);
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 	}
@@ -101,13 +109,13 @@ struct BindlessTextureManager {
 
 	// load texture with default sampler (filter=FILTER_MIPMAPPED, wrap_mode=GL_REPEAT, aniso=true)
 	template <typename T>
-	void load_texture (const char* filepath) {
-		load_texture<T>(filepath, default_sampler);
+	void load_texture (const char* filepath, float scale=1) {
+		load_texture<T>(filepath, default_sampler, scale);
 	}
 
 	// load texture with specific sampler (make sure the sampler has sufficient lifetime)
 	template <typename T>
-	void load_texture (const char* filepath, Sampler& sampler) {
+	void load_texture (const char* filepath, Sampler& sampler, float scale=1) {
 		ZoneScoped;
 
 		auto str = std::string(filepath);
@@ -134,6 +142,7 @@ struct BindlessTextureManager {
 		t.type = get_type(img);
 		t.size = img.size;
 		t.mips = calc_mipmaps(t.size.x, t.size.y);
+		t.scale = scale;
 
 		t.tex.texture = {filepath};
 		auto form = FORMATS[(int)t.type];

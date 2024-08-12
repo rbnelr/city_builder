@@ -502,11 +502,11 @@ struct App : public Engine {
 	virtual ~App () {}
 	
 	friend SERIALIZE_TO_JSON(App) {
-		SERIALIZE_TO_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed, test, test_map_builder);
+		SERIALIZE_TO_JSON_EXPAND(cam, dbg_cam, assets, net, time_of_day, sim_paused, sim_speed, test, test_map_builder);
 		t.renderer->to_json(j);
 	}
 	friend SERIALIZE_FROM_JSON(App) {
-		SERIALIZE_FROM_JSON_EXPAND(cam, assets, net, time_of_day, sim_paused, sim_speed, test, test_map_builder);
+		SERIALIZE_FROM_JSON_EXPAND(cam, dbg_cam, assets, net, time_of_day, sim_paused, sim_speed, test, test_map_builder);
 		t.renderer->from_json(j);
 	}
 

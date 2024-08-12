@@ -83,12 +83,21 @@ layout(std140, binding = 0) uniform Common {
 };
 
 // Bindless textures
+struct BindlessTextureEntry {
+	uint64_t handle;
+	float scale;
+	float _pad0;
+};
 layout(std430, binding = 0) buffer BindlessTextures {
-	uint64_t handles[];
+	BindlessTextureEntry lut[];
 } bindless_LUT;
 
 sampler2D bindless_tex (int tex_id) {
-	return sampler2D(bindless_LUT.handles[tex_id]);
+	return sampler2D(bindless_LUT.lut[tex_id].handle);
+}
+vec4 bindless_tex_scaled (int tex_id, vec2 uv) {
+	BindlessTextureEntry tex = bindless_LUT.lut[tex_id];
+	return texture(sampler2D(tex.handle), uv * tex.scale);
 }
 
 

@@ -23,6 +23,11 @@ Traffic lights
  -> Show inspect overlay for selected node that shows signal state on lane, and highlights active lanes to help identify conflict (highlight inacive in transparent red, highlight acive in green, highlight conflict zones in striped way??)
   -> probably want to add a draw polygon feature to overlay
  -> actually make cars follow traffic light logic
+ -> add more traffic behaviors
+  -> two phase is standard in CS1?
+  -> 4 phase works but low throughput?
+  -> 4 phase with StraightRight (2x), then Left (2x)?  (If left turns don't intersect?)
+  
   
 -> Use new debug overlay to highlight cars via moving (curved?) boxed by drawing them as polygons based on the allocated lane beziers (instead of ugly circles)
 
@@ -33,9 +38,46 @@ Fix rendering code with new traffic light glow params
  
 ===================== Graphics, so not really progress =========================
 
-!!!!!
-create car roughness tex
-!!!!!
+Try optimizing graphics
+ -> no chunk based culling on cpu yet! just upload and compuet all instances, can later be extended
+ -> try to fix lod_cull shader to "sort" draws with same mesh_id into instanced draws
+  -> with atomics
+  -> drawIDs (= meshID+lodID) known before hand, preallocate indirect cmds with atomic instance count
+   lod cull can atomicAdd to collect instances
+   
+  -> 1. pass: per instance, atomic counters to sum counts for each drawID (check difference atomicAdd vs atomic counter, counter might be way better?)
+  -> 2. pass: per all draw IDs, build prefix sum (ie. start of instance rage for draw ID, sum of all previous counts)
+   -> this is complicated, but can be solved in logN in parallel, just won't parallelize well on gpus, due to only being per draw ID, which is in low hundreds unless many assets
+    -> launch compute shader with (big-ish) shared memory (one int per thread, ie per draw id)
+	 1. load counter values into shared slot, barrier
+	 2. each thread sums all previous values inside a K slots windows (say 16) Note leftmost thread in window does nothing, barrier
+	 3. rightmost slot per window has sum for that window, now sum slot's value with K previous window sums (ie. K*K sized windows now)
+	 4. repeat until window is whole shared mem, shared mem holds prefix sum for workgroup, barrier, and write out
+	 5. gl barrier (ie. 3.pass essentially), then sum all previous workgroup's final sum into own workgroup, this gives final result in only ~1-2 short compute passes, but won't load gpu all that much
+  -> 4. pass: per instance, copy instance data into final slot using prefix sum and per instance counter value (was saved in 1. pass?)
+    or just build a lookup map with ids
+ -> code then, then compare to current chaotic drawing
+  -> advantage could just be in better cache hit rate, resulting in no difference
+   -> or could actually run better for gpu schedular or whatever
+   
+Chunk culling:
+ even unsorted entities have to be uploaded when they move -> that's when you can bucket sort them into chunks
+  determine chuck culling beforehand to skip even putting them in the buckets
+ -> ie. we can always sort on upload with small overhead (adding into random vector close in speed to bulk memcopy?)
+-> now track final gpu buffer ranges per chuck on gpu so we can dispatch per chunk if needed (note we already culled!)
+ -> could precompute min lod, ie rule out lower lods per chunk (dist of chunk < dist of everything in chunk)
+  -> thus if only lod0 is animated, if chunk already lod1 (ex. in terms of vehicles) -> no bone matrix buffer needed for this chunk!
+  -> so worst case bone matrix buffer size is known on cpu!
+
+Big shadow improvement
+ -> switch to better shadow technique with less pixelation and less peter panning if possible (variance shadow maps?)
+ -> DO NOT place the shadow cascades on the camera, (will always waste most of them behind the camera!!)
+  -> place cascade0 such that it encompasses frustrum from near clip plane up to whatever distance makes the shadowmap square?, then repeat from there with next cascade?
+  hopefully this gives us decent shadows all the way to the horizon
+ -> now instead of repeating lod selection, just use the lod that the normal scene is being drawn with
+  -> important because it seems like you get shadow popping otherwise!
+  -> cascades should not overlap now and naturally follow the distance from the camera, so larger cascade should see more objects but each at higher lod
+  -> this means that we still want to cull!
 
 *finish PBR impl, if it's kinda wip that's fine, but need performant code
  > Kinda done? shading is fast as fuck and env map resolve is kinda fast compared to the naiive one as well (<1ms)

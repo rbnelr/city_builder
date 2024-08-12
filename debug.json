@@ -1,17 +1,17 @@
 {
 	"cam": {
 		"orbit_pos": [
-			397.0954284667969,
-			1000.8162841796875,
+			401.5667419433594,
+			444.11358642578125,
 			0.0
 		],
-		"zoom_target": -4.5,
+		"zoom_target": -5.5,
 		"rot_aer": [
-			-2.4937851428985596,
-			-0.48587077856063843,
+			2.959927797317505,
+			-0.39582252502441406,
 			0.0
 		],
-		"vfov": 0.992353618144989,
+		"vfov": 1.4034005403518677,
 		"clip_near": 0.25,
 		"clip_far": 10000.0
 	},
@@ -43,17 +43,26 @@
 				"lights": [
 					{
 						"pos": [
-							3.0,
+							2.680000066757202,
 							0.0,
-							7.300000190734863
+							8.300000190734863
 						],
-						"radius": 15.0,
+						"dir": [
+							0.27982836961746216,
+							0.0,
+							-0.960050106048584
+						],
+						"radius": 14.0,
+						"cone": [
+							0.3490658700466156,
+							1.0471975803375244
+						],
 						"col": [
-							0.994535505771637,
-							0.9812366366386414,
-							0.9401893019676208
+							0.9836065769195557,
+							0.9501236081123352,
+							0.8761085867881775
 						],
-						"strength": 1.0
+						"strength": 0.800000011920929
 					}
 				]
 			},
@@ -66,6 +75,35 @@
 				"mesh_filename": "props/TrafficSignal1.fbx",
 				"tex_filename": "props/traffic_light",
 				"lights": []
+			},
+			"Streetlight2": {
+				"mesh_filename": "props/Streetlight1.fbx",
+				"tex_filename": "props/traffic_light",
+				"lights": [
+					{
+						"pos": [
+							2.680000066757202,
+							0.0,
+							8.300000190734863
+						],
+						"dir": [
+							0.27982836961746216,
+							0.0,
+							-0.960050106048584
+						],
+						"radius": 17.0,
+						"cone": [
+							0.5235987901687622,
+							1.3962634801864624
+						],
+						"col": [
+							0.9508196711540222,
+							0.9408540725708008,
+							0.7481859922409058
+						],
+						"strength": 2.0
+					}
+				]
 			}
 		},
 		"traffic_lights": {
@@ -203,9 +241,9 @@
 							0.0,
 							0.0
 						],
-						"spacing": 15.0,
+						"spacing": 20.0,
 						"rot": 4.71238899230957,
-						"prop": "Streetlight1"
+						"prop": "Streetlight2"
 					},
 					{
 						"shift": [
@@ -213,9 +251,9 @@
 							0.0,
 							0.0
 						],
-						"spacing": 15.0,
+						"spacing": 20.0,
 						"rot": 1.5707963705062866,
-						"prop": "Streetlight1"
+						"prop": "Streetlight2"
 					}
 				],
 				"traffic_light_prop": "TrafficLight",
@@ -310,9 +348,9 @@
 							0.0,
 							0.0
 						],
-						"spacing": 15.0,
+						"spacing": 20.0,
 						"rot": 4.71238899230957,
-						"prop": "Streetlight1"
+						"prop": "Streetlight2"
 					},
 					{
 						"shift": [
@@ -320,9 +358,9 @@
 							0.0,
 							0.0
 						],
-						"spacing": 15.0,
+						"spacing": 20.0,
 						"rot": 1.5707963705062866,
-						"prop": "Streetlight1"
+						"prop": "Streetlight2"
 					}
 				],
 				"traffic_light_prop": "TrafficLight",
@@ -410,15 +448,19 @@
 			}
 		}
 	},
-	"time_of_day": {
-		"sun_azim": 1.5707963705062866,
-		"sun_elev": 0.24434608221054077,
-		"time_of_day": 0.5350000262260437,
-		"day_speed": 0.017999999225139618,
-		"day_pause": true
+	"time": {
+		"target_gamespeed": 1.0,
+		"pause_sim": true,
+		"time_of_day": 0.939504086971283,
+		"day_duration": 600.0,
+		"pause_day": false,
+		"time_of_year": 0.6869999766349792,
+		"year_duration": 1032.0,
+		"pause_year": true,
+		"planet_axial_tilt": 0.40910521149635315,
+		"map_latitude": 0.7284654974937439,
+		"map_rotation": 1.1087902784347534
 	},
-	"sim_paused": false,
-	"sim_speed": 3.0,
 	"test": {
 		"bez": {
 			"a": [
@@ -474,7 +516,7 @@
 				"bias_fac_world": 7.599999904632568,
 				"bias_max_world": 13.600000381469727
 			},
-			"exposure": 1.0
+			"exposure": 0.008999999612569809
 		},
 		"entity_render": {
 			"light_renderer": {

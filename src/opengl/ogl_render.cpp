@@ -804,12 +804,15 @@ struct EntityRenderers {
 		}
 
 		
-		void _push_light (float3 pos, float radius, lrgb col) {
+		void _push_light (float3x4 const& matrix, PointLight& light) {
 			auto* inst = push_back(lights, 1);
 			
-			inst->pos = pos;
-			inst->radius = radius;
-			inst->col = col;
+			inst->pos = matrix * light.pos;
+			inst->radius = light.radius;
+			inst->dir = (float3x3)matrix * light.dir;
+			inst->cone.x = cos(light.cone.x);
+			inst->cone.y = cos(light.cone.y);
+			inst->col = light.col * light.strength;
 		}
 		void _push_base_prop (std::vector<StaticEntity>& vec, PropAsset* prop, float3 pos, float rot) {
 			auto* inst = push_back(vec, 1);
@@ -820,12 +823,9 @@ struct EntityRenderers {
 			inst->rot = rot;
 			inst->tint = 1;
 
-			auto mat = obj_transform(pos, rot);
+			auto matrix = obj_transform(pos, rot);
 			for (auto& light : prop->lights) {
-				auto light_pos = mat * light.pos;
-				auto col = light.col * light.strength;
-
-				_push_light(light_pos, light.radius, col);
+				_push_light(matrix, light);
 			}
 		}
 		void push_prop (PropAsset* prop, float3 pos, float rot) {
@@ -1362,17 +1362,20 @@ struct OglRenderer : public Renderer {
 		
 		float time_of_day = 0.6f;
 		float3 _pad0;
-
-		float4 sun_dir;
+		
+		float4x4 sun2world;
+		float4x4 world2sun;
+		float4x4 moon2world;
+		float4x4 world2moon;
+		float4x4 solar2world;
+		float4x4 world2solar;
 
 		lrgb sun_col = lrgb(1.0f, 0.95f, 0.8f);
-		float _pad1;
-
-		lrgb sky_col = srgb(210, 230, 255);
 		float _pad2;
-		
-		lrgb skybox_bottom_col = srgb(40,50,60);
+		lrgb sky_col = srgb(210, 230, 255);
 		float _pad3;
+		lrgb skybox_bottom_col = srgb(40,50,60);
+		float _pad4;
 		
 		lrgb fog_col = srgb(210, 230, 255);
 		//float _pad3;
@@ -1386,9 +1389,15 @@ struct OglRenderer : public Renderer {
 		// 15m/s is realistic but seems very slow visually
 		float2 clouds_vel = rotate2(deg(30)) * float2(100.0);	// current cloud velocity in m/s
 
-		void update (App& app) {
-			time_of_day = app.time_of_day.time_of_day;
-			sun_dir = float4(app.time_of_day.sun_dir, 0.0);
+		void update (App& app, GameTime::SkyConfig& sky) {
+			time_of_day = app.time.time_of_day;
+
+			sun2world   = (float4x4)sky.sun2world  ;
+			world2sun   = (float4x4)sky.world2sun  ;
+			moon2world  = (float4x4)sky.moon2world ;
+			world2moon  = (float4x4)sky.world2moon ;
+			solar2world = (float4x4)sky.solar2world;
+			world2solar = (float4x4)sky.world2solar;
 			
 			// TODO: move this to app?
 			clouds_offset += (1.0f / clouds_sz) * clouds_vel * app.sim_dt();
@@ -1558,8 +1567,10 @@ struct OglRenderer : public Renderer {
 	}
 	virtual void end (App& app, View3D& view) {
 		ZoneScoped;
-
-		lighting.update(app);
+		
+		auto sky_config = app.time.calc_sky_config(view);
+		
+		lighting.update(app, sky_config);
 
 		if (app.heightmap.textures_changed) {
 			textures.heightmap.upload(app.heightmap);
@@ -1622,7 +1633,7 @@ struct OglRenderer : public Renderer {
 			ZoneScopedN("shadow_pass");
 			OGL_TRACE("shadow_pass");
 
-			passes.shadowmap.draw_cascades(app, view, state, [&] (View3D& view) {
+			passes.shadowmap.draw_cascades(view, sky_config, state, [&] (View3D& view) {
 				common_ubo.set_view(view);
 				
 				terrain_render.render_terrain(state, app.heightmap, textures, view, true);

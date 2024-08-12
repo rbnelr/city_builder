@@ -156,18 +156,26 @@ inline AssetPtr<T> dummy_asset () {
 }
 
 struct PointLight {
-	SERIALIZE(PointLight, pos, radius, col, strength)
+	SERIALIZE(PointLight, pos, dir, radius, cone, col, strength)
 
 	float3 pos = 0;
 	float  radius = 5;
+	float3 dir = float3(0,0,-1); // TODO: Ideally a quaternion
+	float2 cone = deg(360); // fade out start and ends in radiants
 	lrgb   col = srgb(255, 246, 215);
 	float  strength = 1;
 
 	bool imgui () {
 		bool changed = ImGui::DragFloat3("pos", &pos.x, 0.1f);
+		changed = ImGui::DragFloat3("dir", &dir.x, 0.1f) || changed;
 		changed = ImGui::DragFloat("radius", &radius, 0.1f) || changed;
+		changed = ImGui::SliderAngle("cone inner", &cone.x, 0, 180) || changed;
+		changed = ImGui::SliderAngle("cone outer", &cone.y, cone.x, 180) || changed;
 		changed = ImGui::ColorEdit3("col", &col.x, ImGuiColorEditFlags_DisplayHSV) || changed;
 		changed = ImGui::DragFloat("strength", &strength, 0.1f) || changed;
+
+		if (changed)
+			dir = normalizesafe(dir);
 
 		return changed;
 	}
@@ -195,7 +203,7 @@ struct PropAsset : public Asset {
 				if (ImGui::TableNextColumn()) {
 					changed = lights[i].imgui() || changed;
 				}
-				ImGui::PopID();
+				ImGui::TreePop();
 			}
 		}
 
@@ -268,7 +276,6 @@ struct NetworkAsset : public Asset {
 		AssetPtr<PropAsset> prop = dummy_asset<PropAsset>();
 	};
 	
-	std::string name = "<unnamed>";
 	//std::string filename;
 
 	int road_class = 0;

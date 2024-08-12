@@ -1259,7 +1259,6 @@ void Network::simulate (App& app) {
 	pathing_count = 0;
 
 	float dt = app.sim_dt();
-	app._test_time += dt;
 
 	auto start_trip = [&] (Person* person) {
 		auto* target = app.entities.buildings[ app.sim_rand.uniformi(0, (int)app.entities.buildings.size()) ].get();

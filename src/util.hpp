@@ -24,11 +24,11 @@ struct Settings {
 	SpeedUnit speed_unit = UNIT_KPH;
 
 	void imgui () {
-		if (!ImGui::TreeNode("Settings")) return;
+		if (!imgui_Header("Settings")) return;
 		
 		ImGui::Combo("speed_unit", (int*)&speed_unit, SpeedUnitStr, ARRLEN(SpeedUnitStr));
 
-		ImGui::TreePop();
+		ImGui::PopID();
 	}
 };
 

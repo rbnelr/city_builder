@@ -257,6 +257,7 @@
     <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_glfw.h" />
     <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.h" />
     <ClInclude Include="..\src\entities.hpp" />
+    <ClInclude Include="..\src\GameTime.hpp" />
     <ClInclude Include="..\src\heightmap.hpp" />
     <ClInclude Include="..\src\interaction.hpp" />
     <ClInclude Include="..\src\network.hpp" />

@@ -31,7 +31,7 @@ struct IndirectLineVertex {
 #define _INDIRECT_BUFSZ (4096*2)
 struct IndirectLines {
 	glDrawArraysIndirectCommand cmd;
-	IndirectLineVertex vertices[_INDIRECT_BUFSZ];
+	IndirectLineVertex vertices[_INDIRECT_BUFSZ]; // Can make this variable length, but only if buffer is writeonly?
 };
 //struct IndirectWireInstances {
 //	glDrawElementsIndirectCommand cmd;

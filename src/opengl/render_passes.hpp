@@ -27,6 +27,7 @@ struct Textures {
 	};
 
 	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
+	Sampler sampler_cubemap = make_sampler("sampler_cubemap", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
 
 	const char* turn_arrows[7] = {
 		"misc/turn_arrow_L.png"  ,
@@ -43,7 +44,11 @@ struct Textures {
 	DiffNorm curb     = { "misc/curb_Diff2.png",                      "misc/curb_Norm.png" };
 	
 
-	Texture2D clouds, grid, contours;
+	Texture2D clouds;
+	TextureCubemap night_sky;
+	Texture2D moon, moon_nrm;
+
+	Texture2D grid, contours;
 	Texture2D terrain_diffuse;
 
 	Texture2D cracks;
@@ -87,6 +92,17 @@ struct Textures {
 			assert(false);
 		return tex;
 	}
+	template <typename T>
+	static TextureCubemap load_cubemap (std::string_view gl_label, const char* filepath_fmt, bool mips=true) {
+		ZoneScoped;
+		
+		printf("loading cubemap texture \"%s\"...\n", filepath_fmt);
+
+		TextureCubemap tex = {gl_label};
+		if (!upload_textureCube<T>(tex, prints("assets/%s", filepath_fmt).c_str(), mips))
+			assert(false);
+		return tex;
+	}
 
 	template <typename T>
 	void load_bindless (const char* filename, float scale=1) {
@@ -112,6 +128,10 @@ struct Textures {
 
 
 		clouds = load_texture<srgba8>("clouds", "skybox/clouds.png");
+		night_sky = load_cubemap<srgb8>("night_sky", "skybox/night_sky/%s.png");
+		moon     = load_texture<srgba8>("moon", "skybox/moon.png");
+		moon_nrm = load_texture<srgb8>("moon.nrm", "skybox/moon.nrm.png");
+
 		grid = load_texture<srgba8>("grid", "misc/grid2.png");
 		contours = load_texture<srgba8>("contours", "misc/contours.png");
 		terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
@@ -360,6 +380,9 @@ struct PBR_Render {
 
 			state.bind_textures(shad_compute_gen_mips, {
 				{ "clouds", texs.clouds },
+				{ "night_sky", texs.night_sky, texs.sampler_cubemap },
+				{ "moon", texs.moon },
+				{ "moon_nrm", texs.moon_nrm },
 			});
 
 			glBindImageTexture(0, base_env_map, 0, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
@@ -663,7 +686,7 @@ struct DirectionalCascadedShadowmap {
 	}
 
 	template <typename FUNC>
-	void draw_cascades (App& app, View3D& view, StateManager& state, FUNC draw_scene) {
+	void draw_cascades (View3D& view, GameTime::SkyConfig& sky, StateManager& state, FUNC draw_scene) {
 		
 		float casc_size = size;
 		float casc_depth_range = depth_range;
@@ -684,12 +707,12 @@ struct DirectionalCascadedShadowmap {
 			//float3 center = float3(size * 0.5f, size * 0.5f, 0.0f);
 			float3 center = view.cam_pos;
 			center.z = 0; // force shadowmap center to world plane to avoid depth range running out
-		
-			float3x4 world2cam = app.time_of_day.world2sun * translate(-center);
-			float3x4 cam2world = translate(center) * app.time_of_day.sun2world;
+			
+			float3x4 world2sun = sky.world2sun * translate(-center);
+			float3x4 sun2world = translate(center) * sky.sun2world;
 
 			View3D view = ortho_view(casc_size, casc_size, -casc_depth_range*0.5f, +casc_depth_range*0.5f,
-				world2cam, cam2world, (float)shadow_res);
+				world2sun, sun2world, (float)shadow_res);
 			
 			if (i == 0)
 				view_casc0 = view;
@@ -796,11 +819,15 @@ struct DefferedPointLightRenderer {
 		//int    type;
 		float3 pos;
 		float  radius;
-		float3 col;
+		float3 dir;
+		float2 cone;
+		float3 col; // col * strength
 
 		VERTEX_CONFIG(
 			ATTRIB(FLT,3, LightInstance, pos),
 			ATTRIB(FLT,1, LightInstance, radius),
+			ATTRIB(FLT,3, LightInstance, dir),
+			ATTRIB(FLT,2, LightInstance, cone),
 			ATTRIB(FLT,3, LightInstance, col),
 		)
 	};
@@ -945,7 +972,9 @@ struct RenderPasses {
 		pbr.imgui();
 
 		if (ImGui::TreeNode("Postprocessing")) {
-			ImGui::SliderFloat("exposure", &exposure, 0.02f, 20.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+			ImGui::Text("For how many Lux is the camera exposure set?");
+			// Note: slider is backwards because lux is the useful unit, but 'more' exposure means exposing for less lux
+			ImGui::SliderFloat("exposure", &exposure, 1000000.0f, 0.0001f, "%12.4f", ImGuiSliderFlags_Logarithmic);
 			ImGui::TreePop();
 		}
 	}
@@ -991,6 +1020,9 @@ struct RenderPasses {
 			pbr.prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
 
 			tex += { "clouds", texs.clouds, texs.sampler_normal };
+			tex += { "night_sky", texs.night_sky, texs.sampler_cubemap };
+			tex += { "moon", texs.moon };
+			tex += { "moon_nrm", texs.moon_nrm };
 			tex += { "grid_tex", texs.grid, texs.sampler_normal };
 			tex += { "contours_tex", texs.contours, texs.sampler_normal };
 
@@ -1021,7 +1053,7 @@ struct RenderPasses {
 		if (shad_postprocess->prog) {
 			glUseProgram(shad_postprocess->prog);
 				
-			shad_postprocess->set_uniform("exposure", exposure);
+			shad_postprocess->set_uniform("exposure", 1.0f / exposure); // exposure in lux to map lux into 0-1 requires division
 
 			state.bind_textures(shad_postprocess, {
 				{ "lighting_fbo", { GL_TEXTURE_2D, lighting_fbo.col }, get_renderscale_sampler() }

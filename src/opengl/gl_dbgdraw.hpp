@@ -132,7 +132,7 @@ struct glDebugDraw {
 
 		struct Lines {
 			glDrawArraysIndirectCommand cmd;
-			IndirectLineVertex vertices[4096*2];
+			IndirectLineVertex vertices[4096*8];
 		} lines;
 	
 		//struct WireInstances {

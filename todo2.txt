@@ -88,6 +88,13 @@ Make shadows disableable, I want all resources to be deallocated in this case
 
 Bloom?
 
+Add airglow (ie. fog) inside point light cones
+
+Switch directional light to moon after sunset (with the directional shadows as well)
+
+Make all light sources physically accurate (candela for point lights, lux for directional and emmisive lights)
+ -> check if all framebuffers / env maps etc. can handle that dynamic range, if not simply premultiply exposure in each of them, such that postprocess needs no exposure anymore, now all values should be in the visible range
+
 ===================== Nice to have =============================================
 make imgui nicely configurable using custom sections?  
 

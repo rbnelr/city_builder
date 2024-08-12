@@ -34,6 +34,7 @@ layout(location = 11) in vec3 inst_traffic_col3;
 #endif
 
 #if LAMPS
+	// TODO: Turn point lights off as well!, but need common id that gets passed into both, to correctly identify
 	bool is_lamp_on () {
 		float offs = sin_hash(inst_pos.xy) * 0.05;
 		

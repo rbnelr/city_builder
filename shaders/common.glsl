@@ -60,7 +60,13 @@ struct View3D {
 
 struct Lighting {
 	float time_of_day;
-	vec3 sun_dir;
+	
+	mat4 sun2world;
+	mat4 world2sun;
+	mat4 moon2world;
+	mat4 world2moon;
+	mat4 solar2world;
+	mat4 world2solar;
 	
 	vec3 sun_col;
 	vec3 sky_col;

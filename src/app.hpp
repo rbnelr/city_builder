@@ -3,6 +3,7 @@
 #include "engine/engine.hpp"
 #include "game_camera.hpp"
 #include "assets.hpp"
+#include "gametime.hpp"
 #include "heightmap.hpp"
 #include "network.hpp"
 #include "entities.hpp"
@@ -502,11 +503,11 @@ struct App : public Engine {
 	virtual ~App () {}
 	
 	friend SERIALIZE_TO_JSON(App) {
-		SERIALIZE_TO_JSON_EXPAND(cam, dbg_cam, assets, net, time_of_day, sim_paused, sim_speed, test, test_map_builder);
+		SERIALIZE_TO_JSON_EXPAND(cam, dbg_cam, assets, net, time, test, test_map_builder);
 		t.renderer->to_json(j);
 	}
 	friend SERIALIZE_FROM_JSON(App) {
-		SERIALIZE_FROM_JSON_EXPAND(cam, dbg_cam, assets, net, time_of_day, sim_paused, sim_speed, test, test_map_builder);
+		SERIALIZE_FROM_JSON_EXPAND(cam, dbg_cam, assets, net, time, test, test_map_builder);
 		t.renderer->from_json(j);
 	}
 
@@ -516,30 +517,26 @@ struct App : public Engine {
 	virtual void imgui () {
 		ZoneScoped;
 
-		renderer->imgui(*this);
-		
-		ImGui::Separator();
+		time.imgui();
 		interact.imgui();
-		ImGui::Separator();
+
+		cam_track.imgui();
 
 		settings.imgui();
+
+		ImGui::Separator();
 
 		cam.imgui("cam");
 		dbg_cam.imgui("dbg_cam");
 		ImGui::SameLine();
 		ImGui::Checkbox("View", &view_dbg_cam);
 
-		cam_track.imgui();
-
-		time_of_day.imgui();
-
-		ImGui::Checkbox("sim_paused", &sim_paused);
-		ImGui::SliderFloat("sim_speed", &sim_speed, 0, 10);
-
 		assets.imgui(settings);
 		
 		heightmap.imgui();
 		net.imgui();
+
+		renderer->imgui(*this);
 	}
 	
 	virtual bool update_files_changed (kiss::ChangedFiles& changed_files) {
@@ -552,8 +549,6 @@ struct App : public Engine {
 
 		return success;
 	}
-
-	float _test_time = 0;
 
 	Settings settings;
 	
@@ -574,63 +569,14 @@ struct App : public Engine {
 	bool view_dbg_cam = false;
 	bool dbg_cam_cursor_was_enabled;
 
-	struct TimeOfDay {
-		SERIALIZE(TimeOfDay, sun_azim, sun_elev, time_of_day, day_speed, day_pause)
-			
-		float time_of_day = 0.6f; // [0,1] -> [0,24] hours
-
-		float day_speed = 1.0f / 60.0f;
-		bool  day_pause = true;
-
-		float sun_azim = deg(50); // degrees from east, counter clockwise
-		float sun_elev = deg(14);
-
-		float3 sun_dir;
-
-		float3x3 sun2world;
-		float3x3 world2sun;
-
-		void imgui () {
-			if (ImGui::TreeNode("Time of Day")) {
-
-				ImGui::SliderFloat("Time of Day", &time_of_day, 0,1);
-
-				ImGui::SliderFloat("day_speed", &day_speed, 0, 0.25f, "%.3f", ImGuiSliderFlags_Logarithmic);
-				ImGui::Checkbox("day_pause", &day_pause);
-
-				ImGui::SliderAngle("sun_azim", &sun_azim, 0, 360);
-				ImGui::SliderAngle("sun_elev", &sun_elev, -90, 90);
-			
-				ImGui::TreePop();
-			}
-		}
-
-		void update (App& app) {
-			if (!day_pause) time_of_day = wrap(time_of_day + day_speed * app.input.dt, 1.0f);
-
-			// move ang into [-0.5, +0.5] range to make default sun be from top
-			// (can use sun2world matrix with -Z facing camera to render shadow map, instead of having wierd camera from below)
-			float ang = wrap(time_of_day - 0.5f, 0.0f, 1.0f) * deg(360);
-
-			// sun rotates from east (+X) to west (-X) -> CW around Y with day_t=0 => midnight, ie sun at -Z
-			
-			sun2world = rotate3_Z(sun_azim) * rotate3_X(sun_elev) * rotate3_Y(-ang);
-			world2sun = rotate3_Y(ang) * rotate3_X(-sun_elev) * rotate3_Z(-sun_azim);
-
-			sun_dir = sun2world * float3(0,0,-1);
-		}
-	};
-	TimeOfDay time_of_day;
+	GameTime time;
+	
+	float sim_dt () {
+		return time.pause_sim ? 0 : input.dt * time.target_gamespeed;
+	}
 
 	TestMapBuilder test_map_builder;
 
-	bool sim_paused = false;
-	float sim_speed = 1;
-
-	float sim_dt () {
-		return sim_paused ? 0 : input.dt * sim_speed;
-	}
-	
 	// rand set by TestMapBuilder to get consistent paths for testing
 	Random sim_rand;
 
@@ -653,14 +599,10 @@ struct App : public Engine {
 				input.set_cursor_mode(*this, dbg_cam_cursor_was_enabled);
 			}
 		}
-		
-
-		if (input.buttons[KEY_SPACE].went_down)
-			sim_paused = !sim_paused;
 
 		test_map_builder.update(assets, entities, net, interact, sim_rand);
 
-		time_of_day.update(*this);
+		time.update(input);
 		
 		cam_track.update(interact.selection, &cam.orbit_pos, &cam.rot_aer.x);
 
@@ -677,7 +619,9 @@ struct App : public Engine {
 			dbg_cam.update(input, (float2)input.window_size) :
 			cam    .update(input, (float2)input.window_size, cam_track.offset, cam_track.rot_offset);
 		
-		test.update(input, view);
+		//test.update(input, view);
+		time.visualize_planet(view);
+		time.calc_sky_config(view);
 
 		net.draw_debug(*this, view);
 

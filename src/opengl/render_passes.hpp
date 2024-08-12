@@ -351,22 +351,10 @@ struct PBR_Render {
 		ZoneScoped;
 		OGL_TRACE("draw_env_map");
 
-		glBindVertexArray(state.dummy_vao);
-		
-		static int additive_layers = 1;
-		ImGui::SliderInt("additive_layers", &additive_layers, 1, 8);
-		
-		PipelineState s;
-		s.depth_test   = false;
-		s.depth_write  = false;
-		s.blend_enable = false;
-		state.set_no_override(s);
-
 		int res = env_res;
 		{
 			OGL_TRACE("gen_env");
 
-		#if 1
 			glUseProgram(shad_compute_gen_env->prog);
 			shad_compute_gen_env->set_uniform("resolution", int2(res));
 
@@ -379,21 +367,9 @@ struct PBR_Render {
 			dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
 
 			glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-		#else
-			glUseProgram(shad_gen_env->prog);
-			state.bind_textures(shad_gen_env, {
-				{ "clouds", texs.clouds, texs.sampler_normal },
-			});
-
-			auto fbo = make_and_bind_temp_fbo_layered(base_env_map, 0);
-			glViewport(0, 0, res, res);
-
-			glDrawArrays(GL_TRIANGLES, 0, 3);
-		#endif
 		}
 		{
 			OGL_TRACE("gen mips");
-		#if 1
 			glUseProgram(shad_compute_gen_mips->prog);
 			state.bind_textures(shad_compute_gen_mips, {
 				{ "base_env_map", base_env_map },
@@ -411,18 +387,12 @@ struct PBR_Render {
 				
 				glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 			}
-		#else
-			// Generate mipmaps for more optimized filtering
-			glBindTexture(GL_TEXTURE_CUBE_MAP, base_env_map);
-			glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
-		#endif
 		}
 		
 		res = env_res;
 		{
 			OGL_TRACE("copy mip0");
 
-		#if 1
 			glUseProgram(shad_compute_copy->prog);
 			shad_compute_copy->set_uniform("resolution", int2(res));
 
@@ -430,24 +400,10 @@ struct PBR_Render {
 			glBindImageTexture(1, base_env_map,      0, GL_FALSE, 0, GL_READ_ONLY,  env_map_format);
 
 			dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
-		#else
-			// spawn a raster drawcall to copy memory, because copying textures is not something the opengl API can do
-			// (glBlitFramebuffer is ungodly slow for some reason)
-			glUseProgram(shad_copy_env->prog);
-			state.bind_textures(shad_copy_env, {
-				{ "base_env_map", base_env_map },
-			});
-
-			auto fbo = make_and_bind_temp_fbo_layered(pbr_env_convolved, 0);
-			glViewport(0, 0, res, res);
-
-			glDrawArrays(GL_TRIANGLES, 0, 3);
-		#endif
 		}
 		
 		{
 			OGL_TRACE("convolve");
-		#if 1
 			glUseProgram(shad_compute_convolve->prog);
 			state.bind_textures(shad_compute_convolve, {
 				{ "base_env_map", base_env_map },
@@ -469,33 +425,6 @@ struct PBR_Render {
 				constexpr int BATCH_SIZE = 32;
 				dispatch_compute(int3(BATCH_SIZE,res*res,6), int3(BATCH_SIZE,4,1));
 			}
-		#else
-			for (int mip=1; mip<env_mips; ++mip) {
-				res = max(res / 2, 1);
-				
-				glUseProgram(shad_convolve_env->prog);
-				state.bind_textures(shad_convolve_env, {
-					{ "base_env_map", base_env_map },
-				});
-				
-				auto fbo = make_and_bind_temp_fbo_layered(pbr_env_convolved, mip);
-				glViewport(0, 0, res, res);
-				
-				// clear for good measure
-				glClearColor(0,0,0,0);
-				glClear(GL_COLOR_BUFFER_BIT);
-				
-				float t = (float)mip / (float)(env_mips-1);
-				float roughness = powf(t, 1.0f / env_roughness_curve);
-				shad_convolve_env->set_uniform("roughness", roughness);
-				
-				// Test: don't draw once per texel with many samples, but draw multiple times with less samples and blend additively, for better gpu utilization
-				shad_convolve_env->set_uniform("additive_layers", additive_layers);
-				
-				// Draw all 6 faces at once using geometry shader and fbo layers
-				glDrawArrays(GL_TRIANGLES, 0, 3*additive_layers);
-			}
-		#endif
 		}
 
 		// TODO: Is this correct?
@@ -1067,12 +996,6 @@ struct RenderPasses {
 
 			shadowmap.prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
 			
-			static float _visualize_roughness = 0;
-			ImGui::SliderFloat("_visualize_roughness", &_visualize_roughness, 0, 1);
-			shad_fullscreen_lighting->set_uniform("_visualize_roughness", _visualize_roughness);
-
-			//pbr.visualize_hemisphere_sampling();
-
 			state.bind_textures(shad_fullscreen_lighting, tex);
 			draw_fullscreen_triangle(state);
 		}

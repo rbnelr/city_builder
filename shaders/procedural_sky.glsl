@@ -62,7 +62,7 @@ vec3 draw_moon (vec3 col, float sun_stren, vec3 dir_world) {
 		
 		float sun_bright = max(dot(sun_dir_in_moon_space, nrm), 0.0) * 10.0;
 		
-		vec3 light = albedo.rgb * (sun_bright * lighting.sun_col * 0.4 + 0.002);
+		vec3 light = albedo.rgb * (sun_bright * lighting.sun_col * 0.04 + 0.002);
 		
 		col = mix(col, light, albedo.aaa);
 	}

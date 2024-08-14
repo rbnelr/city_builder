@@ -14,6 +14,8 @@ namespace network {
 
 inline constexpr float LANE_COLLISION_R = 1.3f;
 inline constexpr float SAFETY_DIST = 1.0f;
+// sidewalk is at 0, road actually gets lowered! TODO: config per road asset lane
+inline constexpr float ROAD_Z = -0.15f;
 
 struct Node;
 struct Segment;
@@ -41,7 +43,8 @@ ENUM_BITFLAG_OPERATORS_TYPE(Turns, uint8_t)
 struct Line {
 	float3 a, b;
 };
-inline Bezier3 calc_curve (Line const& l0, Line const& l1) {
+inline Bezier3<> calc_curve (Line const& l0, Line const& l1) {
+	// Do this in 2d
 	float2 point;
 	if (!line_line_intersect((float2)l0.a, (float2)l0.b, (float2)l1.a, (float2)l1.b, &point))
 		point = (l0.b+l1.a)*0.5f;
@@ -167,8 +170,7 @@ struct PathState {
 	State state; // type of motion
 	float end_t = 1.0f;
 	float next_start_t = 0.0f;
-	Bezier3 bezier;
-	float pos_z;
+	Bezier3<> bezier;
 
 	VehicleList<ActiveVehicle*>* cur_vehicles = nullptr;
 	VehicleList<ActiveVehicle*>* next_vehicles = nullptr;
@@ -216,8 +218,8 @@ struct ActiveVehicle {
 	// TODO: this should not exist, OR be the only velocity paramter
 	float3 center_vel = 0;
 	// suspension (ie. car wobble) angles based on car acceleration on forward and sideways axes (computed seperately)
-	float2 suspension_ang = 0; // angle in radians, X: sideways (rotation on local X), Y: forwards
-	float2 suspension_ang_vel = 0; // angular velocity in radians
+	float3 suspension_ang = 0; // angle in radians, X: sideways (rotation on local X), Y: forwards
+	float3 suspension_ang_vel = 0; // angular velocity in radians
 	
 	// curvature, ie. 1/turn_radius, positive means left
 	float turn_curv = 0;
@@ -272,6 +274,7 @@ struct NodeVehicles {
 
 	VehicleList<NodeVehicle> test;
 
+	// TODO: switch to that one flat hashmap i added to the project and profile?
 	Hashmap<ConflictKey, Conflict, ConflictKeyHasher> conflict_cache;
 };
 
@@ -432,14 +435,9 @@ struct Segment { // better name? Keep Path and call path Route?
 	}
 		
 	// Segment direction vectors
-	struct Dirs {
-		float2 forw, right;
-	};
-	Dirs clac_seg_vecs () {
-		float2 ab = (float2)node_b->pos - (float2)node_a->pos;
-		float2 forw = normalizesafe(ab);
-		float2 right = rotate90(-forw); // cw rotate
-		return { forw, right };
+	Dirs clac_seg_vecs () { // TODO: this code should go away
+		float3 forw = normalizesafe(node_b->pos - node_a->pos);
+		return relative2dir(forw);
 	}
 };
 inline Line SegLane::clac_lane_info (float shift) const {
@@ -447,11 +445,11 @@ inline Line SegLane::clac_lane_info (float shift) const {
 
 	auto& l = seg->asset->lanes[lane];
 
-	float2 seg_right  = v.right;
-	float2 lane_right = l.direction == LaneDir::FORWARD ? v.right : -v.right;
+	float3 seg_right  = v.right;
+	float3 lane_right = l.direction == LaneDir::FORWARD ? v.right : -v.right;
 
-	float3 a = seg->pos_a + float3(seg_right * l.shift + lane_right * shift, 0);
-	float3 b = seg->pos_b + float3(seg_right * l.shift + lane_right * shift, 0);
+	float3 a = seg->pos_a + seg_right * l.shift + lane_right * shift + float3(0,0,ROAD_Z);
+	float3 b = seg->pos_b + seg_right * l.shift + lane_right * shift + float3(0,0,ROAD_Z);
 
 	if (l.direction == LaneDir::FORWARD) return { a, b };
 	else                                 return { b, a };
@@ -507,10 +505,10 @@ struct Settings {
 
 	float car_rear_drag_ratio = 0.4f;
 	
-	float2 suspension_max_ang = float2(deg(10), deg(6));
-	float2 suspension_spring_k = 50;
-	float2 suspension_spring_damp = 5;
-	float2 suspension_accel_fac = float2(0.2f, 0.2f);
+	float3 suspension_max = float3(deg(10), deg(6), 0.25f); // angle, angle, linear dist
+	float3 suspension_spring_k = 50;
+	float3 suspension_spring_damp = 5;
+	float3 suspension_accel_fac = float3(0.2f, 0.2f, 0.2f);
 
 	struct IntersectionHeuristics {
 		SERIALIZE(IntersectionHeuristics, wait_boost_fac, progress_boost, exit_eta_penal,
@@ -533,11 +531,12 @@ struct Settings {
 
 		ImGui::SliderFloat("car_rear_drag_ratio", &car_rear_drag_ratio, 0, 1);
 		
-		ImGui::SliderAngle("suspension_max_ang.x", &suspension_max_ang.x, 0, +30);
-		ImGui::SliderAngle("suspension_max_ang.y", &suspension_max_ang.y, 0, +30);
-		ImGui::SliderFloat2("suspension_spring_k", &suspension_spring_k.x, 0, 100);
-		ImGui::SliderFloat2("suspension_spring_damp", &suspension_spring_damp.x, 0, 100);
-		ImGui::SliderFloat2("suspension_accel_fac", &suspension_accel_fac.x, 0, 10);
+		ImGui::SliderAngle("suspension_max.x", &suspension_max.x, 0, +30);
+		ImGui::SliderAngle("suspension_max.y", &suspension_max.y, 0, +30);
+		ImGui::SliderFloat("suspension_max.x", &suspension_max.z, 0, 4);
+		ImGui::SliderFloat3("suspension_spring_k", &suspension_spring_k.x, 0, 100);
+		ImGui::SliderFloat3("suspension_spring_damp", &suspension_spring_damp.x, 0, 100);
+		ImGui::SliderFloat3("suspension_accel_fac", &suspension_accel_fac.x, 0, 10);
 
 		if (ImGui::TreeNode("Intersection Heuristics")) {
 
@@ -588,7 +587,7 @@ struct Network {
 
 inline Turns classify_turn (Node* node, Segment* in, Segment* out) {
 	auto seg_dir_to_node = [] (Node* node, Segment* seg) {
-		float2 dir = seg->clac_seg_vecs().forw; // dir: node_a -> node_b
+		float2 dir = (float2)seg->clac_seg_vecs().forw; // dir: node_a -> node_b
 		return seg->get_dir_to_node(node) == LaneDir::FORWARD ? dir : -dir;
 	};
 

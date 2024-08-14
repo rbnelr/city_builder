@@ -256,27 +256,24 @@ struct Gbuffer {
 };
 
 struct PBR_Render {
+	// GL_R11F_G11F_B10F is not noticably different and like 40% faster due to being memory read bottlenecked
+	// *actually my starry night sky + moon skybox looks wonky and flashes, probably due to the values being too small for the format
+	// TODO: dynamically adjust env map with exposure?
+	static constexpr GLenum env_map_format = GL_R11F_G11F_B10F; // GL_R11F_G11F_B10F // unfortunately rgb16f is not supported!!!?, need to waste 1/4 of memory or use a non-functional format??
+	static constexpr const char* env_map_format_compute = "r11f_g11f_b10f"; // GL_R11F_G11F_B10F
+
 	Shader* shad_integrate_brdf = g_shaders.compile("pbr_integrate_brdf");
 
-	Shader* shad_gen_env      = g_shaders.compile("pbr_convolve_env_map", {{"MODE","0"}},
-		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER });
-	Shader* shad_copy_env     = g_shaders.compile("pbr_convolve_env_map", {{"MODE","1"}},
-		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER });
-	Shader* shad_convolve_env = g_shaders.compile("pbr_convolve_env_map", {{"MODE","2"}},
-		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER });
-
 	static constexpr int3 COMPUTE_CONVOLVE_WG = int3(8,8,1);
-	Shader* shad_compute_gen_env  = g_shaders.compile("pbr_compute", {{"MODE","0"}}, { shader::COMPUTE_SHADER });
-	Shader* shad_compute_gen_mips = g_shaders.compile("pbr_compute", {{"MODE","1"}}, { shader::COMPUTE_SHADER });
-	Shader* shad_compute_copy     = g_shaders.compile("pbr_compute", {{"MODE","2"}}, { shader::COMPUTE_SHADER });
-	Shader* shad_compute_convolve = g_shaders.compile("pbr_compute", {{"MODE","3"}}, { shader::COMPUTE_SHADER });
+	Shader* shad_compute_gen_env  = g_shaders.compile("pbr_compute", {{"MODE","0"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}}, { shader::COMPUTE_SHADER });
+	Shader* shad_compute_gen_mips = g_shaders.compile("pbr_compute", {{"MODE","1"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}}, { shader::COMPUTE_SHADER });
+	Shader* shad_compute_copy     = g_shaders.compile("pbr_compute", {{"MODE","2"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}}, { shader::COMPUTE_SHADER });
+	Shader* shad_compute_convolve = g_shaders.compile("pbr_compute", {{"MODE","3"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}}, { shader::COMPUTE_SHADER });
 
 	Texture2D brdf_LUT;
 	int brdf_LUT_res = 256; // Seems to be enough
 	bool recreate_brdf = true;
 	
-	// GL_R11F_G11F_B10F is not noticably different and like 40% faster due to being memory read bottlenecked
-	GLenum env_map_format = GL_R11F_G11F_B10F; // GL_RGB16F
 	TextureCubemap base_env_map, pbr_env_convolved;
 	int env_res = 384;
 	int env_mips = 8; // env_res=384 -> 3x3
@@ -874,7 +871,8 @@ struct ClippingRenderer {
 			resolution = res;
 		}
 
-		//copy_texels2D(gbuf_depth,0,0, tmp_copy_tex,0,0, res);
+		// Need to copy depth buffer because we can't write to it and read it at the same time, no idea if there is a good way around this
+		// maybe rendering into stencil buffer and doing something with that
 		// copies from current FBO, no idea how it knows which channel to copy...
 		glBindTexture(GL_TEXTURE_2D, tmp_copy_tex);
 		glCopyTexSubImage2D(GL_TEXTURE_2D,0, 0,0, 0,0, res.x, res.y);
@@ -885,7 +883,7 @@ struct ClippingRenderer {
 
 			state.bind_textures(shad, {
 				{ "gbuf_depth", { GL_TEXTURE_2D, tmp_copy_tex }, depth_sampler },
-				{ "test_tex", texs.terrain_diffuse, texs.sampler_normal },
+				//{ "test_tex", texs.terrain_diffuse, texs.sampler_normal },
 			});
 
 			PipelineState s;
@@ -973,8 +971,9 @@ struct DefferedPointLightRenderer {
 
 			// additive light blending
 			PipelineState s;
-			//s.depth_test = true; // draw only surfaces with are in light radius
-			s.depth_test = false; // don't depth test as backface won't be drawn
+			s.depth_test = false;
+			//s.depth_test = true;
+			//s.depth_func = DEPTH_BEHIND;
 			s.depth_write = false;
 
 			//s.cull_face = false; // need to draw lights even when inside the light radius sphere

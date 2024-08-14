@@ -250,6 +250,7 @@
   <ItemGroup>
     <ClInclude Include="..\src\app.hpp" />
     <ClInclude Include="..\src\assets.hpp" />
+    <ClInclude Include="..\src\bezier.hpp" />
     <ClInclude Include="..\src\common.hpp" />
     <ClInclude Include="..\src\engine\dear_imgui\imgui.h" />
     <ClInclude Include="..\src\engine\dear_imgui_custom\dear_imgui.hpp" />

@@ -1,5 +1,6 @@
 #pragma once
 #include "common.hpp"
+#include "bezier.hpp"
 
 inline constexpr float KPH_PER_MS = 3.6f;
 inline constexpr float MPH_PER_MS = 2.23693632f;
@@ -82,206 +83,29 @@ inline float angle2d (float2 dir) {
 	return length_sqr(dir) > 0 ? atan2f(dir.y, dir.x) : 0;
 }
 
-struct BezierRes {
-	float2 pos;
-	float2 vel;   // velocity (over bezier t)
-	float  curv;  // curvature (delta angle over dist along curve)
-};
-struct Bezier3 {
-	SERIALIZE(Bezier3, a, b, c)
-
-	float2 a;
-	float2 b;
-	float2 c;
-
-	BezierRes eval (float t) const {
-		float2 c0 = a;           // a
-		float2 c1 = 2 * (b - a); // (-2a +2b)t
-		float2 c2 = a - 2*b + c; // (a -2b +c)t^2
-		
-		float t2 = t*t;
-
-		float2 value = c2*t2    + c1*t + c0; // f(t)
-		float2 deriv = c2*(t*2) + c1;        // f'(t)
-
-		return { value, deriv };
-	}
-
-	BezierRes eval_with_curv (float t) const {
-		//float2 ab = lerp(a, b, t);
-		//float2 bc = lerp(b, c, t);
-		//return lerp(ab, bc, t);
-		
-		//float t2 = t*t;
-		//
-		//float _2t1 = 2.0f*t;
-		//float _2t2 = 2.0f*t2;
-		//
-		//float ca = 1.0f -_2t1   +t2;
-		//float cb =       _2t1 -_2t2;
-		//float cc =               t2;
-		//
-		//return ca*a + cb*b + cc*c;
-
-		float2 c0 = a;           // a
-		float2 c1 = 2 * (b - a); // (-2a +2b)t
-		float2 c2 = a - 2*b + c; // (a -2b +c)t^2
-		
-		float t2 = t*t;
-
-		float2 value = c2*t2    + c1*t + c0; // f(t)
-		float2 deriv = c2*(t*2) + c1;        // f'(t)
-		float2 accel = c2*2;                 // f''(t)
-
-		
-		// angle of movement can be gotten via:
-		// ang = atan2(deriv.y, deriv.x)
-
-		// curvature can be defined as change in angle
-		// atan2(deriv.y, deriv.x)
-		// atan2 just offsets the result based on input signs, so derivative of atan2
-		// should be atan(y/x)
-		
-		// wolfram alpha: derive atan(y(t)/x(t)) with respect to x:
-		// gives me (x*dy - dx*y) / (x^2+y^2) (x would be deriv.x and dy would be accel.x)
-		// this formula from the https://math.stackexchange.com/questions/3276910/cubic-b%c3%a9zier-radius-of-curvature-calculation?rq=1
-		// seems to divide by the length of the sqrt(denom) as well, normalizing it by length(vel)
-		// vel = dpos / t -> (x/dt) / (dpos/dt) -> x/dpos
-		// so it seems this actually normalizes the curvature to be decoupled from your t (parameter) space
-		// and always be correct in position space
-
-		// curvature is positive when the curve curves CCW, since atan grows CCW
-		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
-		float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
-
-		return { value, deriv, curv };
-	}
-
-	// Optimization if compier is not smart enough to optimize loop invariant
-	struct Coefficients {
-		float2 c0;
-		float2 c1;
-		float2 c2;
-	};
-	Coefficients get_coeff () {
-		Coefficients co; 
-		co.c0 = a;           // a
-		co.c1 = 2 * (b - a); // (-2a +2b)t
-		co.c2 = a - 2*b + c; // (a -2b +c)t^2
-		return co;
-	}
-	float2 eval_value (Coefficients const& co, float t) {
-		float t2 = t*t;
-		return co.c2*t2 + co.c1*t + co.c0;
-	}
-	
-	// it's faster for check_conflict because compiler is dum dum
-	// COLLISION_STEPS is small and constant, so loop is unrollen and ca, cb, cc become constants, which compiler does not catch
-	float2 eval_value_fast_for_const_t (float t) const {
-		float t2 = t*t;
-		
-		float _2t1 = 2.0f*t;
-		float _2t2 = 2.0f*t2;
-		
-		float ca = 1.0f -_2t1   +t2;
-		float cb =       _2t1 -_2t2;
-		float cc =               t2;
-		
-		float2 v;
-		v.x = ca*a.x + cb*b.x + cc*c.x;
-		v.y = ca*a.y + cb*b.y + cc*c.y;
-		return v;
-	}
-
-	float approx_len (int steps) {
-		auto co = get_coeff();
-		float2 prev = a;
-
-		float len = 0;
-		for (int i=0; i<steps; ++i) {
-			float t = (float)(i+1) * (1.0f / steps);
-			float2 pos = eval_value(co, t);
-			len += length(pos - prev);
-			prev = pos;
-		}
-
-		return len;
-	}
-};
-struct Bezier4 {
-	SERIALIZE(Bezier4, a, b, c, d)
-
-	float2 a;
-	float2 b;
-	float2 c;
-	float2 d;
-
-	BezierRes eval (float t) const {
-		//float2 ab = lerp(a, b, t);
-		//float2 bc = lerp(b, c, t);
-		//float2 cd = lerp(c, d, t);
-		//
-		//float2 abc = lerp(ab, bc, t);
-		//float2 bcd = lerp(bc, cd, t);
-		//
-		//return lerp(abc, bcd, t);
-
-		//float t2 = t*t;
-		//float t3 = t2*t;
-		//
-		//float _3t1 = 3.0f*t;
-		//float _3t2 = 3.0f*t2;
-		//float _6t2 = 6.0f*t2;
-		//float _3t3 = 3.0f*t3;
-		//
-		//float ca = 1.0f -_3t1 +_3t2   -t3;
-		//float cb =       _3t1 -_6t2 +_3t3;
-		//float cc =             _3t2 -_3t3;
-		//float cd =                     t3;
-		//
-		//return (ca*a + cb*b) + (cc*c + cd*d);
-		
-		float2 c0 = a;                   // a
-		float2 c1 = 3 * (b - a);         // (-3a +3b)t
-		float2 c2 = 3 * (a + c) - 6*b;   // (3a -6b +3c)t^2
-		float2 c3 = 3 * (b - c) - a + d; // (-a +3b -3c +d)t^3
-
-		float t2 = t*t;
-		float t3 = t2*t;
-		
-		float2 value = c3*t3     + c2*t2    + c1*t + c0; // f(t)
-		float2 deriv = c3*(t2*3) + c2*(t*2) + c1;        // f'(t)
-		float2 accel = c3*(t*6)  + c2*2;                 // f''(t)
-		
-		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
-		float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
-		
-		return { value, deriv, curv };
-	}
-};
-
-template <typename T>
-void dbg_draw_bez (T const& bez, float z, int res, lrgba col, float t0=0, float t1=1) {
-	float2 prev = bez.eval(t0).pos;
-	for (int i=0; i<res; ++i) {
-		float t = lerp(t0, t1, (float)(i+1) / res);
-
-		auto val = bez.eval(t);
-			
-		if (i < res-1) {
-			g_dbgdraw.line(float3(prev, z), float3(val.pos, z), col);
-		}
-		else {
-			g_dbgdraw.arrow(float3(prev, z), float3(val.pos - prev, 0), 1, col);
-		}
-
-		prev = val.pos;
-	}
-}
+// Argably, rotating like this is a mistake, since I use it to get right from forward vectors
+// which either should be with z=0 or needs to be rethought!
+//inline float3 rotateZ_90 (float3 v) {
+//	return float3(-v.y, v.x, v.z);
+//}
+//inline float3 rotateZ_CW90 (float3 v) {
+//	return float3(v.y, -v.x, v.z);
+//}
 
 struct Line {
 	float3 a, b;
 };
+struct Dirs {
+	float3 forw, right, up;
+};
+inline Dirs relative2dir (float3 forward) {
+	Dirs d;
+	d.forw = forward;
+	// right vector always level, unless some kind of tilt is wanted?
+	d.right = float3(forward.y, -forward.x, 0);
+	d.up = cross(d.right, d.forw);
+	return d;
+}
 
 inline bool line_line_intersect (float2 const& a, float2 const& b, float2 const& c, float2 const& d, float2* out_point) {
 	// https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
@@ -539,9 +363,9 @@ struct SelCircle {
 	}
 };
 
-inline void draggable (Input& I, View3D& view, float2* pos, float r) {
+inline void draggable (Input& I, View3D& view, float3* pos, float r) {
 	// use ptr to identiy if and what we are dragging, to allow using this function with any number of items
-	static float2* dragging_ptr = nullptr;
+	static float3* dragging_ptr = nullptr;
 	static float2 drag_offs;
 	
 	bool hit = false;
@@ -556,12 +380,12 @@ inline void draggable (Input& I, View3D& view, float2* pos, float r) {
 	}
 
 	if (!dragging_ptr && hit && I.buttons[MOUSE_BUTTON_LEFT].went_down) {
-		drag_offs = hit_point - *pos;
+		drag_offs = hit_point - (float2)*pos;
 		dragging_ptr = pos;
 	}
 	if (dragging_ptr == pos) {
 		if (hit && I.buttons[MOUSE_BUTTON_LEFT].is_down) {
-			*pos = hit_point - drag_offs;
+			*pos = float3(hit_point - drag_offs, pos->z);
 		}
 		else {
 			dragging_ptr = nullptr;

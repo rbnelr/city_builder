@@ -31,7 +31,7 @@ std::unique_ptr<Renderer> create_ogl_backend ();
 struct Test {
 	SERIALIZE(Test, bez, speed)
 
-	struct DraggableBezier3 : public Bezier3 {
+	struct DraggableBezier3 : public Bezier3<> {
 
 		void update (Input& I, View3D& view, float sel_r) {
 			ImGui::DragFloat2("a", &a.x, 1);
@@ -85,9 +85,9 @@ struct Test {
 	};
 
 	DraggableBezier3 bez = {
-		float2(0, 0),
-		float2(20, 20),
-		float2(0, 20),
+		float3(0, 0, 0),
+		float3(20, 20, 0),
+		float3(0, 20, 0),
 		//float2(20, 0),
 	};
 

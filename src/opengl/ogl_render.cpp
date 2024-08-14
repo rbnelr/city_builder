@@ -991,7 +991,6 @@ struct Mesher {
 
 	// TODO: fix tangents being wrong sometimes?
 
-	float sidewalk_h = 0.15f;
 	float curbstone_w = 0.25f;
 
 	// negative numbers are for non uv mappes (worldspace) textures
@@ -1023,17 +1022,20 @@ struct Mesher {
 		
 		typedef NetworkRenderer::Vertex V;
 		
+		float road_z = network::ROAD_Z;
+		float sidw_z = 0;
+
 		auto extrude = [&] (V const& l, V const& r, float2 uv_tiling=0) {
 			V l0 = l;
 			V l1 = l;
 			V r0 = r;
 			V r1 = r;
 
-			l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
-			l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z + float3(0,0,0.01f);
+			l0.pos = seg.pos_a + right * l.pos.x + forw * l.pos.y + up * l.pos.z;
+			l1.pos = seg.pos_b + right * l.pos.x + forw * l.pos.y + up * l.pos.z;
 
-			r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
-			r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z + float3(0,0,0.01f);
+			r0.pos = seg.pos_a + right * r.pos.x + forw * r.pos.y + up * r.pos.z;
+			r1.pos = seg.pos_b + right * r.pos.x + forw * r.pos.y + up * r.pos.z;
 
 			if (uv_tiling.x > 0) {
 				l1.uv.x += seg._length / uv_tiling.x;
@@ -1050,18 +1052,18 @@ struct Mesher {
 		float3 diag_right = (up + right) * SQRT_2/2;
 		float3 diag_left  = (up - right) * SQRT_2/2;
 
-		V sL0  = { float3(         -width*0.5f              , 0, sidewalk_h), up,         tang, no_uv, sidewalk_tex_id };
-		V sL1  = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidewalk_h), up,         tang, no_uv, sidewalk_tex_id };
-		V sL1b = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidewalk_h), up,         tang, float2(0,1), curb_tex_id };
-		V sL2  = { float3(seg.asset->sidewalkL              , 0, sidewalk_h), diag_right, tang, float2(0,0.4f), curb_tex_id };
-		V sL3  = { float3(seg.asset->sidewalkL              , 0,          0), right,      tang, float2(0,0), curb_tex_id };
-		V r0   = { float3(seg.asset->sidewalkL, 0, 0), up, tang, no_uv, asphalt_tex_id };
-		V r1   = { float3(seg.asset->sidewalkR, 0, 0), up, tang, no_uv, asphalt_tex_id };
-		V sR0  = { float3(seg.asset->sidewalkR              , 0,          0), -right,    tang, float2(0,0), curb_tex_id };
-		V sR1  = { float3(seg.asset->sidewalkR              , 0, sidewalk_h), diag_left, tang, float2(0,0.4f), curb_tex_id };
-		V sR2b = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidewalk_h), up,        tang, float2(0,1), curb_tex_id };
-		V sR2  = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidewalk_h), up,        tang, no_uv, sidewalk_tex_id };
-		V sR3  = { float3(         +width*0.5f              , 0, sidewalk_h), up,        tang, no_uv, sidewalk_tex_id };
+		V sL0  = { float3(         -width*0.5f              , 0, sidw_z), up,         tang, no_uv, sidewalk_tex_id };
+		V sL1  = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidw_z), up,         tang, no_uv, sidewalk_tex_id };
+		V sL1b = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidw_z), up,         tang, float2(0,1), curb_tex_id };
+		V sL2  = { float3(seg.asset->sidewalkL              , 0, sidw_z), diag_right, tang, float2(0,0.4f), curb_tex_id };
+		V sL3  = { float3(seg.asset->sidewalkL              , 0, road_z), right,      tang, float2(0,0), curb_tex_id };
+		V r0   = { float3(seg.asset->sidewalkL              , 0, road_z), up, tang, no_uv, asphalt_tex_id };
+		V r1   = { float3(seg.asset->sidewalkR              , 0, road_z), up, tang, no_uv, asphalt_tex_id };
+		V sR0  = { float3(seg.asset->sidewalkR              , 0, road_z), -right,    tang, float2(0,0), curb_tex_id };
+		V sR1  = { float3(seg.asset->sidewalkR              , 0, sidw_z), diag_left, tang, float2(0,0.4f), curb_tex_id };
+		V sR2b = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidw_z), up,        tang, float2(0,1), curb_tex_id };
+		V sR2  = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidw_z), up,        tang, no_uv, sidewalk_tex_id };
+		V sR3  = { float3(         +width*0.5f              , 0, sidw_z), up,        tang, no_uv, sidewalk_tex_id };
 
 		extrude(sL0 , sL1 );
 		extrude(sL1b, sL2 , curb_tex_tiling);
@@ -1149,10 +1151,13 @@ struct Mesher {
 			float2 segL = si.pos + si.right * si.asset->sidewalkL;
 			float2 segR = si.pos + si.right * si.asset->sidewalkR;
 
+			float road_z = network::ROAD_Z;
+			float sidw_z = 0;
+
 			typedef NetworkRenderer::Vertex V;
-			V nodeCenter = { node->pos + float3(0, 0, 0.01f), norm_up, tang_up, no_uv, asphalt_tex_id };
-			V seg0       = { float3(segL, 0.01f), norm_up, tang_up, no_uv, asphalt_tex_id };
-			V seg1       = { float3(segR, 0.01f), norm_up, tang_up, no_uv, asphalt_tex_id };
+			V nodeCenter = { node->pos + float3(0, 0, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
+			V seg0       = { float3(segL, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
+			V seg1       = { float3(segR, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
 
 			int res = 10;
 			for (int i=0; i<res; ++i) {
@@ -1164,15 +1169,15 @@ struct Mesher {
 				float2 b0 = sidewalk_Rb.eval(t0).pos;
 				float2 b1 = sidewalk_Rb.eval(t1).pos;
 
-				V sa0g = { float3(a0,            + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
-				V sa1g = { float3(a1,            + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
-				V sa0  = { float3(a0, sidewalk_h + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
-				V sa1  = { float3(a1, sidewalk_h + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
-				V sb0  = { float3(b0, sidewalk_h + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
-				V sb1  = { float3(b1, sidewalk_h + 0.01f), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sa0g = { float3(a0, road_z), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sa1g = { float3(a1, road_z), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sa0  = { float3(a0, sidw_z), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sa1  = { float3(a1, sidw_z), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sb0  = { float3(b0, sidw_z), norm_up, tang_up, no_uv, sidewalk_tex_id };
+				V sb1  = { float3(b1, sidw_z), norm_up, tang_up, no_uv, sidewalk_tex_id };
 				
-				V sa0gA = { float3(a0,            + 0.01f), norm_up, tang_up, no_uv, asphalt_tex_id };
-				V sa1gA = { float3(a1,            + 0.01f), norm_up, tang_up, no_uv, asphalt_tex_id };
+				V sa0gA = { float3(a0, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
+				V sa1gA = { float3(a1, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
 
 				network_mesh.push_quad(sa0, sb0, sb1, sa1);
 				network_mesh.push_quad(sa0g, sa0, sa1, sa1g);
@@ -1216,13 +1221,17 @@ struct Mesher {
 				float ang = angle2d((float2)forw);
 
 				float3 center = (seg->pos_a + seg->pos_b) * 0.5f;
-				float length = distance(seg->pos_b, seg->pos_a);
-				float width = seg->asset->width - 6.0f;
+				float3 size;
+				size.x = distance(seg->pos_b, seg->pos_a) + 15.0f*2; // TODO: this will get done better with better road meshing
+				size.y = seg->asset->width;
+				size.z = 1.0f + 10.0f; // 10 meters above ground;
+				float offs_z = -1.0f + size.z/2;
 
 				ClippingRenderer::Instance clip;
 				clip.pos = (seg->pos_a + seg->pos_b) * 0.5f;
+				clip.pos.z += offs_z;
 				clip.rot = ang;
-				clip.size = float3(length + 10.0f, width, 5.0f);
+				clip.size = size;
 				clippings.push_back(clip);
 			}
 
@@ -1654,9 +1663,9 @@ struct OglRenderer : public Renderer {
 				common_ubo.set_view(view);
 				
 				terrain_render.render_terrain(state, app.heightmap, textures, view, true);
+				clip_render.render(state, depth_fbo, res, depth_format, textures, true);
 		
 				network_render.render(state, textures, true);
-				clip_render.render(state, depth_fbo, res, depth_format, textures, true);
 
 				entity_render.draw_all(state, true);
 			});
@@ -1671,9 +1680,9 @@ struct OglRenderer : public Renderer {
 			passes.begin_geometry_pass(state);
 
 			terrain_render.render_terrain(state, app.heightmap, textures, view);
+			clip_render.render(state, passes.gbuf.fbo, passes.renderscale.size, passes.gbuf.depth_format, textures);
 
 			network_render.render(state, textures);
-			clip_render.render(state, passes.gbuf.fbo, passes.renderscale.size, passes.gbuf.depth_format, textures);
 			decal_render.render(state, passes.gbuf, textures);
 		
 			entity_render.draw_all(state);

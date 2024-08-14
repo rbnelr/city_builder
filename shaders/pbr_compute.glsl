@@ -30,7 +30,7 @@ vec3 get_world_dir () {
 
 #if MODE == 0
 // Generate enviroment map
-	uniform layout(binding=0, r11f_g11f_b10f) restrict writeonly imageCube tex_out;
+	uniform layout(binding=0, ENV_PIXEL_FORMAT) restrict writeonly imageCube tex_out;
 	
 	void main () {
 		if (gl_GlobalInvocationID.x >= resolution.x || gl_GlobalInvocationID.y >= resolution.y) return;
@@ -41,7 +41,7 @@ vec3 get_world_dir () {
 	}
 #elif MODE == 1
 // Generate mipmaps
-	uniform layout(binding=0, r11f_g11f_b10f) restrict writeonly imageCube tex_out;
+	uniform layout(binding=0, ENV_PIXEL_FORMAT) restrict writeonly imageCube tex_out;
 	uniform samplerCube env_map;
 	uniform float prev_lod;
 	
@@ -53,8 +53,8 @@ vec3 get_world_dir () {
 	}
 #elif MODE == 2
 // Copy mip0, TODO: optimize this away
-	uniform layout(binding=0, r11f_g11f_b10f) restrict writeonly imageCube tex_out;
-	uniform layout(binding=1, r11f_g11f_b10f) restrict readonly  imageCube tex_in;
+	uniform layout(binding=0, ENV_PIXEL_FORMAT) restrict writeonly imageCube tex_out;
+	uniform layout(binding=1, ENV_PIXEL_FORMAT) restrict readonly  imageCube tex_in;
 	
 	void main () {
 		if (gl_GlobalInvocationID.x >= resolution.x || gl_GlobalInvocationID.y >= resolution.y) return;
@@ -115,7 +115,7 @@ vec3 get_world_dir () {
 
 	uniform samplerCube base_env_map;
 	uniform float roughness;
-	uniform layout(binding=0, r11f_g11f_b10f) restrict writeonly imageCube tex_out;
+	uniform layout(binding=0, ENV_PIXEL_FORMAT) restrict writeonly imageCube tex_out;
 	
 	shared vec3 colors[GROUP_PIXELS][NUM_BATCHES];
 	

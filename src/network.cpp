@@ -267,7 +267,6 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		s.next_vehicles = &s.next_lane.vehicles().list;
 
 		s.bezier = { s0, (s0+s1)*0.5f, s1 };
-		s.pos_z = s0.z;
 	}
 	else if (idx == num_moves-1) {
 		assert(prev_state);
@@ -282,7 +281,6 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		s.state = PathState::ENTER_BUILDING;
 
 		s.bezier = { e0, (e0+e1)*0.5f, e1 };
-		s.pos_z = e1.z;
 	}
 	else {
 		Node* cur_node;
@@ -329,7 +327,6 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 				s.end_t = 0.5f;
 		
 			s.bezier = { l.a, (l.a+l.b)*0.5f, l.b }; // 3d 2d?
-			s.pos_z = l.a.z;
 		}
 		else {
 			s.cur_lane = prev_state->cur_lane;
@@ -353,7 +350,6 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 			s.next_vehicles = &s.next_lane.vehicles().list;
 		
 			s.bezier = calc_curve(l, l2);
-			s.pos_z = l.a.z;
 		}
 	}
 
@@ -458,7 +454,7 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		float start_t = person->vehicle->bez_t;
 
 		for (int i=person->vehicle->idx; ; ++i) {
-			dbg_draw_bez(s.bezier, 0, 5, lrgba(1,1,0,1), start_t, s.end_t); 
+			dbg_draw_bez(s.bezier, 5, lrgba(1,1,0,1), start_t, s.end_t); 
 
 			start_t = s.next_start_t;
 			if (s.state == PathState::ENTER_BUILDING) break;
@@ -501,8 +497,8 @@ void dbg_brake_for (App& app, ActiveVehicle* cur, float dist, float3 obstacle, l
 
 	float3 pos = cur->front_pos;
 	float3 dir = normalizesafe(obstacle - pos);
-	float3 end = pos + float3(dir,0)*dist;
-	float3 normal = float3(rotate90(dir), 0);
+	float3 end = pos + dir*dist;
+	float3 normal = relative2dir(dir).right;
 
 	g_dbgdraw.arrow(pos, obstacle - pos, 0.3f, col);
 	g_dbgdraw.line(end - normal, end + normal, col);
@@ -604,10 +600,10 @@ Conflict check_conflict (CachedConnection const& a, CachedConnection const& b) {
 
 void debug_conflict (CachedConnection const& a, CachedConnection const& b, Conflict& conf) {
 	for (int i=0; i<COLLISION_STEPS; ++i) {
-		g_dbgdraw.line(float3(a.pointsL[i],0), float3(a.pointsL[i+1],0), lrgba(1,1,0,1));
-		g_dbgdraw.line(float3(a.pointsR[i],0), float3(a.pointsR[i+1],0), lrgba(1,1,0,1));
-		g_dbgdraw.line(float3(b.pointsL[i],0), float3(b.pointsL[i+1],0), lrgba(0,1,1,1));
-		g_dbgdraw.line(float3(b.pointsR[i],0), float3(b.pointsR[i+1],0), lrgba(0,1,1,1));
+		g_dbgdraw.line(float3(a.pointsL[i], ROAD_Z), float3(a.pointsL[i+1], ROAD_Z), lrgba(1,1,0,1));
+		g_dbgdraw.line(float3(a.pointsR[i], ROAD_Z), float3(a.pointsR[i+1], ROAD_Z), lrgba(1,1,0,1));
+		g_dbgdraw.line(float3(b.pointsL[i], ROAD_Z), float3(b.pointsL[i+1], ROAD_Z), lrgba(0,1,1,1));
+		g_dbgdraw.line(float3(b.pointsR[i], ROAD_Z), float3(b.pointsR[i+1], ROAD_Z), lrgba(0,1,1,1));
 	}
 
 	auto draw_line = [&] (float2 const* L, float2 const* R, float t) {
@@ -615,8 +611,8 @@ void debug_conflict (CachedConnection const& a, CachedConnection const& b, Confl
 		t = t * COLLISION_STEPS - i;
 
 		g_dbgdraw.line(
-			float3(lerp(L[i], L[i+1], t), 0),
-			float3(lerp(R[i], R[i+1], t), 0), lrgba(1,0,0,1));
+			float3(lerp(L[i], L[i+1], t), ROAD_Z),
+			float3(lerp(R[i], R[i+1], t), ROAD_Z), lrgba(1,0,0,1));
 	};
 	if (conf) {
 		draw_line(a.pointsL, a.pointsR, conf.a_t0);
@@ -1131,17 +1127,17 @@ void network::ActiveVehicle::calc_pos (float3* pos, float* ang) {
 	*ang = angle2d((float2)dir);
 }
 
-void update_vehicle_suspension (App& app, ActiveVehicle& vehicle, float2 local_accel, float dt) {
+void update_vehicle_suspension (App& app, ActiveVehicle& vehicle, float3 local_accel, float dt) {
 	// assume constant mass
 
-	float2 ang = vehicle.suspension_ang;
-	float2 vel = vehicle.suspension_ang_vel;
+	float3 ang = vehicle.suspension_ang;
+	float3 vel = vehicle.suspension_ang_vel;
 
 	// spring resitive accel
 	//float2 accel = -ang * app.net.settings.suspension_spring_k;
 	
 	// quadratic for more smooth spring limit (and more wobbly around zero)
-	float2 accel = -ang * abs(ang / app.net.settings.suspension_max_ang) * app.net.settings.suspension_spring_k * 3;
+	float3 accel = -ang * abs(ang / app.net.settings.suspension_max) * app.net.settings.suspension_spring_k * 3;
 	
 	// spring point accel
 	accel += local_accel * app.net.settings.suspension_accel_fac;
@@ -1153,8 +1149,7 @@ void update_vehicle_suspension (App& app, ActiveVehicle& vehicle, float2 local_a
 	vel = clamp(vel, -100, +100);
 
 	ang += vel * dt;
-	ang = clamp(ang, -app.net.settings.suspension_max_ang,
-	                 +app.net.settings.suspension_max_ang);
+	ang = clamp(ang, -app.net.settings.suspension_max, +app.net.settings.suspension_max);
 
 	vehicle.suspension_ang = ang;
 	vehicle.suspension_ang_vel = vel;
@@ -1213,57 +1208,60 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 	auto bez_res = vehicle->state.bezier.eval_with_curv(vehicle->bez_t);
 	// remember bezier delta t for next frame
 	vehicle->bez_speed = length(bez_res.vel); // bezier t / delta pos
-	float2 bez_dir = bez_res.vel / vehicle->bez_speed;
+	float3 bez_dir = bez_res.vel / vehicle->bez_speed;
 
 	// actually move car rear using (bogus) trailer formula
-	float2 new_front = bez_res.pos;
+	float3 new_front = bez_res.pos;
 	
-	float2 old_front = (float2)vehicle->front_pos;
-	float2 old_rear  = (float2)vehicle->rear_pos;
+	float3 old_front = vehicle->front_pos;
+	float3 old_rear  = vehicle->rear_pos;
 
-	float2 forw = normalizesafe(old_front - old_rear);
-	float2 right = -rotate90(forw);
+	// I don't think this needs to be completely 3d
+	auto moveDirs = relative2dir(normalizesafe(old_front - old_rear));
 	//float forw_amount = dot(new_front - old_front, forw);
 
 	float car_len = vehicle->car_len();
-	float2 ref_point = old_rear + car_len*app.net.settings.car_rear_drag_ratio * forw; // Kinda works to avoid goofy car rear movement?
+	float3 ref_point = old_rear + car_len*app.net.settings.car_rear_drag_ratio * moveDirs.forw; // Kinda works to avoid goofy car rear movement?
 
-	float2 new_rear = new_front - normalizesafe(new_front - ref_point) * car_len;
+	float3 new_rear = new_front - normalizesafe(new_front - ref_point) * car_len;
 
-	vehicle->front_pos = float3(new_front, vehicle->state.pos_z);
-	vehicle->rear_pos  = float3(new_rear,  vehicle->state.pos_z);
+	vehicle->front_pos = new_front;
+	vehicle->rear_pos  = new_rear;
 	
 	// totally wack with car_rear_drag_ratio
 	vehicle->turn_curv = bez_res.curv; // TODO: to be correct for wheel turning this would need to be computed based on the rear axle
 
 	{
-		float2 old_center = (old_front + old_rear) * 0.5f;
-		float2 new_center = (new_front + new_rear) * 0.5f;
-		float2 center_vel   = dt == 0 ? 0 : (new_center - old_center) / dt;
-		float2 center_accel = dt == 0 ? 0 : (center_vel - float2(vehicle->center_vel)) / dt;
+		float3 old_center = (old_front + old_rear) * 0.5f;
+		float3 new_center = (new_front + new_rear) * 0.5f;
+		float3 center_vel   = dt == 0 ? 0 : (new_center - old_center) / dt;
+		float3 center_accel = dt == 0 ? 0 : (center_vel - vehicle->center_vel) / dt;
 
 		if (vehicle->cit == app.interact.selection.get<Person*>()) {
-			g_dbgdraw.arrow(float3(new_front, vehicle->state.pos_z), float3(center_vel, 0), 0.2f, lrgba(0,0,1,1));
-			g_dbgdraw.arrow(float3(new_front, vehicle->state.pos_z), float3(center_accel*0.1f, 0), 0.2f, lrgba(0,1,0,1));
+			g_dbgdraw.arrow(new_front, center_vel, 0.2f, lrgba(0,0,1,1));
+			g_dbgdraw.arrow(new_front, center_accel*0.1f, 0.2f, lrgba(0,1,0,1));
 		}
 
 		// accel from world to local space
 		//float accel_cap = 30; // we get artefacts with huge accelerations due to discontinuities, cap accel to hide
 		//center_accel.y = clamp( dot(center_accel, right), -accel_cap, accel_cap);
 		//center_accel.x = clamp( dot(center_accel, forw ), -accel_cap, accel_cap);
-		center_accel.x = dot(center_accel, right);
-		center_accel.y = dot(center_accel, forw );
+		center_accel.x = dot(center_accel, moveDirs.right);
+		center_accel.y = dot(center_accel, moveDirs.forw );
+		center_accel.z = dot(center_accel, moveDirs.up   );
 		update_vehicle_suspension(app, *vehicle, -center_accel, dt);
 		
 		if (vehicle->cit == app.interact.selection.get<Person*>()) {
 			//printf("%7.3f %7.3f  |  %7.3f %7.3f\n", center_accel.x, center_accel.y, center_vel.x, center_vel.y);
 			
-			float2 a = right * vehicle->suspension_ang.x + forw * vehicle->suspension_ang.y;
-			g_dbgdraw.point(float3(new_center, vehicle->state.pos_z), 0.1f, lrgba(.5f,.5f,.1f,0.5f));
-			g_dbgdraw.point(float3(new_center + a*10, vehicle->state.pos_z), 0.1f, lrgba(1,1,0.5f,1));
+			float3 a = moveDirs.right * vehicle->suspension_ang.x
+			         + moveDirs.forw  * vehicle->suspension_ang.y
+			         + moveDirs.up    * vehicle->suspension_ang.z;
+			g_dbgdraw.point(new_center, 0.1f, lrgba(.5f,.5f,.1f,0.5f));
+			g_dbgdraw.point(new_center + a*10, 0.1f, lrgba(1,1,0.5f,1));
 			
 			float turn_r = 1.0f/vehicle->turn_curv;
-			g_dbgdraw.wire_circle(float3(new_rear - right * turn_r, vehicle->state.pos_z), turn_r, lrgba(1,0,0,1), 128);
+			g_dbgdraw.wire_circle(new_rear - moveDirs.right * turn_r, turn_r, lrgba(1,0,0,1), 128);
 		}
 
 		vehicle->center_vel = float3(center_vel, 0);
@@ -1378,7 +1376,7 @@ void Network::simulate (App& app) {
 
 void Network::draw_debug (App& app, View3D& view) {
 	debug_node(app, app.interact.selection.get<Node*>(), view);
-	debug_person(app, app.interact.hover.get<Person*>(), view);
+	debug_person(app, app.interact.selection.get<Person*>(), view);
 }
 
 } // namespace network

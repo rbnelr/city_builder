@@ -45,6 +45,13 @@ struct GbufResult {
 	float metallic;
 };
 
+#ifdef _FRAGMENT
+vec3 get_fragment_ray () {
+	vec2 uv = gl_FragCoord.xy * view.inv_viewport_size;
+	return normalize(depth_to_pos_world(0.5, uv) - view.cam_pos);
+}
+#endif
+
 #if GBUF_IN
 uniform sampler2D gbuf_depth;
 uniform sampler2D gbuf_col;

@@ -59,31 +59,71 @@ void main () {
 	}
 	float cone_falloff (vec3 light2frag) {
 		float t = map(dot(light2frag, v.dir), v.cone.y, v.cone.x);
-		return smoothstep(0.0, 1.0, t);
-		//return clamp(t, 0.0, 1.0);
+		//return smoothstep(0.0, 1.0, t);
+		return clamp(t, 0.0, 1.0);
+	}
+	
+	// what to call this?
+	vec3 airglow (bool gbuf_valid, vec3 frag_pos) {
+		vec3 ray0 = view.cam_pos;
+		vec3 ray_dir = get_fragment_ray();
+		
+		float frag_t = gbuf_valid ? dot(frag_pos - ray0, ray_dir) : 999999999.0;
+		
+		float local_t = dot(v.pos - ray0, ray_dir);
+		vec3 nearest = ray0 + ray_dir * local_t;
+		float h = length(v.pos - nearest);
+		
+		float r2 = v.radius * v.radius;
+		float r4 = r2 * r2;
+		float h2 = h * h;
+		
+		float t_half = sqrt(v.radius*v.radius - h*h);
+		float t0 = local_t - t_half;
+		float t1 = local_t + t_half;
+		
+		float k0 =        - local_t; // starts at camera
+		float k1 = frag_t - local_t;
+		
+		k0 = max(k0, -t_half);
+		k1 = min(k1,  t_half);
+		if (k0 >= k1) return vec3(0.0);
+		
+		float b = 1.0 / sqrt(h2 + 1.0);
+		
+		float res = (b*r4 - b) * (atan(b * k1) - atan(b * k0));
+		res += (k1-k0) - h2*(k1-k0) + (k0*k0*k0 - k1*k1*k1)*0.333333;
+		res *= 1.0 / r4;
+		res = max(res, 0.0);
+		
+		res *= res;
+		return res * v.intensity * 0.0001;
 	}
 	
 	out vec4 frag_col;
 	void main () {
 		GbufResult g;
-		if (!decode_gbuf(g)) discard;
+		bool gbuf_valid = decode_gbuf(g);
+		//if (!decode_gbuf(g)) discard;
+		
+		vec3 glow = airglow(gbuf_valid, g.pos_world);
 		
 		vec3 frag2light = v.pos - g.pos_world;
 		float dist_sqr = dot(frag2light, frag2light);
-		if (dist_sqr > v.radius*v.radius)
-			discard; // early out
+		//if (dist_sqr > v.radius*v.radius)
+		//	discard; // early out
 		
 		float dist = sqrt(dist_sqr);
 		frag2light /= dist; // normalize
 		
 		float cone = cone_falloff(-frag2light);
-		if (cone <= 0.00001)
-			discard;
+		//if (cone <= 0.00001)
+		//	discard;
 		
 		float dotLN = max(dot(g.normal_world, frag2light), 0.0);
 		vec3 light = cone * falloff(dist) * dotLN * v.intensity;
 			
-		vec3 col = pbr_analytical_light(g, light, frag2light);
+		vec3 col = pbr_analytical_light(g, light, frag2light) + glow;
 		frag_col = vec4(col, 1.0);
 		
 		//frag_col = vec4(frag2light, 1.0);

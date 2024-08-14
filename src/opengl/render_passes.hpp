@@ -56,11 +56,11 @@ struct Textures {
 	struct HeightmapTextures {
 		Texture2D inner, outer;
 
-		Sampler sampler = make_sampler("sampler_heightmap", FILTER_BILINEAR, GL_CLAMP_TO_EDGE);
+		Sampler sampler = make_sampler("sampler_heightmap", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
 	
 		void upload (Heightmap const& heightmap) {
-			inner = upload_image<uint16_t>("heightmap.inner", heightmap.inner, false);
-			outer = upload_image<uint16_t>("heightmap.outer", heightmap.outer, false);
+			inner = upload_image<uint16_t>("heightmap.inner", heightmap.inner, true);
+			outer = upload_image<uint16_t>("heightmap.outer", heightmap.outer, true);
 		}
 		
 		TextureBinds textures () {
@@ -183,18 +183,28 @@ struct Gbuffer {
 
 	// WARNING: can't really use alpha channel in gbuf because decal
 
+#if 1 // 4+3+6+6+2 = 21 bytes
 	// only depth -> reconstruct position  float32 format for resonable infinite far plane (float16 only works with ~1m near plane)
 	static constexpr GLenum depth_format = GL_DEPTH_COMPONENT32F; // GL_R32F causes GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT
 	// rgb albedo (emmisive is simply very bright)
 	// might be able to afford using GL_RGB8 since it's mostly just albedo from textures
-	static constexpr GLenum col_format   = GL_RGB16F; // GL_RGB16F GL_RGB8
+	static constexpr GLenum col_format   = GL_SRGB8; // GL_RGB16F GL_RGB8
 	static constexpr GLenum emiss_format = GL_RGB16F;
 	// rgb normal
 	// GL_RGB8 requires encoding normals, might be better to have camera space normals without z
 	// seems like 8 bits might be to little for normals
-	static constexpr GLenum norm_format  = GL_RGB16F; // GL_RGB16F
+	static constexpr GLenum norm_format  = GL_RGB16_SNORM; // GL_RGB16F
 	// PBR roughness, metallic
 	static constexpr GLenum pbr_format   = GL_RG8;
+#else // 4+3+4+3+2 = 16 bytes
+	// Doesn't really make a difference? Not even going from renderscale 2x to 1x does much
+	// Bottleneck vertex count / instance data currently?
+	static constexpr GLenum depth_format = GL_DEPTH_COMPONENT32F;//GL_DEPTH_COMPONENT32F; // GL_R32F causes GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT
+	static constexpr GLenum col_format   = GL_SRGB8;
+	static constexpr GLenum emiss_format = GL_R11F_G11F_B10F;
+	static constexpr GLenum norm_format  = GL_RGB8; // difference visible, but not by too much, octahedral encoding would fix it
+	static constexpr GLenum pbr_format   = GL_RG8;
+#endif
 
 	Render_Texture depth  = {};
 	Render_Texture col    = {};
@@ -569,6 +579,8 @@ struct DirectionalCascadedShadowmap {
 	float bias_fac;
 	float bias_max;
 
+	static constexpr GLenum depth_format = GL_DEPTH_COMPONENT16;
+
 	class Textures {
 		GLuint tex = 0;
 	public:
@@ -636,7 +648,7 @@ struct DirectionalCascadedShadowmap {
 	void resize (int2 tex_res) {
 		glActiveTexture(GL_TEXTURE0);
 
-		shadow_tex = Textures("DirectionalShadowmap.depth", tex_res, cascades, GL_DEPTH_COMPONENT16);
+		shadow_tex = Textures("DirectionalShadowmap.depth", tex_res, cascades, depth_format);
 		
 		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
 		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
@@ -720,7 +732,7 @@ struct DirectionalCascadedShadowmap {
 			casc_size *= cascade_factor;
 			casc_depth_range *= cascade_factor;
 
-			draw_scene(view);
+			draw_scene(view, cascade_fbo, shadow_res, depth_format);
 		}
 	}
 };
@@ -753,10 +765,7 @@ struct DecalRenderer {
 		)
 	};
 	
-	// TODO: instance this
-	// TODO: make box shaped decals with falloff?
-
-	// Decals that simply blend over gbuf color and normal channel
+	// Decals that simply blend over gbuf color, normals etc
 	
 	VertexBufferInstancedI vbo = vertex_buffer_instancedI<Vertex, Instance>("DecalRenderer.vbo");
 
@@ -772,6 +781,7 @@ struct DecalRenderer {
 		instance_count = (GLsizei)instances.size();
 	}
 	
+	// requires gbuf_depth to correctly intersect existing geomertry and project decals
 	void render (StateManager& state, Gbuffer& gbuf, Textures& texs) {
 		ZoneScoped;
 		OGL_TRACE("DecalRenderer");
@@ -780,18 +790,20 @@ struct DecalRenderer {
 			glUseProgram(shad->prog);
 
 			state.bind_textures(shad, {
-				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler },
+				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler }, // allowed to read depth because we are not writing to it
 
 				{ "cracks", texs.cracks, texs.sampler_normal },
 			});
 
 			PipelineState s;
-			s.depth_test = false; // don't depth test or backface won't be drawn
-			s.depth_write = false;
-
+			// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
+			// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
+			// (The shader still manually intersect the volume to correctly exclude pixels)
+			s.depth_test = true;
+			s.depth_func = DEPTH_BEHIND;
+			s.depth_write = false; // depth write off!
 			s.cull_face = true;
 			s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
-
 			s.blend_enable = true; // default blend mode (standard alpha)
 			state.set(s);
 
@@ -800,6 +812,100 @@ struct DecalRenderer {
 				glDrawElementsInstanced(GL_TRIANGLES, ARRLEN(render::shapes::CUBE_INDICES), GL_UNSIGNED_SHORT, (void*)0, instance_count);
 			}
 		}
+
+		glBindVertexArray(0);
+	}
+};
+
+struct ClippingRenderer {
+	Shader* shad  = g_shaders.compile("clipping");
+
+	struct Vertex {
+		float3 pos;
+		float3 norm;
+
+		VERTEX_CONFIG(
+			ATTRIB(FLT,3, Vertex, pos),
+			ATTRIB(FLT,3, Vertex, norm),
+		)
+	};
+	struct Instance {
+		float3 pos;
+		float  rot;
+		float3 size;
+
+		VERTEX_CONFIG(
+			ATTRIB(FLT,3, Instance, pos),
+			ATTRIB(FLT,1, Instance, rot),
+			ATTRIB(FLT,3, Instance, size),
+		)
+	};
+	
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<Vertex, Instance>("ClippingRenderer.vbo");
+
+	ClippingRenderer () {
+		SimpleMesh<VertexPN> mesh;
+		if (!assimp::load_simple("assets/misc/cube.fbx", &mesh)) {
+			assert(false);
+		}
+		
+		vbo.upload_mesh(mesh.vertices, mesh.indices);
+		index_count = (GLsizei)mesh.indices.size();
+	}
+	
+	GLsizei index_count = 0;
+	GLsizei instance_count = 0;
+
+	void upload (std::vector<Instance>& instances) {
+		vbo.stream_instances(instances);
+		instance_count = (GLsizei)instances.size();
+	}
+
+	int2 resolution = -1;
+	Render_Texture tmp_copy_tex;
+	Sampler depth_sampler = make_sampler("gbuf_sampler", FILTER_NEAREST, GL_CLAMP_TO_EDGE);
+	
+	void render (StateManager& state, Fbo& depth_fbo, int2 res, GLenum depth_format, Textures& texs, bool shadow_pass=false) {
+		ZoneScoped;
+		OGL_TRACE("ClippingRenderer");
+
+		if (resolution != res) {
+			tmp_copy_tex = Render_Texture("gbuf.depth", res, depth_format);
+			resolution = res;
+		}
+
+		//copy_texels2D(gbuf_depth,0,0, tmp_copy_tex,0,0, res);
+		// copies from current FBO, no idea how it knows which channel to copy...
+		glBindTexture(GL_TEXTURE_2D, tmp_copy_tex);
+		glCopyTexSubImage2D(GL_TEXTURE_2D,0, 0,0, 0,0, res.x, res.y);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		if (shad->prog) {
+			glUseProgram(shad->prog);
+
+			state.bind_textures(shad, {
+				{ "gbuf_depth", { GL_TEXTURE_2D, tmp_copy_tex }, depth_sampler },
+				{ "test_tex", texs.terrain_diffuse, texs.sampler_normal },
+			});
+
+			PipelineState s;
+			s.depth_test = true;
+			s.depth_func = DEPTH_BEHIND;
+			s.depth_write = true;
+			s.cull_face = true;
+			s.front_face = CULL_FRONT;
+			if (shadow_pass) {
+				s.depth_clamp = true;
+			}
+			state.set(s);
+
+			if (instance_count > 0) {
+				glBindVertexArray(vbo.vao);
+				glDrawElementsInstanced(GL_TRIANGLES, index_count, GL_UNSIGNED_SHORT, (void*)0, instance_count);
+			}
+		}
+
+		glInvalidateTexImage(tmp_copy_tex, 0); // Is this good practice?
 
 		glBindVertexArray(0);
 	}
@@ -838,7 +944,7 @@ struct DefferedPointLightRenderer {
 	GLsizei instance_count = 0;
 
 	DefferedPointLightRenderer () {
-		SimpleMesh mesh;
+		SimpleMesh<VertexPos3> mesh;
 		if (!assimp::load_simple("assets/misc/ico_sphere.fbx", &mesh)) {
 			assert(false);
 		}

@@ -70,15 +70,19 @@ void main () {
 		
 		vec3 frag2light = v.pos - g.pos_world;
 		float dist_sqr = dot(frag2light, frag2light);
-		//if (dist_sqr > v.radius*v.radius)
-		//	discard; // early out 
+		if (dist_sqr > v.radius*v.radius)
+			discard; // early out
 		
 		float dist = sqrt(dist_sqr);
 		frag2light /= dist; // normalize
 		
-		float dotLN = max(dot(g.normal_world, frag2light), 0.0);
-		vec3 light = falloff(dist) * cone_falloff(-frag2light) * dotLN * v.intensity;
+		float cone = cone_falloff(-frag2light);
+		if (cone <= 0.00001)
+			discard;
 		
+		float dotLN = max(dot(g.normal_world, frag2light), 0.0);
+		vec3 light = cone * falloff(dist) * dotLN * v.intensity;
+			
 		vec3 col = pbr_analytical_light(g, light, frag2light);
 		frag_col = vec4(col, 1.0);
 		

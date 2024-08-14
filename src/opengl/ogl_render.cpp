@@ -595,14 +595,15 @@ struct AssetMeshes {
 // A bit of a horrible class based around variadic template and std::tuple to allow to split instance data into multiple vbos for cleaner updates of only the dynamic parts
 template <typename ASSET_T, typename... INSTANCE_PARTS>
 struct EntityRenderer {
+	const char* dbg_name;
 
 	Shader* shad;
 	Shader* shad_lod_cull;
 
 	AssetMeshes<ASSET_T>& meshes;
 
-	EntityRenderer (AssetMeshes<ASSET_T>& meshes, const char* shad_name, const char* variant_name="_VARIANT"):
-			meshes{meshes} {
+	EntityRenderer (const char* dbg_name, AssetMeshes<ASSET_T>& meshes, const char* shad_name, const char* variant_name="_VARIANT"):
+		dbg_name{dbg_name}, meshes{meshes} {
 
 		shad = g_shaders.compile(shad_name, {{variant_name, "1"}}); // #define <variant_name> to select specific shader
 
@@ -665,8 +666,8 @@ struct EntityRenderer {
 	Vbo MDI_vbo = {"DebugDraw.MDI_vbo"};
 	
 	void draw (StateManager& state, bool shadow_pass=false) {
-		ZoneScoped;
-		OGL_TRACE("draw entities");
+		ZoneScopedN(dbg_name);
+		OGL_TRACE(dbg_name);
 		
 		auto& instance_vbo0 = std::get<0>(vbos).vbo;
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_INSTANCES, instance_vbo0);
@@ -762,11 +763,11 @@ struct EntityRenderers {
 	AssetMeshes<PropAsset>     prop_meshes;
 	AssetMeshes<VehicleAsset>  vehicle_meshes;
 
-	EntityRenderer<BuildingAsset, StaticEntity>                       buildings       = {building_meshes, "entities", "BUILDINGS"};
-	EntityRenderer<PropAsset,     StaticEntity>                       props           = {prop_meshes,    "entities", "PROPS"};
-	EntityRenderer<PropAsset,     StaticEntity>                       lamps           = {prop_meshes,    "entities", "LAMPS"};
-	EntityRenderer<PropAsset,     StaticEntity, DynamicTrafficSignal> traffic_signals = {prop_meshes,    "entities", "TRAFFIC_SIGNALS"};
-	EntityRenderer<VehicleAsset,  DynamicVehicle>                     vehicles        = {vehicle_meshes, "vehicles", "VEHICLES"};
+	EntityRenderer<BuildingAsset, StaticEntity>                       buildings       = {"buildings",       building_meshes, "entities", "BUILDINGS"};
+	EntityRenderer<PropAsset,     StaticEntity>                       props           = {"props",           prop_meshes,    "entities", "PROPS"};
+	EntityRenderer<PropAsset,     StaticEntity>                       lamps           = {"lamps",           prop_meshes,    "entities", "LAMPS"};
+	EntityRenderer<PropAsset,     StaticEntity, DynamicTrafficSignal> traffic_signals = {"traffic_signals", prop_meshes,    "entities", "TRAFFIC_SIGNALS"};
+	EntityRenderer<VehicleAsset,  DynamicVehicle>                     vehicles        = {"vehicles",        vehicle_meshes, "vehicles", "VEHICLES"};
 
 	DefferedPointLightRenderer light_renderer;
 
@@ -869,8 +870,6 @@ struct NetworkRenderer {
 		)
 	};
 
-	DecalRenderer decal_renderer;
-
 	Shader* shad  = g_shaders.compile("networks");
 
 	VertexBufferI vbo = vertex_bufferI<Vertex>("NetworkRenderer.vbo");
@@ -912,17 +911,13 @@ struct NetworkRenderer {
 
 		glBindVertexArray(0);
 	}
-	void render_decals (StateManager& state, Gbuffer& gbuf, Textures& texs) {
-		OGL_TRACE("network decals");
-		ZoneScoped;
-
-		decal_renderer.render(state, gbuf, texs);
-	}
 };
 
 struct Mesher {
-	EntityRenderers& entity_renderers;
-	NetworkRenderer& network_renderer;
+	EntityRenderers& entity_renders;
+	NetworkRenderer& network_render;
+	DecalRenderer&   decal_render;
+	ClippingRenderer& clip_render;
 	App            & app;
 	Textures       & textures;
 	
@@ -930,13 +925,16 @@ struct Mesher {
 
 	Mesher (EntityRenderers& entity_renderers,
 	        NetworkRenderer& network_renderer,
+	        DecalRenderer& decal_renderer,
+	        ClippingRenderer& clip_render,
 	        App            & app,
 			Textures       & textures):
-		entity_renderers{entity_renderers}, network_renderer{network_renderer}, app{app}, textures{textures},
+		entity_renders{entity_renderers}, network_render{network_renderer}, decal_render{decal_renderer}, clip_render{clip_render}, app{app}, textures{textures},
 		static_inst{ entity_renderers, textures } {}
 	
 	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
 	std::vector<DecalRenderer::Instance> decals;
+	std::vector<ClippingRenderer::Instance> clippings;
 	
 	void place_segment_line_props (network::Segment& seg, NetworkAsset::Streetlight& light) {
 		float y = 0;
@@ -1213,6 +1211,21 @@ struct Mesher {
 
 			auto v = seg->clac_seg_vecs();
 			
+			{
+				float3 forw = normalizesafe(seg->pos_b - seg->pos_a);
+				float ang = angle2d((float2)forw);
+
+				float3 center = (seg->pos_a + seg->pos_b) * 0.5f;
+				float length = distance(seg->pos_b, seg->pos_a);
+				float width = seg->asset->width - 6.0f;
+
+				ClippingRenderer::Instance clip;
+				clip.pos = (seg->pos_a + seg->pos_b) * 0.5f;
+				clip.rot = ang;
+				clip.size = float3(length + 10.0f, width, 5.0f);
+				clippings.push_back(clip);
+			}
+
 			for (laneid_t id=0; id<seg->num_lanes(); ++id) {
 				auto seg_lane = network::SegLane{ seg.get(), id };
 				auto& lane = seg->lanes[id];
@@ -1291,7 +1304,7 @@ struct Mesher {
 			auto& entity = app.entities.buildings[i];
 			auto& inst = static_inst.buildings[i];
 			
-			inst.mesh_id = entity_renderers.building_meshes.asset2mesh_id[entity->asset];
+			inst.mesh_id = entity_renders.building_meshes.asset2mesh_id[entity->asset];
 			inst.tex_id = textures.bindless_textures.get_tex_id(entity->asset->tex_filename + ".png");
 			inst.pos = entity->pos;
 			inst.rot = entity->rot;
@@ -1314,10 +1327,11 @@ struct Mesher {
 
 		remesh_network();
 		
-		entity_renderers.upload_static_instances(static_inst);
+		entity_renders.upload_static_instances(static_inst);
 		
-		network_renderer.upload(network_mesh);
-		network_renderer.decal_renderer.upload(decals);
+		network_render.upload(network_mesh);
+		decal_render.upload(decals);
+		clip_render.upload(clippings);
 	}
 };
 
@@ -1454,6 +1468,9 @@ struct OglRenderer : public Renderer {
 	TerrainRenderer terrain_render;
 	
 	NetworkRenderer network_render;
+	DecalRenderer   decal_render;
+
+	ClippingRenderer clip_render;
 
 	EntityRenderers entity_render;
 
@@ -1472,7 +1489,7 @@ struct OglRenderer : public Renderer {
 	}
 	
 	void upload_static_instances (App& app) {
-		Mesher mesher{ entity_render, network_render, app, textures };
+		Mesher mesher{ entity_render, network_render, decal_render, clip_render, app, textures };
 		mesher.remesh(app);
 	}
 	void upload_car_instances (App& app, View3D& view) {
@@ -1633,12 +1650,13 @@ struct OglRenderer : public Renderer {
 			ZoneScopedN("shadow_pass");
 			OGL_TRACE("shadow_pass");
 
-			passes.shadowmap.draw_cascades(view, sky_config, state, [&] (View3D& view) {
+			passes.shadowmap.draw_cascades(view, sky_config, state, [&] (View3D& view, Fbo& depth_fbo, int2 res, GLenum depth_format) {
 				common_ubo.set_view(view);
 				
 				terrain_render.render_terrain(state, app.heightmap, textures, view, true);
 		
 				network_render.render(state, textures, true);
+				clip_render.render(state, depth_fbo, res, depth_format, textures, true);
 
 				entity_render.draw_all(state, true);
 			});
@@ -1655,7 +1673,8 @@ struct OglRenderer : public Renderer {
 			terrain_render.render_terrain(state, app.heightmap, textures, view);
 
 			network_render.render(state, textures);
-			network_render.render_decals(state, passes.gbuf, textures);
+			clip_render.render(state, passes.gbuf.fbo, passes.renderscale.size, passes.gbuf.depth_format, textures);
+			decal_render.render(state, passes.gbuf, textures);
 		
 			entity_render.draw_all(state);
 

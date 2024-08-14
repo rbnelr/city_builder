@@ -52,6 +52,7 @@ uniform sampler2D gbuf_emiss;
 uniform sampler2D gbuf_norm;
 uniform sampler2D gbuf_pbr;
 
+// decode only depth (for decal drawing)
 bool decode_gbuf_pos (out vec3 pos_world) {
 	vec2 uv = gl_FragCoord.xy * view.inv_viewport_size;
 
@@ -64,6 +65,7 @@ bool decode_gbuf_pos (out vec3 pos_world) {
 	}
 	return false;
 }
+// full gbuffer decode for defferred lighting
 bool decode_gbuf (out GbufResult r) {
 	vec2 uv = gl_FragCoord.xy * view.inv_viewport_size;
 	

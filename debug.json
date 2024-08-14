@@ -1,14 +1,14 @@
 {
 	"cam": {
 		"orbit_pos": [
-			401.5667419433594,
-			444.11358642578125,
+			398.2842102050781,
+			404.9934997558594,
 			0.0
 		],
-		"zoom_target": -5.5,
+		"zoom_target": -4.75,
 		"rot_aer": [
-			2.959927797317505,
-			-0.39582252502441406,
+			-2.3305225372314453,
+			-0.4837867021560669,
 			0.0
 		],
 		"vfov": 1.4034005403518677,
@@ -449,11 +449,11 @@
 		}
 	},
 	"time": {
-		"target_gamespeed": 1.0,
-		"pause_sim": true,
-		"time_of_day": 0.939504086971283,
+		"target_gamespeed": 2.0,
+		"pause_sim": false,
+		"time_of_day": 0.3146040141582489,
 		"day_duration": 600.0,
-		"pause_day": false,
+		"pause_day": true,
 		"time_of_year": 0.6869999766349792,
 		"year_duration": 1032.0,
 		"pause_year": true,
@@ -516,7 +516,7 @@
 				"bias_fac_world": 7.599999904632568,
 				"bias_max_world": 13.600000381469727
 			},
-			"exposure": 0.008999999612569809
+			"exposure": 1.0
 		},
 		"entity_render": {
 			"light_renderer": {

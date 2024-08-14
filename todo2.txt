@@ -18,16 +18,18 @@ Traffic lights
 * -> add props for traffic light poles etc.
 * -> make them actually glow (emmisive with bloom?)
 *-> add simple cycle logic
- -> fix/make nicer traffic light pole texture
+*-> fix/make nicer traffic light pole texture
  -> make imgui to simply +/- between current active phase for selected node (Add an "inspector" to imgui UI?)
  -> Show inspect overlay for selected node that shows signal state on lane, and highlights active lanes to help identify conflict (highlight inacive in transparent red, highlight acive in green, highlight conflict zones in striped way??)
   -> probably want to add a draw polygon feature to overlay
- -> actually make cars follow traffic light logic
+*-> actually make cars follow traffic light logic
  -> add more traffic behaviors
   -> two phase is standard in CS1?
   -> 4 phase works but low throughput?
   -> 4 phase with StraightRight (2x), then Left (2x)?  (If left turns don't intersect?)
-  
+
+-> instead of sorting them to the back during red phases, remove them from the list completely?
+ -> maybe 
   
 -> Use new debug overlay to highlight cars via moving (curved?) boxed by drawing them as polygons based on the allocated lane beziers (instead of ugly circles)
 
@@ -35,6 +37,9 @@ Fix rendering code with new traffic light glow params
  -> need to rethink how drawing many small props etc with unique params by type works
   -> keep in mind future culling as well
    -> actually do culling NOW?
+ 
+Add blinker and brake light state to cars!
+ -> Maybe even add point lights?
  
 ===================== Graphics, so not really progress =========================
 
@@ -95,6 +100,8 @@ Switch directional light to moon after sunset (with the directional shadows as w
 Make all light sources physically accurate (candela for point lights, lux for directional and emmisive lights)
  -> check if all framebuffers / env maps etc. can handle that dynamic range, if not simply premultiply exposure in each of them, such that postprocess needs no exposure anymore, now all values should be in the visible range
 
+Switch to clutered point light implementation
+ 
 ===================== Nice to have =============================================
 make imgui nicely configurable using custom sections?  
 

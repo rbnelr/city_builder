@@ -74,6 +74,15 @@ struct VertexPos3 {
 		ATTRIB(FLT,3, VertexPos3, pos),
 	)
 };
+struct VertexPN {
+	float3 pos;
+	float3 normal;
+
+	VERTEX_CONFIG(
+		ATTRIB(FLT,3, VertexPN, pos),
+		ATTRIB(FLT,3, VertexPN, normal),
+	)
+};
 
 struct BoneMats {
 	float4x4 mesh2bone = float4x4::identity();
@@ -93,7 +102,8 @@ struct Mesh {
 	std::vector<IDX_T> indices;
 };
 
-typedef Mesh<VertexPos3, uint16_t> SimpleMesh;
+template <typename VERT>
+using SimpleMesh = Mesh<VERT, uint16_t>;
 
 template <typename VERT_T, typename IDX_T=uint16_t> struct AssetMesh;
 
@@ -102,7 +112,8 @@ namespace assimp {
 	bool load_simple_anim (char const* filename, AssetMesh<SimpleAnimVertex, uint16_t>* out_mesh,
 		BoneMats* out_mats, float* out_wheel_r);
 
-	bool load_simple (char const* filename, SimpleMesh* out_mesh);
+	template <typename VERT>
+	bool load_simple (char const* filename, SimpleMesh<VERT>* out_mesh);
 }
 
 template <typename VERT_T, typename IDX_T>

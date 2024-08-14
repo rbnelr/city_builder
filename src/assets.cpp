@@ -129,7 +129,23 @@ namespace assimp {
 		}
 	}
 	
-	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, SimpleMesh& data) {
+	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, SimpleMesh<VertexPN>& data) {
+		unsigned base_vertex = (unsigned)data.vertices.size();
+		
+		for (unsigned j=0; j<mesh->mNumVertices; ++j) {
+			data.vertices.emplace_back();
+			auto& v = data.vertices.back();
+
+			auto& pos = mesh->mVertices[j];
+			auto& norm = mesh->mNormals[j];
+
+			v.pos = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
+			v.normal = (float3)(transform * float4(norm.x, norm.y, norm.z, 0.0f));
+		}
+
+		push_face_indices(mesh, data.indices, base_vertex);
+	}
+	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, SimpleMesh<VertexPos3>& data) {
 		unsigned base_vertex = (unsigned)data.vertices.size();
 		
 		for (unsigned j=0; j<mesh->mNumVertices; ++j) {
@@ -138,6 +154,7 @@ namespace assimp {
 
 			auto& pos = mesh->mVertices[j];
 
+			v.pos = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
 			v.pos = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
 		}
 
@@ -352,7 +369,7 @@ namespace assimp {
 		       out_mesh->mesh_lods[0].indices.size() > 0;
 	}
 	
-	bool load_simple (char const* filename, SimpleMesh* out_mesh) {
+	template<> bool load_simple<VertexPos3> (char const* filename, SimpleMesh<VertexPos3>* out_mesh) {
 		printf("Loading simple mesh \"%s\"...\n", filename);
 
 		Assimp::Importer importer;
@@ -375,10 +392,34 @@ namespace assimp {
 		auto transform = get_base_transform(scene);
 		
 		if (!scene->mRootNode) return false;
-
 		load_join_mesh_recurse(scene, scene->mRootNode, transform, *out_mesh);
 
-		return out_mesh->vertices.size() > 0 &&
-		       out_mesh->indices.size() > 0;
+		return out_mesh->vertices.size() > 0 && out_mesh->indices.size() > 0;
+	}
+	
+	template<> bool load_simple<VertexPN> (char const* filename, SimpleMesh<VertexPN>* out_mesh) {
+		printf("Loading simple mesh \"%s\"...\n", filename);
+
+		Assimp::Importer importer;
+		importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS,
+			aiComponent_BONEWEIGHTS | aiComponent_ANIMATIONS |
+			aiComponent_TEXTURES | aiComponent_LIGHTS | aiComponent_CAMERAS | aiComponent_MATERIALS);
+
+		auto* scene = importer.ReadFile(filename, aiProcess_Triangulate|aiProcess_JoinIdenticalVertices|
+			aiProcess_ImproveCacheLocality|
+			aiProcess_RemoveComponent);
+		if (!scene) {
+			fprintf(stderr, "Assimp error: %s\n", importer.GetErrorString());
+			return false;
+		}
+
+		//print_scene(scene, filename);
+
+		auto transform = get_base_transform(scene);
+		
+		if (!scene->mRootNode) return false;
+		load_join_mesh_recurse(scene, scene->mRootNode, transform, *out_mesh);
+
+		return out_mesh->vertices.size() > 0 && out_mesh->indices.size() > 0;
 	}
 }

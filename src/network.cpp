@@ -513,9 +513,14 @@ void _FORCEINLINE dbg_brake_for_vehicle (App& app, ActiveVehicle* cur, float dis
 		dbg_brake_for(app, cur, dist, center, lrgba(1,0.1f,0,1));
 	}
 }
-void _FORCEINLINE dbg_brake_for_blocked_lane (App& app, NodeVehicle& v, float dist) {
+void _FORCEINLINE dbg_brake_for_blocked_lane_start (App& app, NodeVehicle& v, float dist, SegLane& lane) {
 	if (app.interact.selection.get<Person*>() == v.vehicle->cit) {
-		dbg_brake_for(app, v.vehicle, dist, v.conn.conn.b.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
+		dbg_brake_for(app, v.vehicle, dist, lane.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
+	}
+}
+void _FORCEINLINE dbg_brake_for_blocked_lane_end (App& app, NodeVehicle& v, float dist, SegLane& lane) {
+	if (app.interact.selection.get<Person*>() == v.vehicle->cit) {
+		dbg_brake_for(app, v.vehicle, dist, lane.clac_lane_info().b, lrgba(0.2f,0.8f,1,1));
 	}
 }
 
@@ -955,6 +960,15 @@ void update_node (App& app, Node* node, float dt) {
 		v.rear_k = v.front_k - v.vehicle->car_len();
 	};
 	
+	auto find_segment = [] (Node* node, Segment* seg) {
+		for (int i=0; i<(int)node->segments.size(); ++i) {
+			if (node->segments[i] == seg) {
+				return i;
+			}
+		}
+		assert(false);
+		return 0;
+	};
 	
 	// allocate space in priority order and remember blocked cars
 	for (auto& v : node->vehicles.test.list) {
@@ -968,14 +982,28 @@ void update_node (App& app, Node* node, float dt) {
 			continue;
 		}
 
+		if (v.vehicle->idx < v.node_idx && node->traffic_light) {
+			// still in front of intersection, respect traffic lights
+			auto in_lane = v.conn.conn.a;
+			int seg_i = find_segment(node, in_lane.seg); // TODO: Optimize!
+			auto lane_signal = node->traffic_light->behavior->get_signal(node, seg_i, in_lane);
+			if (lane_signal == TrafficSignalState::RED) {
+				// anything other than red means GO
+				float dist = -v.front_k; // end of ingoing lane
+				brake_for_dist(v.vehicle, dist);
+				dbg_brake_for_blocked_lane_end(app, v, dist, in_lane);
+
+				v.blocked = true;
+			}
+		}
+
 		// TODO: still reserve space even if none is avail if already on node?
 
 		auto& avail_space = v.conn.conn.b.vehicles().avail_space;
 		if (avail_space < v.vehicle->car_len()) {
 			float dist = -v.front_k; // end of ingoing lane
-			
 			brake_for_dist(v.vehicle, dist);
-			dbg_brake_for_blocked_lane(app, v, dist);
+			dbg_brake_for_blocked_lane_start(app, v, dist, v.conn.conn.b);
 
 			v.blocked = true;
 		}

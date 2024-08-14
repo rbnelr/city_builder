@@ -50,16 +50,28 @@ VS2FS Vertex {
 	}
 	
 	float sample_heightmap (vec2 pos) {
+		return 0.0;
+		
+		//float quad_size = offset_scale.z;
+		float tex_lod = 0.0;
+		
 		if (  abs(pos.x * inv_map_size.x) <= 0.5 &&
 			  abs(pos.y * inv_map_size.y) <= 0.5  ) {
 			vec2 uv = pos * inv_map_size + 0.5;
 			//return 0.0;
-			return textureLod(heightmap, uv, 0.0).r * z_range + z_min;
+			
+			// Causes seams
+			//float texel_dens = textureSize(heightmap, 0).x * inv_map_size.x;
+			//float tex_lod = log2(quad_size * texel_dens);
+			return textureLod(heightmap, uv, tex_lod).r * z_range + z_min;
 		}
 		else {
 			vec2 uv = pos * inv_outer_size + 0.5;
 			//return 0.0;
-			return textureLod(heightmap_outer, uv, 0.0).r * z_range + z_min;
+			
+			//float texel_dens = textureSize(heightmap_outer, 0).x * inv_outer_size.x;
+			//float tex_lod = log2(quad_size * texel_dens);
+			return textureLod(heightmap_outer, uv, tex_lod).r * z_range + z_min;
 		}
 	}
 	

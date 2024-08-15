@@ -180,8 +180,8 @@ struct PointLight {
 		bool changed = ImGui::DragFloat3("pos", &pos.x, 0.1f);
 		changed = ImGui::DragFloat3("dir", &dir.x, 0.1f) || changed;
 		changed = ImGui::DragFloat("radius", &radius, 0.1f) || changed;
-		changed = ImGui::SliderAngle("cone inner", &cone.x, 0, 180) || changed;
-		changed = ImGui::SliderAngle("cone outer", &cone.y, cone.x, 180) || changed;
+		changed = ImGui::SliderAngle("spotlight inner cone", &cone.x, 0, 180) || changed;
+		changed = ImGui::SliderAngle("spotlight outer cone", &cone.y, cone.x, 180) || changed;
 		changed = ImGui::ColorEdit3("col", &col.x, ImGuiColorEditFlags_DisplayHSV) || changed;
 		changed = ImGui::DragFloat("strength", &strength, 0.1f) || changed;
 

@@ -229,6 +229,143 @@ struct Test {
 	}
 };
 
+inline bool ray_cone_intersect (Ray ray, float3 cone_pos, float3 cone_dir, float cone_ang, float2* out_t01) {
+	// based on http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
+	// vector based algebra solution derived from  dot(normalize(pos(t) - cone_pos), cone_dir)^2 == cos(cone_ang)^2
+
+	float cosa = cos(cone_ang);
+	
+	float3 V = cone_dir;
+	float3 D = ray.dir;
+	float3 CO = ray.pos - cone_pos;
+	
+	float D_V = dot(ray.dir, V);
+	float CO_V = dot(CO, V);
+	float cos2 = cosa * cosa;
+	
+	// t^2*a + t*b + c = 0
+	float a = D_V*D_V - cos2;
+	float b = 2.0f * (D_V*CO_V - dot(ray.dir, CO)*cos2);
+	float c = CO_V*CO_V - dot(CO, CO)*cos2;
+	
+	// use pq formula
+	if (a == 0.0f) {
+		// t*b + c = 0  => t = -c/b
+		// what if b == 0?   currently never actually triggers due to a being close to 0 but not equal
+		return false; // parallel ray to cone, math doesn't work! TODO: handle this?
+	}
+	
+	float p = b / a * 0.5f;
+	float q = c / a;
+
+	float root = p*p - q; // sqrt((p/2)^2 - q)
+	if (root < 0.0f)
+		return false; // no solutions, ray misses both cones
+	root = sqrt(root);
+	float t0 = -p - root; // -p/2 +- sqrt((p/2)^2 - q)
+	float t1 = -p + root;
+	assert(t1 >= t0);
+	
+	// check which hits hit real or fake (mirror) cone
+	bool fake0 = dot(t0 * D + CO, V) < 0.0f;
+	bool fake1 = dot(t1 * D + CO, V) < 0.0f;
+
+	if (fake0 && fake1) // both hits on fake cone
+		return false;
+
+	if (fake0 || fake1) { // one hit on real cone, one fake
+		if (fake0) { // ray towards real cone
+			// exited fake cone, entered real cone(at least based on ray dir,
+			//  ray might only start inside real and not actually touch fake, but this can later be determined by negative ts)
+			t0 = t1; // t1 was actually the entry into real cone
+			t1 = INF; // cannot exit out of cone again in this case (or there would be solution for t)
+		}
+		else { // ray towards fake cone
+			// exited real cone, entered fake cone
+			t1 = t0; // t0 was actually the exit from real cone
+			t0 = -INF; // coming from inside real cone inf far back
+		}
+	}
+	// else: both hits on real cone
+	
+	assert(t1 >= t0);
+	*out_t01 = float2(t0, t1);
+	return true;
+}
+inline void cone_test (View3D& view) {
+	struct TestRay {
+		float3 pos;
+		float3 dir;
+		lrgba col;
+
+		TestRay (float3 pos, float elev, float azim, lrgba col) {
+			this->pos = pos;
+			this->dir = rotate3_Z(azim) * rotate3_X(elev) * float3(0,1,0);
+			this->col = col;
+		}
+	};
+
+	static float3 cone_pos = float3(10, 0, 1);
+	static float3 cone_dir = rotate3_X(deg(0)) * float3(0,0,-1);
+	static float cone_ang = deg(30);
+
+	static std::vector<TestRay> rays = {
+		//{ cone_pos + float3(-.5f,-5,0), deg(-20), deg(1), lrgba(1,0.5f,0.0f,1) },
+		//{ cone_pos + float3(+.5f,-5,0), deg(20), deg(1), lrgba(1,0.5f,0.0f,1) },
+		//
+		//{ cone_pos + float3(-1,-5,1), deg(-30), deg(1), lrgba(1,0.5f,0.5f,1) },
+		//{ cone_pos + float3(+1,-5,1), deg(30), deg(1), lrgba(1,0.5f,0.5f,1) },
+		//
+		//{ cone_pos + float3(-2,-5,-1), deg(-30), deg(1), lrgba(1,0.5f,0.5f,1) },
+		//{ cone_pos + float3(+2,-5,-1), deg(30), deg(1), lrgba(1,0.5f,0.5f,1) },
+		//
+		//{ cone_pos + float3(+2,0,+1), deg(0), deg(90), lrgba(0.5f,1,0.5f,1) },
+		//{ cone_pos + float3(+2,0, 0), deg(0), deg(90), lrgba(0.5f,1,0.5f,1) },
+		//{ cone_pos + float3(+2,0,-1), deg(0), deg(90), lrgba(0.5f,1,0.5f,1) },
+		//
+		//{ cone_pos + float3(-2,1,+10), deg( 90), deg(1), lrgba(0.5f,1,0.5f,1) },
+		//{ cone_pos + float3(-3,1,+10), deg(-90), deg(1), lrgba(0.5f,1,0.5f,1) },
+		//{ cone_pos + float3(-2,0, 0),  deg(-90), deg(1), lrgba(0.5f,1,0.5f,1) },
+		//{ cone_pos + float3(-3,0,+1),  deg(-90), deg(1), lrgba(0.5f,1,0.5f,1) },
+		//{ cone_pos + float3(-3,3,+1),  deg( 90), deg(1), lrgba(0.5f,1,0.5f,1) },
+		//{ cone_pos + float3(-3,2,-10), deg(-90), deg(1), lrgba(0.5f,1,0.5f,1) },
+		//{ cone_pos + float3(-2,2,-10), deg( 90), deg(1), lrgba(0.5f,1,0.5f,1) },
+
+		{ cone_pos + float3(0,0, 0), -deg(90)+cone_ang, 0, lrgba(0.5f,0.5f,1,1) },
+		{ cone_pos + float3(0,-4,0), -deg(90)+cone_ang, 0, lrgba(0.5f,0.5f,1,1) },
+		{ cone_pos + float3(0,+4,0), -deg(90)+cone_ang, 0, lrgba(0.5f,0.5f,1,1) },
+		{ cone_pos + float3(-4,0,0), -deg(90)+cone_ang, 0, lrgba(0.5f,0.5f,1,1) },
+		{ cone_pos + float3(+4,0,0), -deg(90)+cone_ang, 0, lrgba(0.5f,0.5f,1,1) },
+
+		{ cone_pos + float3(0,0, 0.01f), -deg(90)+cone_ang, 0, lrgba(0.8f,0.5f,0.5f,1) },
+		{ cone_pos + float3(0,-4,0.01f), -deg(90)+cone_ang, 0, lrgba(0.8f,0.5f,0.5f,1) },
+		{ cone_pos + float3(0,+4,0.01f), -deg(90)+cone_ang, 0, lrgba(0.8f,0.5f,0.5f,1) },
+		{ cone_pos + float3(-4,0,0.01f), -deg(90)+cone_ang, 0, lrgba(0.8f,0.5f,0.5f,1) },
+		{ cone_pos + float3(+4,0,0.01f), -deg(90)+cone_ang, 0, lrgba(0.8f,0.5f,0.5f,1) },
+	};
+
+	g_dbgdraw.wire_cone(cone_pos, cone_ang*2, 20, rotate3_X(deg(180)), lrgba(1,1,1,0.8f), 64, 32);
+	g_dbgdraw.wire_cone(cone_pos, cone_ang*2, 20, float3x3::identity(), lrgba(1,1,1,0.3f), 64, 32);
+
+	for (auto& ray : rays) {
+		g_dbgdraw.arrow(view, ray.pos, ray.dir * 10, .2f, ray.col);
+
+		float2 t01;
+		if (ray_cone_intersect({ ray.pos, ray.dir }, cone_pos, cone_dir, cone_ang, &t01)) {
+			float t0 = max(t01.x, 0.0f);
+			//float t0 = t01.x;
+			float t1 = min(t01.y, 30.0f);
+
+			if (t1 >= t0) {
+				float3 a = ray.pos + ray.dir * t0;
+				float3 b = ray.pos + ray.dir * t1;
+				g_dbgdraw.point(a, 0.1f, lrgba(1,0,0,1));
+				g_dbgdraw.point(b, 0.1f, lrgba(0,1,0,1));
+			}
+		}
+	}
+};
+
 struct CameraTrack {
 	// this implementation is dodgy
 
@@ -629,6 +766,8 @@ struct App : public Engine {
 
 		// select after updating positions
 		interact.update(entities, net, view, input);
+
+		cone_test(view);
 
 		return view;
 	}

@@ -14,7 +14,8 @@
 //   or just build kickass walkable cities and public transit
 
 struct GameTime {
-	SERIALIZE(GameTime, target_gamespeed, pause_sim, time_of_day, day_duration, pause_day, time_of_year, year_duration, pause_year,
+	// Don't save pause_sim because it's annying me that it's always paused on start
+	SERIALIZE(GameTime, target_gamespeed, /*pause_sim,*/ time_of_day, day_duration, pause_day, time_of_year, year_duration, pause_year,
 		planet_axial_tilt, map_latitude, map_rotation)
 	
 	static constexpr int   DAYS_IN_YEAR = 365; // do not simulate leap years

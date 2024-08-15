@@ -8,6 +8,7 @@
 textures/*
 
 window_placement.bin
+imgui.ini
 
 *.exe
 *.dll

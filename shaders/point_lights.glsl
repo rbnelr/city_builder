@@ -8,7 +8,7 @@ VS2FS Vertex {
 	flat vec3   dir;
 	flat vec2   cone;
 	flat vec3   intensity; // in candela
-} v;
+} light;
 
 #ifdef _VERTEX
 
@@ -22,16 +22,16 @@ layout(location = 5) in vec3   inst_col;
 void main () {
 	vec3 world_pos = (mesh_pos * inst_radius) + inst_pos;
 	
-	v.pos       = inst_pos;
-	v.radius    = inst_radius;
-	v.dir       = normalize(inst_dir); // for good measure
-	v.cone      = inst_cone;
-	v.intensity = inst_col;
+	light.pos       = inst_pos;
+	light.radius    = inst_radius;
+	light.dir       = normalize(inst_dir); // for good measure
+	light.cone      = inst_cone;
+	light.intensity = inst_col;
 	
-	if (distance(v.pos, view.cam_pos) < 30.0) {
-		dbgdraw_point(v.pos, 0.5, vec4(1,1,0,1));
-		dbgdraw_vector(v.pos, v.dir * 3.0f, vec4(1,0.8f,0,1));
-	}
+	//if (distance(light.pos, view.cam_pos) < 30.0) {
+	//	dbgdraw_point(light.pos, 0.5, vec4(1,1,0,1));
+	//	dbgdraw_vector(light.pos, light.dir * 3.0f, vec4(1,0.8f,0,1));
+	//}
 	
 	gl_Position = view.world2clip * vec4(world_pos, 1.0);
 }
@@ -45,90 +45,94 @@ void main () {
 	#include "pbr.glsl"
 	
 	float falloff (float dist) {
-		// quadratic falloff starting at 1 multiplied such that it reaches 2 at 
-		//float x = dist / v.radius;
-		//float atten = (1-x)/(x+1);
-		//atten = clamp(atten, 0.0, 1.0);
-		//return atten*atten;
-		
-		// Epic paper falloff
-		float x = dist / v.radius;
+		// Epic paper light falloff
+		float x = dist / light.radius;
 		float x2 = x*x;
 		float c = max(1.0 - x2*x2, 0.0);
 		return (c*c) / (dist*dist + 1);
 	}
 	float cone_falloff (vec3 light2frag) {
-		float t = map(dot(light2frag, v.dir), v.cone.y, v.cone.x);
+		float inner_angle = light.cone.x;
+		float outer_angle = light.cone.y;
+		// fade out between cosine of inner and outer angle
+		// TODO: does actually fading in real angles look any better? would need an acos
+		float t = map(dot(light2frag, light.dir), outer_angle, inner_angle);
 		//return smoothstep(0.0, 1.0, t);
 		return clamp(t, 0.0, 1.0);
 	}
 	
-	// what to call this?
+	// scatter parts of the light towards to camera as if foggy
 	vec3 airglow (bool gbuf_valid, vec3 frag_pos) {
-		vec3 ray0 = view.cam_pos;
+		// ray based on pixel
+		vec3 ray_start = view.cam_pos;
 		vec3 ray_dir = get_fragment_ray();
+		// distance along ray of gbuffer geometry (or infinitely far away for skybox)
+		float frag_t = gbuf_valid ? dot(frag_pos - ray_start, ray_dir) : 999999999.0;
 		
-		float frag_t = gbuf_valid ? dot(frag_pos - ray0, ray_dir) : 999999999.0;
+		float local_t = dot(light.pos - ray_start, ray_dir); // distance along ray of closest point to light
+		vec3 offset = ray_start + ray_dir * local_t - light.pos; // offset from light at that point
+		float h2 = dot(offset, offset); // squared distance to light
 		
-		float local_t = dot(v.pos - ray0, ray_dir);
-		vec3 nearest = ray0 + ray_dir * local_t;
-		float h = length(v.pos - nearest);
+		// half of ray length through light volume sphere
+		float t_half = sqrt(light.radius*light.radius - h2);
 		
-		float r2 = v.radius * v.radius;
+		// ray_start and fragment distance made relative to sphere
+		float t0 =        - local_t;
+		float t1 = frag_t - local_t;
+		// limit t to sphere for formula to work
+		t0 = max(t0, -t_half);
+		t1 = min(t1,  t_half);
+		
+		// ray starts behind light volume or geometry in front of light volume
+		if (t0 >= t1) return vec3(0.0);
+		
+		// light falloff (epic pbr paper version) integrated using wolfram alpha
+		// using light falloff parameterized with h (closest ray distance) and r (light radius of the falloff)
+		// integrated over t for the ray, formula only valid if t0 and t1 within r
+		
+		// some values for the formula
+		float r2 = light.radius * light.radius;
 		float r4 = r2 * r2;
-		float h2 = h * h;
-		
-		float t_half = sqrt(v.radius*v.radius - h*h);
-		float t0 = local_t - t_half;
-		float t1 = local_t + t_half;
-		
-		float k0 =        - local_t; // starts at camera
-		float k1 = frag_t - local_t;
-		
-		k0 = max(k0, -t_half);
-		k1 = min(k1,  t_half);
-		if (k0 >= k1) return vec3(0.0);
-		
 		float b = 1.0 / sqrt(h2 + 1.0);
 		
-		float res = (b*r4 - b) * (atan(b * k1) - atan(b * k0));
-		res += (k1-k0) - h2*(k1-k0) + (k0*k0*k0 - k1*k1*k1)*0.333333;
+		// I don't think this can be simplified, unless you change the orginal falloff function to be better suited for integration?
+		float res = (b*r4 - b) * (atan(b * t1) - atan(b * t0));
+		res += (t1-t0) - h2*(t1-t0) + (t0*t0*t0 - t1*t1*t1)*0.333333333;
 		res *= 1.0 / r4;
 		res = max(res, 0.0);
 		
-		res *= res;
-		return res * v.intensity * 0.0001;
+		res *= res; // squared looks a bit more natural?
+		return res * 0.0001 * light.intensity; // arbitrary 'in scatter' factor?
 	}
 	
-	out vec4 frag_col;
+	out vec3 frag_col;
 	void main () {
 		GbufResult g;
 		bool gbuf_valid = decode_gbuf(g);
 		//if (!decode_gbuf(g)) discard;
 		
-		vec3 glow = airglow(gbuf_valid, g.pos_world);
+		frag_col = airglow(gbuf_valid, g.pos_world);
 		
-		vec3 frag2light = v.pos - g.pos_world;
+		vec3 frag2light = light.pos - g.pos_world;
 		float dist_sqr = dot(frag2light, frag2light);
-		//if (dist_sqr > v.radius*v.radius)
-		//	discard; // early out
-		
+		if (dist_sqr >= light.radius*light.radius)
+			return;
+			
 		float dist = sqrt(dist_sqr);
 		frag2light /= dist; // normalize
 		
 		float cone = cone_falloff(-frag2light);
-		//if (cone <= 0.00001)
-		//	discard;
+		if (cone <= 0.0)
+			return;
 		
 		float dotLN = max(dot(g.normal_world, frag2light), 0.0);
-		vec3 light = cone * falloff(dist) * dotLN * v.intensity;
-			
-		vec3 col = pbr_analytical_light(g, light, frag2light) + glow;
-		frag_col = vec4(col, 1.0);
+		vec3 light = cone * dotLN * falloff(dist) * light.intensity;
 		
-		//frag_col = vec4(frag2light, 1.0);
-		//frag_col = vec4(0.00005,0.0,0.0, 1.0);
+		frag_col += pbr_analytical_light(g, light, frag2light);
 		
-		//frag_col = vec4(cone_falloff(-frag2light).xxx, 1.0);
+		//frag_col = frag2light;
+		//frag_col = vec3(0.00005,0.0,0.0);
+		
+		//frag_col = cone_falloff(-frag2light).xxx;
 	}
 #endif

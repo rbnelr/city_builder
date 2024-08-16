@@ -313,6 +313,7 @@
       </PrecompiledHeaderFile>
     </ClCompile>
     <ClInclude Include="..\src\opengl\render_passes.hpp" />
+    <ClInclude Include="..\src\textures.hpp" />
     <ClInclude Include="..\src\util.hpp" />
   </ItemGroup>
   <ItemGroup>

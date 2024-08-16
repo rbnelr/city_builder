@@ -47,9 +47,9 @@ VS2FS Vertex {
 	
 	GBUF_OUT
 	void main () {
+		vec3 col = bindless_tex_scaled(v.tex_id, 0, v.uv).rgb;
 		vec3 norm = normal_map(v.norm, v.tang,
-		           bindless_tex_scaled(v.tex_id+1, v.uv).rgb );
-		vec3 col = bindless_tex_scaled(v.tex_id  , v.uv).rgb;
+		           bindless_tex_scaled(v.tex_id, 1, v.uv).rgb );
 		
 		frag_col   = vec4(col, 1.0);
 		frag_emiss = vec4(0,0,0,1);

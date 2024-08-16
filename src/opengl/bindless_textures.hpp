@@ -4,22 +4,17 @@
 
 namespace ogl {
 	
+struct _TexFormat { GLenum internal_format, format, type; };
+
+// TODO: actually handle non-linear color maps?
+template <typename T>
+inline constexpr _TexFormat get_format ();
+template<> inline constexpr _TexFormat get_format<srgb8 > () { return { GL_SRGB8,        GL_RGB,   GL_UNSIGNED_BYTE }; }
+template<> inline constexpr _TexFormat get_format<srgba8> () { return { GL_SRGB8_ALPHA8, GL_RGBA,  GL_UNSIGNED_BYTE }; }
+
 struct BindlessTextureManager {
-	enum class Type {
-		SRGB8,
-		SRGB_A8,
-	};
-	struct _Format { GLenum internal_format, format, type; };
-	static constexpr _Format FORMATS[] = {
-		{ GL_SRGB8,        GL_RGB,   GL_UNSIGNED_BYTE },
-		{ GL_SRGB8_ALPHA8, GL_RGBA,  GL_UNSIGNED_BYTE },
-	};
 	
-	template <typename T>
-	static Type get_type (Image<T> const& img);
-	template<> static Type get_type<> (Image<kissmath::srgb8> const& img) { return Type::SRGB8; }
-	template<> static Type get_type<> (Image<kissmath::srgba8> const& img) { return Type::SRGB_A8; }
-	
+	// Seperate Move only class that handles just the resources it needs to avoid manually swapping all sorts of members
 	class BindlessTexture {
 		MOVE_ONLY_CLASS(BindlessTexture)
 	public:
@@ -37,42 +32,54 @@ struct BindlessTextureManager {
 			if (handle)
 				glMakeTextureHandleNonResidentARB(handle); // needed?
 		}
-
-	};
-	struct LoadedTexture {
-		Type type;
-		int2 size;
-		int  mips;
-		float scale;
-
-		BindlessTexture tex = {};
 	};
 
-	std::vector<LoadedTexture> loaded_textures;
+	// Do not track texture type, size and mip count since textures currently follow model of
+	//  create entry (assign id to name)
+	//  upload textures to entry, (also remove them and the slot itself in the future ?)
+	//  replace texture etc.
+	//  query texture id and access on gpu through id
+	// (types, size etc. would be needed to do any sort of virtual texturing or similar)
+	
+	// lookup indirection to allow switching out textures (including different sizes)
+	// and potentially streaming in/out mipmaps without having to update all instance data
+	// instance data can work with texture ids instead of uint64_t handles
+	// another advantage is to avoid needing glVertexAttribLPointer to use uint64_t in vertex data
+
+	struct TextureEntry {
+		// generic 4 slots that bindless texture users (uploaders and shaders) can use for PBR maps etc.
+		// this is needed because otherwise drawn instanced need multiple texture ids passed to them
+		// Avoid forcing semanting meaning on them (0 is albedo, 1 is normal etc.) because that's better handles in other places (?)
+		BindlessTexture slots[4];
+		float uv_scale = 1;
+	};
+
+	std::vector<TextureEntry> entries;
 	std::unordered_map<std::string, int> lookup;
 
 	void clear () {
 		lookup.clear();
-		loaded_textures.clear();
-		loaded_textures.shrink_to_fit();
+		entries.clear();
+		entries.shrink_to_fit();
 	}
-	// TODO: allow removing of textures?
 
 	// Bindless handles have sampler objects baked into them
 	// we can't really switch filtering modes on demand, this is not really a problem because usually you want this sampler
 	Sampler default_sampler = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
-
-	// lookup indirection to allow switching out textures (including different sizes)
-	// and potentially streaming in/out mipmaps without having to update all instance data
-	// instance data can work with texture ids instead of uint64_t handles
-	// maybe this is not really needed?
-	// another advantage is to avoid needing glVertexAttribLPointer to use uint64_t in vertex data
-
-	int get_tex_id (std::string_view filepath) {
-		auto it = lookup.find(std::string(filepath)); // alloc string because unordered_map is dumb
+	
+	int operator[] (std::string_view name) {
+		auto it = lookup.find(std::string(name)); // alloc string because unordered_map is dumb
 		if (it == lookup.end())
 			return 0; // default tex
 		return it->second;
+	}
+	Texture2D* get_gl_tex (std::string_view name, int slot) {
+		auto it = lookup.find(std::string(name)); // alloc string because unordered_map is dumb
+		if (it == lookup.end()) {
+			assert(false);
+			return { 0 };
+		}
+		return &entries[it->second].slots[slot].texture;
 	}
 
 	Ssbo bindless_tex_lut = {"bindless_ssbo"};
@@ -80,15 +87,17 @@ struct BindlessTextureManager {
 	// TODO: add flag to allow only calling this when textures are added or removed?
 	void update_lut (int ssbo_binding_slot) {
 		struct Entry {
-			GLuint64 handle;
-			float scale;
-			float _pad0;
+			GLuint64 handles[4];
+			float uv_scale;
+			float _pad = {};
 		};
 		std::vector<Entry> data;
-		data.resize(loaded_textures.size());
+		data.resize(entries.size());
 		for (int i=0; i<(int)data.size(); ++i) {
-			auto& tex = loaded_textures[i];
-			data[i] = { tex.tex.handle, tex.scale, 0 };
+			auto& tex = entries[i];
+			for (int j=0; j<4; ++j)
+				data[i].handles[j] = tex.slots[j].handle;
+			data[i].uv_scale = tex.uv_scale;
 		}
 
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, bindless_tex_lut);
@@ -102,62 +111,61 @@ struct BindlessTextureManager {
 		ZoneScoped;
 
 		// load default texture as id 0
-		load_texture<srgb8>("misc/default.png");
+		int id = add_entry("<dummy tex>");
+		assert(id == 0);
+
+		Image<srgb8> img;
+		if (!Image<srgb8>::load_from_file("assets/misc/default.png", &img)) {
+			assert(false);
+		}
+		upload_texture("<dummy tex>", 0, 0, img, default_sampler, true);
 	}
 	
+	// returns id
+	int add_entry (std::string&& name) {
+		auto id = this->operator[](name);
+		if (id != 0) {
+			fprintf(stderr, "Error! Texture \"%s\" already added", name.c_str());
+			assert(false);
+			return id; // return id anyway to avoid crashes (just overwrites it)
+		}
+
+		id = (int)entries.size();
+		lookup[std::move(name)] = id;
+		entries.emplace_back();
+		return id;
+	}
 	// TODO: Currently cannot unload a texture
 
 	// load texture with default sampler (filter=FILTER_MIPMAPPED, wrap_mode=GL_REPEAT, aniso=true)
 	template <typename T>
-	void load_texture (const char* filepath, float scale=1) {
-		load_texture<T>(filepath, default_sampler, scale);
+	void upload_texture (std::string_view name, int slot, Image<T> const& img, bool mips) {
+		int id = this->operator[](name);
+		upload_texture<T>(name, id, slot, img, default_sampler, mips);
 	}
 
-	// load texture with specific sampler (make sure the sampler has sufficient lifetime)
 	template <typename T>
-	void load_texture (const char* filepath, Sampler& sampler, float scale=1) {
+	void upload_texture (std::string_view dbg_name, int id, int slot, Image<T> const& img, Sampler& sampler, bool mips) {
 		ZoneScoped;
-
-		auto str = std::string(filepath);
-
-		auto it = lookup.find(str);
-		if (it != lookup.end()) {
-			fprintf(stderr, "Error! Texture \"%s\" already loaded", filepath);
-			assert(false);
-			return;
-		}
-
-		printf("loading bindless texture \"%s\"...\n", filepath);
-
-		Image<T> img;
-		if (!Image<T>::load_from_file(prints("assets/%s", filepath).c_str(), &img)) {
-			fprintf(stderr, "Error! Could not load texture \"%s\"", filepath);
-			assert(false);
-			return;
-		}
 		
-		lookup[std::move(str)] = (int)loaded_textures.size();
-		auto& t = loaded_textures.emplace_back();
+		auto form = get_format<T>();
+		int num_mips = mips ? calc_mipmaps(img.size.x, img.size.y) : 1;
 		
-		t.type = get_type(img);
-		t.size = img.size;
-		t.mips = calc_mipmaps(t.size.x, t.size.y);
-		t.scale = scale;
-
-		t.tex.texture = {filepath};
-		auto form = FORMATS[(int)t.type];
-
+		auto& tex = entries[id].slots[slot];
+		tex.texture = {dbg_name};
+		
 		{
 			ZoneScopedN("upload");
 			
-			glBindTexture(GL_TEXTURE_2D, t.tex.texture);
-			glTexStorage2D(GL_TEXTURE_2D, t.mips, form.internal_format, t.size.x, t.size.y);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0,0, t.size.x, t.size.y, form.format, form.type, img.pixels);
-			glGenerateMipmap(GL_TEXTURE_2D);
+			glBindTexture(GL_TEXTURE_2D, tex.texture);
+			glTexStorage2D(GL_TEXTURE_2D, num_mips, form.internal_format, img.size.x, img.size.y);
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0,0, img.size.x, img.size.y, form.format, form.type, img.pixels);
+			if (num_mips > 1)
+				glGenerateMipmap(GL_TEXTURE_2D);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			t.tex.handle = glGetTextureSamplerHandleARB(t.tex.texture, sampler);
-			glMakeTextureHandleResidentARB(t.tex.handle);
+			tex.handle = glGetTextureSamplerHandleARB(tex.texture, sampler);
+			glMakeTextureHandleResidentARB(tex.handle);
 		}
 	}
 

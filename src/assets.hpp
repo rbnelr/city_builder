@@ -1,5 +1,6 @@
 #pragma once
 #include "common.hpp"
+#include "textures.hpp"
 #include "engine/camera.hpp"
 
 struct Assets;
@@ -609,6 +610,7 @@ struct Assets {
 
 		ImGui::PopID();
 	}
+
 };
 
 template <typename T> void to_json (json& j, AssetPtr<T> const& ptr) {
@@ -617,3 +619,4 @@ template <typename T> void to_json (json& j, AssetPtr<T> const& ptr) {
 template <typename T> void from_json<> (json const& j, AssetPtr<T>& ptr) {
 	ptr = g_assets->query<T>(j.get<std::string>());
 }
+

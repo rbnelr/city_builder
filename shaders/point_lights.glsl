@@ -175,8 +175,10 @@ void main () {
 		// TODO: Make cones not be so sharp (respect inner&outer cone)
 		// allow cone to be >180 degrees
 		
+		float middle_cone = (light.cone.x + light.cone.y) * 0.5;
+		
 		vec2 cone_t01;
-		if (!ray_cone_intersect(ray_start, ray_dir, light.pos, light.dir, light.cone.x, cone_t01))
+		if (!ray_cone_intersect(ray_start, ray_dir, light.pos, light.dir, middle_cone, cone_t01))
 			return vec3(0);
 			
 		float t0 = max(cone_t01.x, 0);

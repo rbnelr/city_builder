@@ -1,4 +1,9 @@
 Todays Agenda:
+Must do!                                           1. Fix loading times (please) -> before chaching consider whipping up a quick threadpool solution to see how easy it really is to mulithread texture decoding + maybe meshes
+Just get it done...                                2. Actually add blinkers like I planned
+Can you finish it?                                 3. Lane and traffic light stuff
+Wow Ethan, great moves. Keep it up, proud of you.  4. Actual city building? Literally just road placing and building for now!
+
 
 ===================== Actual Progress ==========================================
 
@@ -33,10 +38,9 @@ Traffic lights
   
 -> Use new debug overlay to highlight cars via moving (curved?) boxed by drawing them as polygons based on the allocated lane beziers (instead of ugly circles)
 
-Fix rendering code with new traffic light glow params
- -> need to rethink how drawing many small props etc with unique params by type works
-  -> keep in mind future culling as well
-   -> actually do culling NOW?
+*Fix rendering code with new traffic light glow params
+* -> need to rethink how drawing many small props etc with unique params by type works
+ -> kinda did that? (Consider it done once blinkers are in)
  
 Add blinker and brake light state to cars!
  -> Maybe even add point lights?
@@ -93,12 +97,14 @@ Make shadows disableable, I want all resources to be deallocated in this case
 
 Bloom?
 
-Add airglow (ie. fog) inside point light cones
+*Add airglow (ie. fog) inside point light cones
+ Kinda done, would need to mess around with integrals or search up existing solutions for to improve this
 
 Switch directional light to moon after sunset (with the directional shadows as well)
 
 Make all light sources physically accurate (candela for point lights, lux for directional and emmisive lights)
  -> check if all framebuffers / env maps etc. can handle that dynamic range, if not simply premultiply exposure in each of them, such that postprocess needs no exposure anymore, now all values should be in the visible range
+ -> also add autoexposure?
 
 Switch to clutered point light implementation
  

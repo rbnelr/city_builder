@@ -241,6 +241,7 @@
     <ClInclude Include="..\src\entities.hpp" />
     <ClInclude Include="..\src\GameTime.hpp" />
     <ClInclude Include="..\src\bezier.hpp" />
+    <ClInclude Include="..\src\textures.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\shaders\common.glsl">

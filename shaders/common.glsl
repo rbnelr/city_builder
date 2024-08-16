@@ -90,20 +90,20 @@ layout(std140, binding = 0) uniform Common {
 
 // Bindless textures
 struct BindlessTextureEntry {
-	uint64_t handle;
-	float scale;
-	float _pad0;
+	uint64_t handles[4];
+	float uv_scale;
+	float _pad;
 };
 layout(std430, binding = 0) buffer BindlessTextures {
 	BindlessTextureEntry lut[];
 } bindless_LUT;
 
-sampler2D bindless_tex (int tex_id) {
-	return sampler2D(bindless_LUT.lut[tex_id].handle);
+sampler2D bindless_tex (int tex_id, int slot) {
+	return sampler2D(bindless_LUT.lut[tex_id].handles[slot]);
 }
-vec4 bindless_tex_scaled (int tex_id, vec2 uv) {
+vec4 bindless_tex_scaled (int tex_id, int slot, vec2 uv) {
 	BindlessTextureEntry tex = bindless_LUT.lut[tex_id];
-	return texture(sampler2D(tex.handle), uv * tex.scale);
+	return texture(sampler2D(tex.handles[slot]), uv * tex.uv_scale);
 }
 
 

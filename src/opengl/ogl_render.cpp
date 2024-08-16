@@ -348,10 +348,10 @@ struct TerrainRenderer {
 
 			state.bind_textures(shad_terrain,
 				texs.heightmap.textures() + TextureBinds{{
-				{"terrain_diffuse", texs.terrain_diffuse, texs.sampler_normal},
+				{"terrain_diffuse", *texs.terrain_diffuse, texs.sampler_normal},
 
-				{ "grid_tex", texs.grid, texs.sampler_normal },
-				{ "contours_tex", texs.contours, texs.sampler_normal },
+				{ "grid_tex", *texs.grid, texs.sampler_normal },
+				{ "contours_tex", *texs.contours, texs.sampler_normal },
 			}});
 			
 			shad_terrain->set_uniform("inv_map_size", 1.0f / (float2)heightmap.map_size);
@@ -595,7 +595,7 @@ struct AssetMeshes {
 // A bit of a horrible class based around variadic template and std::tuple to allow to split instance data into multiple vbos for cleaner updates of only the dynamic parts
 template <typename ASSET_T, typename... INSTANCE_PARTS>
 struct EntityRenderer {
-	const char* dbg_name;
+	const char* const dbg_name;
 
 	Shader* shad;
 	Shader* shad_lod_cull;
@@ -666,8 +666,9 @@ struct EntityRenderer {
 	Vbo MDI_vbo = {"DebugDraw.MDI_vbo"};
 	
 	void draw (StateManager& state, bool shadow_pass=false) {
-		ZoneScopedN(dbg_name);
-		OGL_TRACE(dbg_name);
+		//ZoneScopedN(dbg_name); // TODO: why is this broken?
+		ZoneScoped;
+		OGL_TRACE("entities");
 		
 		auto& instance_vbo0 = std::get<0>(vbos).vbo;
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_INSTANCES, instance_vbo0);
@@ -819,7 +820,7 @@ struct EntityRenderers {
 			auto* inst = push_back(vec, 1);
 
 			inst->mesh_id = rend.prop_meshes.asset2mesh_id[prop];
-			inst->tex_id = textures.bindless_textures.get_tex_id(prop->tex_filename + ".png");
+			inst->tex_id = textures.bindless_textures[prop->tex_filename];
 			inst->pos = pos;
 			inst->rot = rot;
 			inst->tint = 1;
@@ -1074,9 +1075,9 @@ struct Mesher {
 		extrude(sR2 , sR3 );
 		
 		for (auto& line : seg.asset->line_markings) {
-			int tex_id = textures.bindless_textures.get_tex_id(
-				line.type == LineMarkingType::LINE ? "misc/line.png" : "misc/stripe.png"
-			);
+			int tex_id = textures.bindless_textures[
+				line.type == LineMarkingType::LINE ? "misc/line" : "misc/stripe"
+			];
 			
 			float width = line.scale.x;
 
@@ -1253,7 +1254,7 @@ struct Mesher {
 					pos -= forw * size.y*0.75f;
 
 					auto filename = textures.turn_arrows[(int)lane.allowed_turns - 1];
-					int tex_id = textures.bindless_textures.get_tex_id(filename);
+					int tex_id = textures.bindless_textures[filename];
 
 					DecalRenderer::Instance decal;
 					decal.pos = pos;
@@ -1266,7 +1267,7 @@ struct Mesher {
 				}
 				
 				auto stop_line = [&] (float3 base_pos, float l, float r, int dir, bool type) {
-					int tex_id = textures.bindless_textures.get_tex_id(type ? "misc/shark_teeth.png" : "misc/line.png");
+					int tex_id = textures.bindless_textures[type ? "misc/shark_teeth" : "misc/line"];
 					
 					float width = type ? stopline_width*1.5f : stopline_width;
 					float length = r - l;
@@ -1314,7 +1315,7 @@ struct Mesher {
 			auto& inst = static_inst.buildings[i];
 			
 			inst.mesh_id = entity_renders.building_meshes.asset2mesh_id[entity->asset];
-			inst.tex_id = textures.bindless_textures.get_tex_id(entity->asset->tex_filename + ".png");
+			inst.tex_id = textures.bindless_textures[entity->asset->tex_filename];
 			inst.pos = entity->pos;
 			inst.rot = entity->rot;
 			inst.tint = 1;
@@ -1328,9 +1329,9 @@ struct Mesher {
 		
 		// get diffuse texture id (normal is +1)
 		// negative means worldspace uv mapped
-		asphalt_tex_id  = -textures.bindless_textures.get_tex_id(textures.asphalt.diffuse);
-		sidewalk_tex_id = -textures.bindless_textures.get_tex_id(textures.pavement.diffuse);
-		curb_tex_id     = textures.bindless_textures.get_tex_id(textures.curb.diffuse);
+		asphalt_tex_id  = -textures.bindless_textures[textures.asphalt];
+		sidewalk_tex_id = -textures.bindless_textures[textures.pavement];
+		curb_tex_id     =  textures.bindless_textures[textures.curb];
 
 		push_buildings();
 
@@ -1522,7 +1523,7 @@ struct OglRenderer : public Renderer {
 	void update_vehicle_instance (DynamicVehicle& instance, Person& entity, int i, View3D& view) {
 		auto& bone_mats = entity.owned_vehicle->bone_mats;
 	
-		int tex_id = textures.bindless_textures.get_tex_id(entity.owned_vehicle->tex_filename + ".diff.png");
+		int tex_id = textures.bindless_textures[entity.owned_vehicle->tex_filename];
 
 		// TODO: network code shoud ensure length(dir) == CAR_SIZE
 		float3 center;

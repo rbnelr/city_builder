@@ -1,4 +1,5 @@
 #pragma once
+#include "common.hpp"
 #include "opengl.hpp"
 #include "agnostic_render.hpp"
 #include "bindless_textures.hpp"
@@ -12,8 +13,122 @@ static constexpr int SSBO_BINDING_ENTITY_INSTANCES = 2;
 static constexpr int SSBO_BINDING_ENTITY_MDI       = 3;
 static constexpr int SSBO_BINDING_ENTITY_MESH_INFO = 4;
 static constexpr int SSBO_BINDING_ENTITY_LOD_INFO  = 5;
+
+struct TexLoader {
 	
+	static std::string add_tex_suffix (std::string_view filename, std::string_view suffix) {
+		std::string_view base;
+		auto ext = kiss::get_ext(filename, &base, true);
+		return kiss::concat(base, suffix, ext);
+	}
+	static std::string get_basename (std::string_view filepath) {
+		// make sure to split first to avoid any '.' in path
+		std::string_view filename;
+		std::string_view path = kiss::get_path(filepath, &filename);
+
+		std::string_view base;
+		kiss::split(filename, '.', &base, 1);
+		
+		return kiss::concat(path, base);
+	}
+
+	struct BaseJob {
+		virtual ~BaseJob() {}
+		// run on threads
+		virtual void execute () = 0;
+		// finish on main thread
+		virtual void finish (BindlessTextureManager& bindless) = 0;
+	};
+
+	template <typename T>
+	struct LoadTexture2D : public BaseJob {
+		std::string name;
+		bool mips;
+		int bindless_slot;
+		// results
+		bool success = false;
+		Image<T> img;
+
+		LoadTexture2D (std::string&& name, bool mips, int bindless_slot): name{name}, mips{mips}, bindless_slot{bindless_slot} {}
+
+		virtual void execute () {
+			ZoneScoped;
+			printf("loading texture \"%s\"...\n", name.c_str());
+
+			std::string filepath = prints("assets/%s", name.c_str());
+
+			if (!Image<T>::load_from_file(filepath.c_str(), &img)) {
+				fprintf(stderr, "Error! Could not load texture \"%s\"\n", name.c_str());
+				return;
+			}
+
+			success = true;
+		}
+
+		virtual void finish (BindlessTextureManager& bindless) {
+			auto base_name = get_basename(name);
+			if (success) {
+				// HACK: or is it? Remove .png etc from filename before plugging into bindless textures, 
+				bindless.upload_texture<T>(base_name, bindless_slot, img, mips);
+			}
+		}
+	};
+	template <typename T>
+	struct LoadCubemap : public BaseJob {
+		std::string name_fmt;
+		bool mips;
+		TextureCubemap* result_ptr; // need resulting texture due to not having bindless cubemaps
+		// results
+		bool success = false;
+		Image<T> imgs[6];
+		
+		LoadCubemap (std::string&& name_fmt, bool mips, TextureCubemap* result_ptr): name_fmt{name_fmt}, mips{mips}, result_ptr{result_ptr} {}
+
+		virtual void execute () {
+			ZoneScoped;
+			printf("loading cubemap \"%s\"...\n", name_fmt.c_str());
+			
+			std::string filepath_fmt = prints("assets/%s", name_fmt.c_str());
+
+			for (int i=0; i<6; ++i) {
+				auto filepath = prints(filepath_fmt.c_str(), CUBEMAP_FACE_FILES_NAMES[i]);
+
+				if (!Image<T>::load_from_file(filepath.c_str(), &imgs[i])) {
+					fprintf(stderr, "Error! Could not load texture \"%s\"\n", filepath.c_str());
+					return;
+				}
+			}
+
+			success = true;
+		}
+
+		virtual void finish (BindlessTextureManager& bindless) {
+			if (success) {
+				*result_ptr = {std::string_view(name_fmt)};
+				ogl::upload_imageCube(*result_ptr, imgs, mips);
+			}
+		}
+	};
+
+	const int num_lod_threads = max(std::thread::hardware_concurrency()-2, 2);
+	Threadpool<BaseJob> tex_load_threadpool = Threadpool<BaseJob>(num_lod_threads, TPRIO_BACKGROUND, "texload threads");
+
+	void kickoff_loads (std::vector<std::unique_ptr<BaseJob>>&& loads) {
+		tex_load_threadpool.jobs.push_n(loads.data(), loads.size());
+	}
+	void wait_for_finish_loads (BindlessTextureManager& bindless, int num_results) {
+		//tex_load_threadpool.contribute_work(); // Don't contribute work because we should rather just spend the time uploading as soon as possible
+		for (int i=0; i<num_results; ++i) {
+			auto res = tex_load_threadpool.results.pop_wait();
+			res->finish(bindless);
+			// Job object gets destroyed
+		}
+	}
+};
+
 struct Textures {
+	TexLoader loader;
+	
 	// TODO: need some sort of texture array or atlas system! (atlas sucks tho)
 	// -> find out if there is a modern system for single drawcall many textures (of differing sizes)
 	// because it would be wierd that you can go all out with indirect instanced drawing, yet have to adjust your textures
@@ -21,46 +136,17 @@ struct Textures {
 
 	BindlessTextureManager bindless_textures;
 
-	struct DiffNorm {
-		const char* diffuse;
-		const char* normal;
-	};
-
 	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
 	Sampler sampler_cubemap = make_sampler("sampler_cubemap", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
 
-	const char* turn_arrows[7] = {
-		"misc/turn_arrow_L.png"  ,
-		"misc/turn_arrow_S.png"  ,
-		"misc/turn_arrow_LS.png" ,
-		"misc/turn_arrow_R.png"  ,
-		"misc/turn_arrow_LR.png" ,
-		"misc/turn_arrow_SR.png" ,
-		"misc/turn_arrow_LSR.png",
-	};
-
-	DiffNorm asphalt  = { "misc/street/pebbled_asphalt_albedo.png",   "misc/street/pebbled_asphalt_Normal-ogl.png" };
-	DiffNorm pavement = { "misc/street/Flooring_Stone_001_COLOR.png", "misc/street/Flooring_Stone_001_NRM.png" };
-	DiffNorm curb     = { "misc/curb_Diff2.png",                      "misc/curb_Norm.png" };
-	
-
-	Texture2D clouds;
-	TextureCubemap night_sky;
-	Texture2D moon, moon_nrm;
-
-	Texture2D grid, contours;
-	Texture2D terrain_diffuse;
-
-	Texture2D cracks;
-	
 	struct HeightmapTextures {
 		Texture2D inner, outer;
 
 		Sampler sampler = make_sampler("sampler_heightmap", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
 	
 		void upload (Heightmap const& heightmap) {
-			inner = upload_image<uint16_t>("heightmap.inner", heightmap.inner, true);
-			outer = upload_image<uint16_t>("heightmap.outer", heightmap.outer, true);
+			//inner = upload_image<uint16_t>("heightmap.inner", heightmap.inner, true);
+			//outer = upload_image<uint16_t>("heightmap.outer", heightmap.outer, true);
 		}
 		
 		TextureBinds textures () {
@@ -73,99 +159,111 @@ struct Textures {
 
 	HeightmapTextures heightmap;
 
-	template <typename T>
-	static Texture2D upload_image (std::string_view gl_label, Image<T> const& img, bool mips=true) {
-		ZoneScoped;
+	typedef std::vector<std::unique_ptr<TexLoader::BaseJob>> Jobs;
 
-		Texture2D tex = {gl_label};
-		upload_image2D<T>(tex, img, mips);
-		return tex;
+
+	template <typename T>
+	void texture (Jobs& jobs, std::string&& name, bool mips=true) {
+		bindless_textures.add_entry(TexLoader::get_basename(name));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
 	}
 	template <typename T>
-	static Texture2D load_texture (std::string_view gl_label, const char* filepath, bool mips=true) {
-		ZoneScoped;
-		
-		printf("loading texture \"%s\"...\n", filepath);
+	void texture_norm (Jobs& jobs, std::string&& name, bool mips=true, float uv_scale=1) {
+		int id = bindless_textures.add_entry(TexLoader::get_basename(name));
+		bindless_textures.entries[id].uv_scale = uv_scale; // TODO: maybe do this differently?
 
-		Texture2D tex = {gl_label};
-		if (!upload_texture2D<T>(tex, prints("assets/%s", filepath).c_str(), mips))
-			assert(false);
-		return tex;
+		auto norm = TexLoader::add_tex_suffix(name, ".norm");
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(norm), mips, 1));
 	}
 	template <typename T>
-	static TextureCubemap load_cubemap (std::string_view gl_label, const char* filepath_fmt, bool mips=true) {
-		ZoneScoped;
-		
-		printf("loading cubemap texture \"%s\"...\n", filepath_fmt);
+	void texture_pbr (Jobs& jobs, std::string&& name, bool mips=true) {
+		bindless_textures.add_entry(TexLoader::get_basename(name));
 
-		TextureCubemap tex = {gl_label};
-		if (!upload_textureCube<T>(tex, prints("assets/%s", filepath_fmt).c_str(), mips))
-			assert(false);
-		return tex;
+		auto pbr = TexLoader::add_tex_suffix(name, ".pbr");
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(pbr), mips, 2));
 	}
 
 	template <typename T>
-	void load_bindless (const char* filename, float scale=1) {
-		ZoneScoped;
-
-		bindless_textures.load_texture<T>(filename, scale);
+	void cubemap (Jobs& jobs, std::string&& name, bool mips, TextureCubemap* result_ptr) {
+		jobs.push_back(std::make_unique<TexLoader::LoadCubemap<T>>(std::move(name), mips, result_ptr));
 	}
+
+	// These are not treated as non-bindless for now
+	TextureCubemap night_sky;
+
+	Texture2D* clouds = nullptr;
+	Texture2D* moon = nullptr;
+	Texture2D* moon_nrm = nullptr;
+
+	Texture2D* grid = nullptr;
+	Texture2D* contours = nullptr;
+	Texture2D* terrain_diffuse = nullptr;
+
+	Texture2D* cracks = nullptr;
 	
-	template <typename T>
-	void load_bindless (DiffNorm& df, float scale=1) {
-		ZoneScoped;
-
-		bindless_textures.load_texture<T>(df.diffuse, scale);
-		bindless_textures.load_texture<T>(df.normal, scale);
-	}
+	// TODO: fix this, automatically add .norm and also just encode these in the assets?
+	std::string_view asphalt        = "ground/pebbled_asphalt";
+	std::string_view pavement       = "ground/stone_flooring";
+	std::string_view curb           = "ground/curb2";
+	
+	const char* turn_arrows[7] = {
+		"misc/turn_arrow_L"  ,
+		"misc/turn_arrow_S"  ,
+		"misc/turn_arrow_LS" ,
+		"misc/turn_arrow_R"  ,
+		"misc/turn_arrow_LR" ,
+		"misc/turn_arrow_SR" ,
+		"misc/turn_arrow_LSR",
+	};
 
 	void reload_all () {
 		ZoneScoped;
-
-		// TODO: don't hardcode these, rather put them into assets and have used assets trigger load of their textures
 		
 		bindless_textures.clear();
 
+		// TODO: encode this in assets json somehow, part of this is already specified in assets as tex_filename
+		// the others could be a generic list of misc texture
+		// then need to consider if we simply want to automatically detect .norm .pbr etc in asset folder and load them?
+		// what if shader needs more or less than those specific textures? actually specify this in file?
+		// maybe like "skybox/moon.png & norm" to keep it a single string?
+		// Or just define standard texture suffixes and just keep slots empty inside bindless lut for the (few) non-pbr materials?
+		Jobs j;
+		texture     <srgba8>(j, "skybox/clouds.png");
+		texture_norm<srgb8 >(j, "skybox/moon.png");
+		cubemap     <srgba8>(j, "skybox/night_sky/%s.png", true, &night_sky);
+		texture<srgba8>(j, "misc/grid2.png");
+		texture<srgba8>(j, "misc/contours.png");
+		texture<srgb8 >(j, "ground/Rock_Moss.jpg");
+		texture<srgb8 >(j, "misc/cracks.png");
 
-		clouds = load_texture<srgba8>("clouds", "skybox/clouds.png");
-		night_sky = load_cubemap<srgb8>("night_sky", "skybox/night_sky/%s.png");
-		moon     = load_texture<srgba8>("moon", "skybox/moon.png");
-		moon_nrm = load_texture<srgb8>("moon.nrm", "skybox/moon.nrm.png");
-
-		grid = load_texture<srgba8>("grid", "misc/grid2.png");
-		contours = load_texture<srgba8>("contours", "misc/contours.png");
-		terrain_diffuse = load_texture<srgb8>("terrain_diffuse", "misc/Rock_Moss_001_SD/Rock_Moss_001_basecolor.jpg");
-		
-		cracks = load_texture<srgb8>("cracks", "misc/cracks.png"); // TODO: support single channel
-
-
-		load_bindless<srgba8>("misc/line.png"          );
-		load_bindless<srgba8>("misc/stripe.png"        );
-		load_bindless<srgba8>("misc/shark_teeth.png"   );
-		
+		texture<srgba8>(j, "misc/line.png"       );
+		texture<srgba8>(j, "misc/stripe.png"     );
+		texture<srgba8>(j, "misc/shark_teeth.png");
 		for (auto& fn : turn_arrows)
-			load_bindless<srgba8>(fn);
+			texture<srgba8>(j, concat(fn, ".png"));
 		
-		load_bindless<srgb8>(asphalt);
-		load_bindless<srgb8>(pavement, 1.5f);
-		load_bindless<srgb8>(curb);
+		texture_norm<srgb8 >(j, concat(asphalt, ".png"));
+		texture_norm<srgb8 >(j, concat(pavement, ".png"), true, 1.5f);
+		texture_norm<srgb8 >(j, concat(curb, ".png"));
 		
-		// TODO: make dynamic so that any texture from json works
-		
-		//
-		load_bindless<srgb8>("vehicles/car.diff.png");
-		load_bindless<srgb8>("vehicles/car.pbr.png");
+		texture_pbr<srgb8 >(j, "vehicles/car.png");
+		texture_pbr<srgb8 >(j, "vehicles/bus.png");
+		texture_pbr<srgb8 >(j, "buildings/house.png");
+		texture_pbr<srgb8 >(j, "props/traffic_light.png");
 
-		load_bindless<srgb8>("vehicles/bus.diff.png");
-		load_bindless<srgb8>("vehicles/bus.pbr.png");
-		
-		//
-		load_bindless<srgb8>("buildings/house.png");
-		load_bindless<srgb8>("buildings/house.pbr.png");
+		int num_results = (int)j.size();
+		loader.kickoff_loads(std::move(j));
+		loader.wait_for_finish_loads(bindless_textures, num_results);
 
-		//
-		load_bindless<srgb8>("props/traffic_light.png");
-		load_bindless<srgb8>("props/traffic_light.pbr.png");
+		clouds    = bindless_textures.get_gl_tex("skybox/clouds", 0);
+		moon      = bindless_textures.get_gl_tex("skybox/moon", 0);
+		moon_nrm  = bindless_textures.get_gl_tex("skybox/moon", 1);
+		grid      = bindless_textures.get_gl_tex("misc/grid2", 0);
+		contours  = bindless_textures.get_gl_tex("misc/contours", 0);
+		terrain_diffuse = bindless_textures.get_gl_tex("ground/Rock_Moss", 0);
+		cracks    = bindless_textures.get_gl_tex("misc/cracks", 0);
 	}
 
 	Textures () {
@@ -386,10 +484,10 @@ struct PBR_Render {
 			shad_compute_gen_env->set_uniform("resolution", int2(res));
 
 			state.bind_textures(shad_compute_gen_mips, {
-				{ "clouds", texs.clouds },
+				{ "clouds", *texs.clouds },
 				{ "night_sky", texs.night_sky, texs.sampler_cubemap },
-				{ "moon", texs.moon },
-				{ "moon_nrm", texs.moon_nrm },
+				{ "moon", *texs.moon },
+				{ "moon_nrm", *texs.moon_nrm },
 			});
 
 			glBindImageTexture(0, base_env_map, 0, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
@@ -789,7 +887,7 @@ struct DecalRenderer {
 			state.bind_textures(shad, {
 				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler }, // allowed to read depth because we are not writing to it
 
-				{ "cracks", texs.cracks, texs.sampler_normal },
+				{ "cracks", *texs.cracks, texs.sampler_normal },
 			});
 
 			PipelineState s;
@@ -1124,12 +1222,12 @@ struct RenderPasses {
 			tex += gbuf.textures();
 			pbr.prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
 
-			tex += { "clouds", texs.clouds, texs.sampler_normal };
+			tex += { "clouds", *texs.clouds, texs.sampler_normal };
 			tex += { "night_sky", texs.night_sky, texs.sampler_cubemap };
-			tex += { "moon", texs.moon };
-			tex += { "moon_nrm", texs.moon_nrm };
-			tex += { "grid_tex", texs.grid, texs.sampler_normal };
-			tex += { "contours_tex", texs.contours, texs.sampler_normal };
+			tex += { "moon", *texs.moon };
+			tex += { "moon_nrm", *texs.moon_nrm };
+			tex += { "grid_tex", *texs.grid, texs.sampler_normal };
+			tex += { "contours_tex", *texs.contours, texs.sampler_normal };
 
 			shadowmap.prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
 			

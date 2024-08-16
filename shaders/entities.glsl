@@ -74,8 +74,8 @@ void main () {
 #ifdef _FRAGMENT
 	GBUF_OUT
 	void main () {
-		vec4 col = texture(bindless_tex(v.tex_id), v.uv);
-		vec3 ERM = texture(bindless_tex(v.tex_id+1), v.uv).rgb;
+		vec4 col = texture(bindless_tex(v.tex_id, 0), v.uv);
+		vec3 ERM = texture(bindless_tex(v.tex_id, 2), v.uv).rgb;
 		
 		frag_col   = col;
 		// PBR.R as emissive channel

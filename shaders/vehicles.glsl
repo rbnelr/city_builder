@@ -46,8 +46,8 @@ void main () {
 	
 	GBUF_OUT
 	void main () {
-		vec4 diff = texture(bindless_tex(v.tex_id), v.uv);
-		vec3 TRM = texture(bindless_tex(v.tex_id+1), v.uv).rgb;
+		vec4 diff = texture(bindless_tex(v.tex_id, 0), v.uv);
+		vec3 TRM  = texture(bindless_tex(v.tex_id, 2), v.uv).rgb;
 		
 		// PBR.R as tint channel to tint albedo with instance color
 		diff.rgb *= mix(vec3(1.0), v.tint_col, TRM.r);

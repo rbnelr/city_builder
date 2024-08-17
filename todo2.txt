@@ -1,5 +1,5 @@
-Todays Agenda:
-Must do!                                           1. Fix loading times (please) -> before chaching consider whipping up a quick threadpool solution to see how easy it really is to mulithread texture decoding + maybe meshes
+Tomorrows Agenda (It was today's...):
+Must do!                                           1. Fix loading times (please) -> before caching consider whipping up a quick threadpool solution to see how easy it really is to mulithread texture decoding + maybe meshes
 Just get it done...                                2. Actually add blinkers like I planned
 Can you finish it?                                 3. Lane and traffic light stuff
 Wow Ethan, great moves. Keep it up, proud of you.  4. Actual city building? Literally just road placing and building for now!

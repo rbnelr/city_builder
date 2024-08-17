@@ -145,8 +145,11 @@ struct Textures {
 		Sampler sampler = make_sampler("sampler_heightmap", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
 	
 		void upload (Heightmap const& heightmap) {
-			//inner = upload_image<uint16_t>("heightmap.inner", heightmap.inner, true);
-			//outer = upload_image<uint16_t>("heightmap.outer", heightmap.outer, true);
+			inner = {"heightmap.inner"};
+			outer = {"heightmap.outer"};
+			
+			upload_image2D<uint16_t>(inner, heightmap.inner, true);
+			upload_image2D<uint16_t>(outer, heightmap.outer, true);
 		}
 		
 		TextureBinds textures () {

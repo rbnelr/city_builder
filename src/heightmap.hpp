@@ -13,10 +13,10 @@ struct Heightmap {
 	bool textures_changed = false; // cleared by renderer
 
 	Heightmap () {
-		load_from_file();
+		import();
 	}
 
-	void load_from_file () {
+	void import () {
 		ZoneScoped;
 		printf("loading heightmap...\n");
 

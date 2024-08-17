@@ -50,7 +50,7 @@ VS2FS Vertex {
 	}
 	
 	float sample_heightmap (vec2 pos) {
-		return 0.0;
+		//return 0.0;
 		
 		//float quad_size = offset_scale.z;
 		float tex_lod = 0.0;

@@ -276,7 +276,6 @@
     <ClInclude Include="..\src\engine\kisslib\kissmath.hpp" />
     <ClInclude Include="..\src\engine\kisslib\kissmath_colors.hpp" />
     <ClInclude Include="..\src\engine\kisslib\macros.hpp" />
-    <ClInclude Include="..\src\engine\kisslib\profiling.hpp" />
     <ClInclude Include="..\src\engine\kisslib\random.hpp" />
     <ClInclude Include="..\src\engine\kisslib\raw_array.hpp" />
     <ClInclude Include="..\src\engine\kisslib\read_directory.hpp" />
@@ -287,7 +286,6 @@
     <ClInclude Include="..\src\engine\kisslib\stb_truetype.hpp" />
     <ClInclude Include="..\src\engine\kisslib\stl_extensions.hpp" />
     <ClInclude Include="..\src\engine\kisslib\string.hpp" />
-    <ClInclude Include="..\src\engine\kisslib\string_buf.hpp" />
     <ClInclude Include="..\src\engine\kisslib\strparse.hpp" />
     <ClInclude Include="..\src\engine\kisslib\threadpool.hpp" />
     <ClInclude Include="..\src\engine\kisslib\threadsafe_queue.hpp" />
@@ -411,7 +409,7 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\lib-vc2022;$(SolutionDir)..\..\libs\Assimp\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;assimp-vc143-mt.lib;Avrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;assimp-vc143-mt.lib;Avrt.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -433,7 +431,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\lib-vc2022;$(SolutionDir)..\..\libs\Assimp\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;assimp-vc143-mt.lib;Avrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;assimp-vc143-mt.lib;Avrt.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">
@@ -455,7 +453,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\lib-vc2022;$(SolutionDir)..\..\libs\Assimp\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;assimp-vc143-mt.lib;Avrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;assimp-vc143-mt.lib;Avrt.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">
@@ -477,7 +475,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\lib-vc2022;$(SolutionDir)..\..\libs\Assimp\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;assimp-vc143-mt.lib;Avrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;assimp-vc143-mt.lib;Avrt.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

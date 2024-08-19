@@ -1137,19 +1137,19 @@ void update_vehicle_suspension (App& app, ActiveVehicle& vehicle, float3 local_a
 	//float2 accel = -ang * app.net.settings.suspension_spring_k;
 	
 	// quadratic for more smooth spring limit (and more wobbly around zero)
-	float3 accel = -ang * abs(ang / app.net.settings.suspension_max) * app.net.settings.suspension_spring_k * 3;
+	float3 accel = -ang * abs(ang / app.net.settings.suspension.max) * app.net.settings.suspension.spring_k * 3;
 	
 	// spring point accel
-	accel += local_accel * app.net.settings.suspension_accel_fac;
+	accel += local_accel * app.net.settings.suspension.accel_fac;
 	// spring dampening
-	accel -= vel * app.net.settings.suspension_spring_damp;
+	accel -= vel * app.net.settings.suspension.spring_damp;
 
 	// apply vel, pos and clamp
 	vel += accel * dt;
 	vel = clamp(vel, -100, +100);
 
 	ang += vel * dt;
-	ang = clamp(ang, -app.net.settings.suspension_max, +app.net.settings.suspension_max);
+	ang = clamp(ang, -app.net.settings.suspension.max, +app.net.settings.suspension.max);
 
 	vehicle.suspension_ang = ang;
 	vehicle.suspension_ang_vel = vel;

@@ -126,6 +126,97 @@ struct TexLoader {
 	}
 };
 
+struct HeightmapTextures {
+
+	struct Zone {
+		std::string_view label;
+
+		Texture2D tex;
+		int2 size = -1;
+
+		GLuint pbo = 0;
+
+		void recreate (int2 size) {
+			tex = {label};
+			this->size = size;
+
+			glBindTexture(GL_TEXTURE_2D, tex);
+			glTexStorage2D(GL_TEXTURE_2D, 1, GL_R16, size.x, size.y);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glBindTexture(GL_TEXTURE_2D, 0);
+
+			glGenBuffers(1, &pbo);
+			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+			OGL_DBG_LABEL(GL_BUFFER, pbo, kiss::concat(label, ".pbo"));
+			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+		}
+		~Zone () {
+			if (pbo) glDeleteBuffers(1, &pbo);
+		}
+		
+		void update (Heightmap::HeightmapZone& heightmap) {
+			if (size != heightmap.data.size)
+				recreate(heightmap.data.size);
+
+			if (!heightmap.dirty_rect.empty())
+				upload_rect(heightmap);
+		}
+		void upload_rect (Heightmap::HeightmapZone& heightmap) {
+			auto& rect = heightmap.dirty_rect;
+			assert(rect.lo.x <= rect.hi.x && rect.lo.y <= rect.hi.y);
+			assert(rect.lo.x >= 0 && rect.lo.y >= 0 && rect.hi.x < size.x && rect.hi.y < size.y);
+
+			int2 rect_size = rect.hi+1 - rect.lo;
+			
+			size_t mem_size = (size_t)rect_size.x * rect_size.y * sizeof(Heightmap::pixel_t);
+			
+			glBindTexture(GL_TEXTURE_2D, tex);
+			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+			glBufferData(GL_PIXEL_UNPACK_BUFFER, mem_size, nullptr, GL_STREAM_DRAW);
+
+			auto* mapped = (Heightmap::pixel_t*)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
+			assert(mapped);
+			
+			for (int y=0; y<rect_size.y; ++y) {
+				memcpy(mapped + y*rect_size.x,
+					heightmap.data.pixels + rect.lo.x + (rect.lo.y+y)*heightmap.data.size.x,
+					sizeof(Heightmap::pixel_t)*rect_size.x);
+			}
+
+			glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+
+			glTexSubImage2D(GL_TEXTURE_2D, 0, rect.lo.x, rect.lo.y, rect_size.x, rect_size.y, GL_RED, GL_UNSIGNED_SHORT, nullptr);
+
+			glBindTexture(GL_TEXTURE_2D, 0);
+			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+			glInvalidateBufferData(GL_PIXEL_UNPACK_BUFFER);
+
+			heightmap.reset_invalidate();
+		}
+	};
+	Zone inner = {"heightmap.inner"};
+	Zone outer = {"heightmap.outer"};
+
+	void update_changes (Heightmap& heightmap) {
+		//OGL_TRACE("test");
+
+		inner.update(heightmap.inner);
+		outer.update(heightmap.outer);
+	}
+		
+	TextureBinds textures () {
+		return {{
+			{"heightmap_inner", inner.tex},
+			{"heightmap_outer", outer.tex},
+		}};
+	}
+};
+
 struct Textures {
 	TexLoader loader;
 	
@@ -138,27 +229,6 @@ struct Textures {
 
 	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
 	Sampler sampler_cubemap = make_sampler("sampler_cubemap", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
-
-	struct HeightmapTextures {
-		Texture2D inner, outer;
-
-		Sampler sampler = make_sampler("sampler_heightmap", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
-	
-		void upload (Heightmap const& heightmap) {
-			inner = {"heightmap.inner"};
-			outer = {"heightmap.outer"};
-			
-			upload_image2D<uint16_t>(inner, heightmap.inner, true);
-			upload_image2D<uint16_t>(outer, heightmap.outer, true);
-		}
-		
-		TextureBinds textures () {
-			return {{
-				{"heightmap_inner", inner, sampler},
-				{"heightmap_outer", outer, sampler},
-			}};
-		}
-	};
 
 	HeightmapTextures heightmap;
 
@@ -968,7 +1038,7 @@ struct ClippingRenderer {
 		OGL_TRACE("ClippingRenderer");
 
 		if (resolution != res) {
-			tmp_copy_tex = Render_Texture("gbuf.depth", res, depth_format);
+			tmp_copy_tex = Render_Texture("gbuf.depth.copy", res, depth_format);
 			resolution = res;
 		}
 

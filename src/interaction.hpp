@@ -6,14 +6,19 @@
 typedef NullableVariant<Person*, network::Node*> sel_ptr;
 
 struct Interaction {
+	SERIALIZE(Interaction, terraform)
+
 	enum Mode {
 		INSPECT=0,
 		BUILD,
-		BULLDOZE
+		BULLDOZE,
+		TERRAFORM,
 	};
 	static inline constexpr const char* Mode_str[] = {
-		"Inspect", "Build", "Bulldoze"
+		"Inspect", "Build", "Bulldoze", "Terraform"
 	};
+
+	HeightmapTerraform terraform;
 
 	Mode cur_mode = INSPECT;
 	
@@ -30,7 +35,7 @@ struct Interaction {
 			selection = nullptr;
 	}
 
-	void imgui () {
+	void imgui (Heightmap& heightmap) {
 		if (!imgui_Header("Interaction", true)) return;
 
 		auto mode_check = [&] (Mode mode) {
@@ -41,19 +46,32 @@ struct Interaction {
 				cur_mode = mode;
 		};
 		mode_check(INSPECT);
-		ImGui::SameLine();
+		ImGui::SameLine(); // TODO: I would prefer a automatic line-wrap layouting here, can Imgui do that or would I implement that myself?
 		mode_check(BUILD);
 		ImGui::SameLine();
 		mode_check(BULLDOZE);
+		//ImGui::SameLine();
+		mode_check(TERRAFORM);
 		
-		if (cur_mode == BUILD) {
-			ImGui::Checkbox("Toggle Traffic Lights", &toggle_traffic_light);
+		switch (cur_mode) {
+			case INSPECT:
+				
+			break;
+			case BUILD:
+				ImGui::Checkbox("Toggle Traffic Lights", &toggle_traffic_light);
+			break;
+			case BULLDOZE:
+				
+			break;
+			case TERRAFORM:
+				terraform.imgui(heightmap);
+			break;
 		}
 
 		ImGui::PopID();
 	}
 
-	void update (Entities& entities, Network& net, View3D const& view, Input& input) {
+	void update (Heightmap& heightmap, Entities& entities, Network& net, View3D& view, Input& input) {
 		switch (cur_mode) {
 			case INSPECT:
 				update_inspect(entities, net, view, input);
@@ -64,12 +82,15 @@ struct Interaction {
 			case BULLDOZE:
 				update_bulldoze();
 			break;
+			case TERRAFORM:
+				terraform.update(heightmap, view, input);
+			break;
 		}
 
 		highlight_hover_sel();
 	}
 
-	void update_inspect (Entities& entities, Network& net, View3D const& view, Input& input) {
+	void update_inspect (Entities& entities, Network& net, View3D& view, Input& input) {
 		find_hover(entities, net, view, input, false);
 
 		if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
@@ -77,7 +98,7 @@ struct Interaction {
 		}
 	}
 
-	void update_build (Entities& entities, Network& net, View3D const& view, Input& input) {
+	void update_build (Entities& entities, Network& net, View3D& view, Input& input) {
 		selection = nullptr;
 
 		if (toggle_traffic_light) {
@@ -99,7 +120,7 @@ struct Interaction {
 
 ////
 
-	void find_hover (Entities& entities, Network& net, View3D const& view, Input& input,
+	void find_hover (Entities& entities, Network& net, View3D& view, Input& input,
 			bool only_net) { // TODO: create a mask for this
 		Ray ray;
 		if (!view.cursor_ray(input, &ray.pos, &ray.dir))

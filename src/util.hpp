@@ -2,13 +2,14 @@
 #include "common.hpp"
 #include "bezier.hpp"
 
+// TODO: Is there a resonable way of allowing whole numbers (30, 45, 70 etc.) of speed in both unit systems to match when switching?
 inline constexpr float KPH_PER_MS = 3.6f;
 inline constexpr float MPH_PER_MS = 2.23693632f;
 
-enum SpeedUnit : int {
-	UNIT_MS,
-	UNIT_KPH,
-	UNIT_MPH,
+enum class SpeedUnit {
+	MS,
+	KPH,
+	MPH,
 };
 inline constexpr float SpeedUnitPerMs[] = {
 	1, KPH_PER_MS, MPH_PER_MS
@@ -16,13 +17,16 @@ inline constexpr float SpeedUnitPerMs[] = {
 inline constexpr const char* SpeedUnitStr[] = {
 	"m/s", "km/h", "mph"
 };
+NLOHMANN_JSON_SERIALIZE_ENUM(SpeedUnit, { {SpeedUnit::MS,"MS"}, {SpeedUnit::KPH,"KPH"}, {SpeedUnit::MPH,"MPH"} })
 
 inline std::string format_speed (float speed, SpeedUnit unit) {
-	return prints("%.0f %s", speed * SpeedUnitPerMs[unit], SpeedUnitStr[unit]);
+	return prints("%.0f %s", speed * SpeedUnitPerMs[(int)unit], SpeedUnitStr[(int)unit]);
 }
 
 struct Settings {
-	SpeedUnit speed_unit = UNIT_KPH;
+	SERIALIZE(Settings, speed_unit)
+
+	SpeedUnit speed_unit = SpeedUnit::KPH;
 
 	void imgui () {
 		if (!imgui_Header("Settings")) return;
@@ -34,14 +38,14 @@ struct Settings {
 };
 
 inline bool imgui_slider_speed (Settings& settings, const char* label, float* speed, float min, float max) {
-	float fac = SpeedUnitPerMs[settings.speed_unit];
+	float fac = SpeedUnitPerMs[(int)settings.speed_unit];
 
 	float val = *speed * fac;
 	min *= fac;
 	max *= fac;
 
 	bool ret = ImGui::SliderFloat(
-		prints("%s (%s)",label, SpeedUnitStr[settings.speed_unit]).c_str(),
+		prints("%s (%s)",label, SpeedUnitStr[(int)settings.speed_unit]).c_str(),
 		&val, min, max);
 
 	*speed = val / fac;
@@ -92,9 +96,6 @@ inline float angle2d (float2 dir) {
 //	return float3(v.y, -v.x, v.z);
 //}
 
-struct Line {
-	float3 a, b;
-};
 struct Dirs {
 	float3 forw, right, up;
 };

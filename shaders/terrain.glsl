@@ -20,8 +20,8 @@ VS2FS Vertex {
 	uniform vec2  inv_map_size;
 	uniform vec2  inv_outer_size;
 	
-	uniform float z_min;
-	uniform float z_range;
+	uniform float height_min;
+	uniform float height_range;
 	
 	// TODO: could be done on cpu side by providing a mesh variant for
 	// center, edge and corner lod transitions and having the cpu code select them
@@ -63,7 +63,7 @@ VS2FS Vertex {
 			// Causes seams
 			//float texel_dens = textureSize(heightmap, 0).x * inv_map_size.x;
 			//float tex_lod = log2(quad_size * texel_dens);
-			return textureLod(heightmap, uv, tex_lod).r * z_range + z_min;
+			return textureLod(heightmap, uv, tex_lod).r * height_range + height_min;
 		}
 		else {
 			vec2 uv = pos * inv_outer_size + 0.5;
@@ -71,7 +71,7 @@ VS2FS Vertex {
 			
 			//float texel_dens = textureSize(heightmap_outer, 0).x * inv_outer_size.x;
 			//float tex_lod = log2(quad_size * texel_dens);
-			return textureLod(heightmap_outer, uv, tex_lod).r * z_range + z_min;
+			return textureLod(heightmap_outer, uv, tex_lod).r * height_range + height_min;
 		}
 	}
 	

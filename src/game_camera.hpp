@@ -34,8 +34,7 @@ struct GameCamera {
 	float cur_speed = 0;
 
 	struct Binds {
-		Button rotate      = MOUSE_BUTTON_RIGHT;
-		Button drag        = MOUSE_BUTTON_MIDDLE;
+		Button rotate      = MOUSE_BUTTON_MIDDLE;
 		
 		Button move_left   = KEY_A;
 		Button move_right  = KEY_D;

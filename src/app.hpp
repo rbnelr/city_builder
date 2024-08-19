@@ -640,11 +640,11 @@ struct App : public Engine {
 	virtual ~App () {}
 	
 	friend SERIALIZE_TO_JSON(App) {
-		SERIALIZE_TO_JSON_EXPAND(cam, dbg_cam, assets, net, time, test, test_map_builder);
+		SERIALIZE_TO_JSON_EXPAND(cam, dbg_cam, assets, settings, time, interact, heightmap, net, test, test_map_builder);
 		t.renderer->to_json(j);
 	}
 	friend SERIALIZE_FROM_JSON(App) {
-		SERIALIZE_FROM_JSON_EXPAND(cam, dbg_cam, assets, net, time, test, test_map_builder);
+		SERIALIZE_FROM_JSON_EXPAND(cam, dbg_cam, assets, settings, time, interact, heightmap, net, test, test_map_builder);
 		t.renderer->from_json(j);
 	}
 
@@ -653,25 +653,25 @@ struct App : public Engine {
 
 	virtual void imgui () {
 		ZoneScoped;
-
-		time.imgui();
-		interact.imgui();
-
-		cam_track.imgui();
-
-		settings.imgui();
-
-		ImGui::Separator();
-
+		
 		cam.imgui("cam");
 		dbg_cam.imgui("dbg_cam");
 		ImGui::SameLine();
 		ImGui::Checkbox("View", &view_dbg_cam);
-
-		assets.imgui(settings);
 		
+		ImGui::Separator();
+
+		time.imgui();
+		interact.imgui(heightmap);
+		cam_track.imgui();
+
 		heightmap.imgui();
 		net.imgui();
+		
+		ImGui::Separator();
+
+		settings.imgui();
+		assets.imgui(settings);
 
 		renderer->imgui(*this);
 	}
@@ -693,21 +693,21 @@ struct App : public Engine {
 
 	std::unique_ptr<Renderer> renderer = create_ogl_backend();
 
-	Heightmap heightmap;
-	Entities entities;
-	Network net;
-	Interaction interact;
-
 	GameCamera cam = GameCamera{ float3(8,8,0) * 1024 };
+	CameraTrack cam_track; // TODO: move to interact?
 	
-	CameraTrack cam_track;
+	GameTime time;
+	
+	Interaction interact;
 
 	Flycam dbg_cam = Flycam(0, 0, 100);
 	bool view_dbg_cam = false;
 	bool dbg_cam_cursor_was_enabled;
 
-	GameTime time;
-	
+	Heightmap heightmap;
+	Entities entities;
+	Network net;
+
 	float sim_dt () {
 		return time.pause_sim ? 0 : input.dt * time.target_gamespeed;
 	}
@@ -765,9 +765,9 @@ struct App : public Engine {
 		g_dbgdraw.axis_gizmo(view, input.window_size);
 
 		// select after updating positions
-		interact.update(entities, net, view, input);
+		interact.update(heightmap, entities, net, view, input);
 
-		cone_test(view);
+		//cone_test(view);
 
 		return view;
 	}

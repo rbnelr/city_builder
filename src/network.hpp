@@ -489,26 +489,30 @@ struct Metrics {
 	ValuePlotter flow_plot = ValuePlotter();
 
 	void imgui () {
-		if (!ImGui::TreeNodeEx("Metrics", ImGuiTreeNodeFlags_DefaultOpen)) return;
+		if (!imgui_Header("Metrics")) return;
 
 		flow_plot.imgui_display("avg_flow", 0.0f, 1.0f);
 
-		ImGui::TreePop();
+		ImGui::PopID();
 	}
 };
 
 struct Settings {
-	SERIALIZE(Settings, car_accel, car_deccel, car_rear_drag_ratio, intersec_heur);
+	SERIALIZE(Settings, car_accel, car_deccel, car_rear_drag_ratio, intersec_heur, suspension);
 	
 	float car_accel = 4.5f;
 	float car_deccel = 5;
 
 	float car_rear_drag_ratio = 0.4f;
 	
-	float3 suspension_max = float3(deg(10), deg(6), 0.25f); // angle, angle, linear dist
-	float3 suspension_spring_k = 50;
-	float3 suspension_spring_damp = 5;
-	float3 suspension_accel_fac = float3(0.2f, 0.2f, 0.2f);
+	struct SuspensionVisuals {
+		SERIALIZE(SuspensionVisuals, max, spring_k, spring_damp, accel_fac);
+
+		float3 max = float3(deg(10), deg(6), 0.25f); // angle, angle, linear dist
+		float3 spring_k = 50;
+		float3 spring_damp = 5;
+		float3 accel_fac = float3(0.2f, 0.2f, 0.2f);
+	} suspension;
 
 	struct IntersectionHeuristics {
 		SERIALIZE(IntersectionHeuristics, wait_boost_fac, progress_boost, exit_eta_penal,
@@ -520,37 +524,37 @@ struct Settings {
 		float right_before_left_penal = 15;
 		float conflict_eta_penal      = 20;
 		float yield_lane_penal        = 50;
-	};
-	IntersectionHeuristics intersec_heur;
+	} intersec_heur;
 	
 	void imgui () {
-		if (!ImGui::TreeNodeEx("Network Settings", ImGuiTreeNodeFlags_DefaultOpen)) return;
+		if (!imgui_Header("Network Settings")) return;
 		
 		ImGui::SliderFloat("car_accel (m/s^2)", &car_accel, 0, 20);
 		ImGui::SliderFloat("car_deccel (m/s^2)", &car_deccel, 0, 20);
 
 		ImGui::SliderFloat("car_rear_drag_ratio", &car_rear_drag_ratio, 0, 1);
 		
-		ImGui::SliderAngle("suspension_max.x", &suspension_max.x, 0, +30);
-		ImGui::SliderAngle("suspension_max.y", &suspension_max.y, 0, +30);
-		ImGui::SliderFloat("suspension_max.x", &suspension_max.z, 0, 4);
-		ImGui::SliderFloat3("suspension_spring_k", &suspension_spring_k.x, 0, 100);
-		ImGui::SliderFloat3("suspension_spring_damp", &suspension_spring_damp.x, 0, 100);
-		ImGui::SliderFloat3("suspension_accel_fac", &suspension_accel_fac.x, 0, 10);
+		if (ImGui::TreeNode("Suspension Visuals")) {
+			ImGui::SliderAngle("max.x", &suspension.max.x, 0, +30);
+			ImGui::SliderAngle("max.y", &suspension.max.y, 0, +30);
+			ImGui::SliderFloat("max.x", &suspension.max.z, 0, 4);
+			ImGui::SliderFloat3("spring_k", &suspension.spring_k.x, 0, 100);
+			ImGui::SliderFloat3("spring_damp", &suspension.spring_damp.x, 0, 100);
+			ImGui::SliderFloat3("accel_fac", &suspension.accel_fac.x, 0, 10);
+			ImGui::TreePop();
+		}
 
 		if (ImGui::TreeNode("Intersection Heuristics")) {
-
 			ImGui::DragFloat("wait_boost_fac",          &intersec_heur.wait_boost_fac         , 0.1f);
 			ImGui::DragFloat("progress_boost",          &intersec_heur.progress_boost         , 0.1f);
 			ImGui::DragFloat("exit_eta_penal",          &intersec_heur.exit_eta_penal         , 0.1f);
 			ImGui::DragFloat("right_before_left_penal", &intersec_heur.right_before_left_penal, 0.1f);
 			ImGui::DragFloat("conflict_eta_penal",      &intersec_heur.conflict_eta_penal     , 0.1f);
 			ImGui::DragFloat("yield_lane_penal",        &intersec_heur.yield_lane_penal       , 0.1f);
-
 			ImGui::TreePop();
 		}
 
-		ImGui::TreePop();
+		ImGui::PopID();
 	}
 };
 struct Network {

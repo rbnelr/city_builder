@@ -187,7 +187,7 @@ struct TerrainRenderer {
 		int2 prev_bound0 = 0;
 		int2 prev_bound1 = 0;
 
-		int2 half_map_sz = heightmap.outer_map_size/2;
+		int2 half_map_sz = heightmap.outer.map_size/2;
 		
 		// iterate lods
 		for (int lod=base_lod; lod<=max_lod; lod++) {
@@ -202,7 +202,7 @@ struct TerrainRenderer {
 			int parent_mask = ~(parent_sz-1);
 			
 			bool final_lod = lod == max_lod ||
-				sz >= max(heightmap.outer_map_size.x, heightmap.outer_map_size.y);
+				sz >= max(heightmap.outer.map_size.x, heightmap.outer.map_size.y);
 
 			float quad_size = (float)sz / (float)TERRAIN_CHUNK_SZ;
 
@@ -255,8 +255,8 @@ struct TerrainRenderer {
 		}
 
 		if (dbg) {
-			g_dbgdraw.wire_quad(float3(0 - (float2)heightmap.map_size      *0.5f, 0), (float2)heightmap.map_size,       lrgba(0,0,0,1));
-			g_dbgdraw.wire_quad(float3(0 - (float2)heightmap.outer_map_size*0.5f, 0), (float2)heightmap.outer_map_size, lrgba(0,0,0,1));
+			g_dbgdraw.wire_quad(float3(0 - (float2)heightmap.inner.map_size*0.5f, 0), (float2)heightmap.inner.map_size, lrgba(0,0,0,1));
+			g_dbgdraw.wire_quad(float3(0 - (float2)heightmap.outer.map_size*0.5f, 0), (float2)heightmap.outer.map_size, lrgba(0,0,0,1));
 		}
 	}
 
@@ -354,10 +354,10 @@ struct TerrainRenderer {
 				{ "contours_tex", *texs.contours, texs.sampler_normal },
 			}});
 			
-			shad_terrain->set_uniform("inv_map_size", 1.0f / (float2)heightmap.map_size);
-			shad_terrain->set_uniform("inv_outer_size", 1.0f / (float2)heightmap.outer_map_size);
-			shad_terrain->set_uniform("z_min", heightmap.z_min);
-			shad_terrain->set_uniform("z_range", heightmap.z_range);
+			shad_terrain->set_uniform("inv_map_size", 1.0f / (float2)heightmap.inner.map_size);
+			shad_terrain->set_uniform("inv_outer_size", 1.0f / (float2)heightmap.outer.map_size);
+			shad_terrain->set_uniform("height_min", heightmap.height_min);
+			shad_terrain->set_uniform("height_range", heightmap.height_range);
 
 			vbo.stream_instances(instances);
 			glBindVertexArray(vbo.vao);
@@ -1598,25 +1598,32 @@ struct OglRenderer : public Renderer {
 		auto sky_config = app.time.calc_sky_config(view);
 		
 		lighting.update(app, sky_config);
+		
+	#if RENDERER_DEBUG_LABELS
+		// Dummy call because first gl event in nsight is always bugged, and by doing this the next OGL_TRACE() actually works
+		glBindTexture(GL_TEXTURE_2D, 0);
+	#endif
+		
+		{
+			ZoneScopedN("uploads");
+			OGL_TRACE("uploads");
 
-		if (app.heightmap.textures_changed) {
-			textures.heightmap.upload(app.heightmap);
-			app.heightmap.textures_changed = false;
+			textures.heightmap.update_changes(app.heightmap);
+
+			if (app.assets.assets_reloaded) {
+				ZoneScopedN("assets_reloaded");
+				entity_render.upload_meshes(app.assets);
+			}
+
+			if (app.entities.buildings_changed) {
+				ZoneScopedN("buildings_changed");
+
+				upload_static_instances(app);
+			}
+
+			upload_car_instances(app, view);
+			Mesher::update_dynamic_traffic_signals(app.net, entity_render);
 		}
-
-		if (app.assets.assets_reloaded) {
-			ZoneScopedN("assets_reloaded");
-			entity_render.upload_meshes(app.assets);
-		}
-
-		if (app.entities.buildings_changed) {
-			ZoneScopedN("buildings_changed");
-
-			upload_static_instances(app);
-		}
-
-		upload_car_instances(app, view);
-		Mesher::update_dynamic_traffic_signals(app.net, entity_render);
 
 		{
 			ZoneScopedN("setup");

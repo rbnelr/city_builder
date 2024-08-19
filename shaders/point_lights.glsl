@@ -187,7 +187,7 @@ void main () {
 			return vec3(0);
 		
 		float total_light = integrate_falloff(ray_start, ray_dir, t0, t1);
-		return total_light * 0.0003 * light.intensity;
+		return total_light * 0.0002 * light.intensity;
 	}
 	
 	out vec3 frag_col;

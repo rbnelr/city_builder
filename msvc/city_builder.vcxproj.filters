@@ -162,9 +162,6 @@
     <ClInclude Include="..\src\engine\kisslib\macros.hpp">
       <Filter>engine\kisslib</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\engine\kisslib\profiling.hpp">
-      <Filter>engine\kisslib</Filter>
-    </ClInclude>
     <ClInclude Include="..\src\engine\kisslib\random.hpp">
       <Filter>engine\kisslib</Filter>
     </ClInclude>
@@ -193,9 +190,6 @@
       <Filter>engine\kisslib</Filter>
     </ClInclude>
     <ClInclude Include="..\src\engine\kisslib\string.hpp">
-      <Filter>engine\kisslib</Filter>
-    </ClInclude>
-    <ClInclude Include="..\src\engine\kisslib\string_buf.hpp">
       <Filter>engine\kisslib</Filter>
     </ClInclude>
     <ClInclude Include="..\src\engine\kisslib\strparse.hpp">

@@ -9,9 +9,10 @@
 #include "entities.hpp"
 #include "interaction.hpp"
 
-struct App;
+class App;
 
-struct Renderer {
+class Renderer {
+public:
 
 	virtual ~Renderer () {}
 	
@@ -366,56 +367,6 @@ inline void cone_test (View3D& view) {
 	}
 };
 
-struct CameraTrack {
-	// this implementation is dodgy
-
-	bool track = false;
-	bool track_rot = false;
-
-	bool cur_tracking = false;
-
-	float3 offset=0;
-	float rot_offset=0;
-
-	void imgui () {
-		ImGui::Checkbox("Track Selection", &track);
-		ImGui::SameLine();
-		ImGui::Checkbox("Track Rotation", &track_rot);
-	}
-
-	void update (sel_ptr selection, float3* cam_pos, float* cam_rot) {
-		auto* sel = selection.get<Person*>();
-
-		if (track && sel && sel->vehicle) {
-			float3 pos;
-			float ang;
-			sel->vehicle->calc_pos(&pos, &ang);
-			
-			if (!cur_tracking) {
-				//*cam_pos -= pos;
-				*cam_pos = 0;
-				*cam_rot -= ang;
-			}
-
-			offset = pos;
-			if (track_rot)
-				rot_offset = ang;
-
-			cur_tracking = true;
-		}
-		else {
-			if (cur_tracking) {
-				*cam_pos += offset;
-				*cam_rot += rot_offset;
-				offset = 0;
-				rot_offset = 0;
-			}
-
-			cur_tracking = false;
-		}
-	}
-};
-
 struct TestMapBuilder {
 	SERIALIZE(TestMapBuilder, _grid_n, _persons_n)
 	
@@ -634,16 +585,19 @@ struct TestMapBuilder {
 	}
 };
 
-struct App : public Engine {
+class App : public Engine {
+public:
 
 	App (): Engine{"City Builder"} {}
 	virtual ~App () {}
 	
 	friend SERIALIZE_TO_JSON(App) {
+		to_json(j["engine"], (Engine const&)t);
 		SERIALIZE_TO_JSON_EXPAND(cam, dbg_cam, assets, settings, time, interact, heightmap, net, test, test_map_builder);
 		t.renderer->to_json(j);
 	}
 	friend SERIALIZE_FROM_JSON(App) {
+		from_json(j["engine"], (Engine&)t);
 		SERIALIZE_FROM_JSON_EXPAND(cam, dbg_cam, assets, settings, time, interact, heightmap, net, test, test_map_builder);
 		t.renderer->from_json(j);
 	}
@@ -663,7 +617,6 @@ struct App : public Engine {
 
 		time.imgui();
 		interact.imgui(heightmap);
-		cam_track.imgui();
 
 		heightmap.imgui();
 		net.imgui();
@@ -694,7 +647,6 @@ struct App : public Engine {
 	std::unique_ptr<Renderer> renderer = create_ogl_backend();
 
 	GameCamera cam = GameCamera{ float3(8,8,0) * 1024 };
-	CameraTrack cam_track; // TODO: move to interact?
 	
 	GameTime time;
 	
@@ -719,15 +671,17 @@ struct App : public Engine {
 
 	Test test;
 
-	View3D update () {
-		ZoneScoped;
+	View3D update_camera (CameraTrack& track) {
+		
+		track.update(interact.selection, &cam.orbit_pos, &cam.rot_aer.x);
 		
 		if (input.buttons[KEY_P].went_down) {
 			view_dbg_cam = !view_dbg_cam;
 			if (view_dbg_cam) {
-				auto tmp_view = cam.clac_view((float2)input.window_size, cam_track.offset, cam_track.rot_offset);
-				dbg_cam.rot_aer = cam.rot_aer;
-				dbg_cam.pos = tmp_view.cam_pos;
+				// move dbg cam to position of real camera
+				// use previous frame camera (cam not updated yet) to position dbg cam
+				auto view = cam.clac_view((float2)input.window_size, track.offset, track.rot_offset);
+				dbg_cam.pos = view.cam_pos;
 
 				dbg_cam_cursor_was_enabled = input.cursor_enabled;
 				input.set_cursor_mode(*this, false);
@@ -736,39 +690,44 @@ struct App : public Engine {
 				input.set_cursor_mode(*this, dbg_cam_cursor_was_enabled);
 			}
 		}
+		
+		View3D view;
+		if (!view_dbg_cam) {
+			view = cam.update(input, (float2)input.window_size, track.offset, track.rot_offset);
+		}
+		else {
+			view = dbg_cam.update(input, (float2)input.window_size);
+		}
+
+		return view;
+	}
+
+	View3D update () {
+		ZoneScoped;
+		
+		time.update(input);
 
 		test_map_builder.update(assets, entities, net, interact, sim_rand);
 
-		time.update(input);
-		
-		cam_track.update(interact.selection, &cam.orbit_pos, &cam.rot_aer.x);
-
-		//view = view_dbg_cam ?
-		//	dbg_cam.update(input, (float2)input.window_size) :
-		//	cam    .update(input, (float2)input.window_size, cam_track.offset, cam_track.rot_offset);
-
 		net.simulate(*this);
-		
-		// TODO: why did we need to update cam_track twice? because network changes positions? why is it needed before net.simulate then?
-		cam_track.update(interact.selection, &cam.orbit_pos, &cam.rot_aer.x);
 
-		View3D view = view_dbg_cam ?
-			dbg_cam.update(input, (float2)input.window_size) :
-			cam    .update(input, (float2)input.window_size, cam_track.offset, cam_track.rot_offset);
+	////
+		View3D view = update_camera(interact.cam_track);
 		
 		//test.update(input, view);
-		time.visualize_planet(view);
-		time.calc_sky_config(view);
-
-		net.draw_debug(*this, view);
-
-		g_dbgdraw.axis_gizmo(view, input.window_size);
 
 		// select after updating positions
 		interact.update(heightmap, entities, net, view, input);
 
 		//cone_test(view);
+		
+	//// Visually relevant
+		time.visualize_planet(view);
+		time.calc_sky_config(view);
 
+		net.draw_debug(*this, view);
+		
+		g_dbgdraw.axis_gizmo(view, input.window_size);
 		return view;
 	}
 

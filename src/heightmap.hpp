@@ -1,6 +1,11 @@
 #pragma once
 #include "common.hpp"
 
+// This heightmap implementation currently has the problem that 16 bit precision is not enough to to
+// small scale terraforming, because the delta heights round to 0!
+// No idea what the solution is, could switch to float values everywhere, but heightmap already takes lots of memory
+// Hybrid float and 16bit are probably too complicated and bug prone (remember can't ever move terrain just by save/loading etc., or roadas might get buried)
+
 class Heightmap {
 	friend SERIALIZE_TO_JSON(Heightmap)   { SERIALIZE_TO_JSON_EXPAND(inner, outer, height_min, height_range)
 		t.save_binary();
@@ -49,18 +54,18 @@ public:
 
 			return lerp(lerp(a, b, t.x), lerp(c, d, t.x), t.y);
 		}
-	
+		
 		template <typename FUNC>
 		void edit_in_rect (Heightmap& map, float2 pos, float radius, FUNC func) {
 			// do all math in texel coords
 			float2 center = (pos / (float2)map_size + 0.5f) * (float2)data.size;
 			float2 rad = (radius / (float2)map_size) * (float2)data.size; // 2d because map could potentially be non-square and have non square pixels; weird.
 
-			int2 min = clamp(floori(center - rad), int2(0), data.size);
-			int2 max = clamp( ceili(center + rad), int2(0), data.size); // exclusive
+			int2 lo = clamp(floori(center - rad), int2(0), data.size);
+			int2 hi = clamp( ceili(center + rad), int2(0), data.size); // exclusive
 
-			for (int y=min.y; y<max.y; ++y)
-			for (int x=min.x; x<max.x; ++x) {
+			for (int y=lo.y; y<hi.y; ++y)
+			for (int x=lo.x; x<hi.x; ++x) {
 				float2 texel_center = (float2)int2(x,y) + 0.5f;
 				float2 uv = (texel_center - center) / rad; // uv in [-1,+1]
 				
@@ -69,8 +74,85 @@ public:
 				data.get(x, y) = (pixel_t)roundi(clamp((height - map.height_min) / map.height_range, 0.0f, 1.0f) * (float)UINT16_MAX);
 			}
 
-			if (max.x > min.x && max.y > min.y)
-				dirty_rect.add(RectInt{ min, max-1 });
+			if (hi.x > lo.x && hi.y > lo.y)
+				dirty_rect.add(RectInt{ lo, hi-1 });
+		}
+		
+		template <typename FUNC>
+		void gaussian_blur_rect (Heightmap& map, float2 pos, float radius, float sigma, FUNC func) {
+			// do all math in texel coords
+			float2 center = (pos / (float2)map_size + 0.5f) * (float2)data.size;
+			float2 rad = (radius / (float2)map_size) * (float2)data.size; // 2d because map could potentially be non-square and have non square pixels; weird.
+
+			int2 lo = clamp(floori(center - rad), int2(0), data.size);
+			int2 hi = clamp( ceili(center + rad), int2(0), data.size); // exclusive
+			int2 size = hi - lo;
+
+			// gaussian blur function (how much pixels affect other based on distance) technically never reaches zero
+			// but at radius=3*sigma it reaches ~0.3% contribution, which should be negligble
+			int kernel_size = ceili(sigma * 3.0f);
+
+			auto gauss_weight = [] (float x, float sigma) {
+				return exp(x*x / (-2.0f * sigma*sigma));
+			};
+
+			float* copy  = new float[size.x * size.y];
+			float* passX = new float[size.x * size.y];
+			float* passY = new float[size.x * size.y];
+			
+			for (int y=0; y<size.y; ++y)
+			for (int x=0; x<size.x; ++x) {
+				copy[y*size.x + x] = (float)data.get(x + lo.x, y + lo.y);
+			}
+
+			for (int y=0; y<size.y; ++y)
+			for (int x=0; x<size.x; ++x) {
+				int kernLo = max(x - kernel_size, 0);
+				int kernHi = min(x + kernel_size + 1, size.x);
+
+				float sum = 0, total_weight = 0;
+				for (int i=kernLo; i<kernHi; ++i) {
+					float weight = gauss_weight((float)abs(i - x), sigma);
+					float val = (float)copy[y*size.x + i];
+					sum += val * weight;
+					total_weight += weight;
+				}
+
+				passX[y*size.x + x] = sum / total_weight;
+			}
+			
+			for (int y=0; y<size.y; ++y)
+			for (int x=0; x<size.x; ++x) {
+				int kernLo = max(y - kernel_size, 0);
+				int kernHi = min(y + kernel_size + 1, size.y);
+
+				float sum = 0, total_weight = 0;
+				for (int i=kernLo; i<kernHi; ++i) {
+					float weight = gauss_weight((float)abs(i - y), sigma);
+					float val = (float)passX[i*size.x + x];
+					sum += val * weight;
+					total_weight += weight;
+				}
+
+				passY[y*size.x + x] = sum / total_weight;
+			}
+
+			for (int y=lo.y; y<hi.y; ++y)
+			for (int x=lo.x; x<hi.x; ++x) {
+				float2 texel_center = (float2)int2(x,y) + 0.5f;
+				float2 uv = (texel_center - center) / rad; // uv in [-1,+1]
+				
+				float val = (float)data.get(x,y);
+				val = func(val, passY[(x-lo.x) + (y-lo.y)*size.x], uv);
+				data.get(x,y) = (pixel_t)roundi(clamp(val, 0.0f, (float)UINT16_MAX));
+			}
+
+			delete copy;
+			delete passX;
+			delete passY;
+
+			if (hi.x > lo.x && hi.y > lo.y)
+				dirty_rect.add(RectInt{ lo, hi-1 });
 		}
 	};
 
@@ -147,8 +229,12 @@ public:
 	}
 
 	template <typename FUNC>
-	void edit_in_rect (float2 pos, float r, FUNC func) {
-		inner.edit_in_rect(*this, pos, r, func);
+	void edit_in_rect (float2 pos, float radius, FUNC func) {
+		inner.edit_in_rect(*this, pos, radius, func);
+	}
+	template <typename FUNC>
+	void gaussian_blur_rect (float2 pos, float radius, float sigma, FUNC func) {
+		inner.gaussian_blur_rect(*this, pos, radius, sigma, func);
 	}
 	
 	void imgui () {
@@ -300,11 +386,12 @@ inline constexpr Button TerraformToolButton2 = MOUSE_BUTTON_RIGHT;
 
 // radius from [0,1] to brush falloff
 struct TerraformBrush {
-	SERIALIZE(TerraformBrush, exponent)
+	//SERIALIZE(TerraformBrush, exponent)
 	
-	float exponent = 3;
+	//float exponent = 3;
 	inline float calc (float r) {
-		return 1.0f - powf(r, exponent);
+		//return 1.0f - powf(r, exponent);
+		return 1.0f - smoothstep(r);
 	}
 };
 
@@ -330,7 +417,7 @@ public:
 		if (!add && !sub)
 			return;
 
-		float speed = (add ? +1:-1) * strength * radius * input.real_dt;
+		float speed = (add ? +1.0f : -1.0f) * strength * radius * input.real_dt;
 
 		map.edit_in_rect(cursor_pos, radius, [&] (float height, float2 uv) {
 			float r = length(uv);
@@ -342,12 +429,11 @@ public:
 	}
 };
 class TerraformFlatten : public TerraformTool {
-	SERIALIZE(TerraformFlatten, strength, restrict_direction)
-
-	float strength = 10;
-	int restrict_direction = 0;
+	SERIALIZE(TerraformFlatten, target_height, strength, restrict_direction)
 
 	float target_height = 0;
+	float strength = 10;
+	int restrict_direction = 0;
 
 	// TODO: Add height visualization (transparent plane that goes more transparent behind terrain?)
 public:
@@ -385,9 +471,40 @@ public:
 		}
 	}
 };
+class TerraformSmooth : public TerraformTool {
+	SERIALIZE(TerraformSmooth, strength)
+
+	float strength = 1;
+
+	// TODO: Add height visualization (transparent plane that goes more transparent behind terrain?)
+public:
+	virtual const char* name () { return "Smooth"; };
+	virtual void imgui (Heightmap& map) {
+		ImGui::SliderFloat("Strength", &strength, 0,1, "%.1f", ImGuiSliderFlags_Logarithmic);
+	}
+	virtual void edit_terrain (Heightmap& map, float3 cursor_pos, float radius, TerraformBrush& brush, Input& input) {
+		if (input.buttons[TerraformToolButton].is_down) {
+			// does this make sense? higher sigma essentially means a larger blur radius (blur radius, not radius that we apply the blur to!)
+			// gaussian blurs applied multiple times are equivalent to adding the sigma and doing one blur, so it should probably be scaled by dt
+			// we also want larger radius (editing zoomed out) to blur more
+			float gaussian_sigma = strength * radius * input.real_dt;
+		
+			map.gaussian_blur_rect(cursor_pos, radius, gaussian_sigma, [&] (float old_height, float smoothed_height, float2 uv) {
+				float r = length(uv);
+				if (r < 1.0f) {
+					return lerp(old_height, smoothed_height, brush.calc(r));
+				}
+				return old_height;
+			});
+		}
+	}
+};
 
 class HeightmapTerraform {
-	SERIALIZE(HeightmapTerraform, paint_radius, brush, cur_tool, move_tool, flatten_tool)
+	//SERIALIZE(HeightmapTerraform, paint_radius, move_tool, flatten_tool, smooth_tool)
+	// It feels better when these things are not kept across restarts, resonable defaults feel better?
+	// cur_tool is also UI state, ie which button is clicked, which no one expect to be restored ever
+	SERIALIZE_NONE(HeightmapTerraform)
 
 	float paint_radius = 25;
 
@@ -398,11 +515,11 @@ class HeightmapTerraform {
 
 	TerraformBrush brush;
 
-	TerraformMove move_tool;
-	TerraformFlatten flatten_tool;
+	std::unique_ptr<TerraformMove   > move_tool    = std::make_unique<TerraformMove>();
+	std::unique_ptr<TerraformFlatten> flatten_tool = std::make_unique<TerraformFlatten>();
+	std::unique_ptr<TerraformSmooth > smooth_tool  = std::make_unique<TerraformSmooth>();
 
-	TerraformTool* tools[2] = { &move_tool, &flatten_tool };
-	int cur_tool = 0;
+	TerraformTool* cur_tool = nullptr;
 
 	void update_and_show_edit_circle (float3 cursor_pos, Input& input) {
 		paint_radius = max(paint_radius, 0.0f);
@@ -448,21 +565,24 @@ public:
 	void imgui (Heightmap& map) {
 		ImGui::SeparatorText("Terraform");
 
-		auto tool_button = [&] (int tool) {
+		auto tool_button = [&] (TerraformTool* tool) {
 			bool active = tool == cur_tool;
 			//ImGui::Setstyle
-			auto str = prints(active ? "[%s]###%s":"%s###%s", tools[tool]->name(), tools[tool]->name());
+			auto str = prints(active ? "[%s]###%s":"%s###%s", tool->name(), tool->name());
 			if (ImGui::ButtonEx(str.c_str(), ImVec2(80, 20), ImGuiButtonFlags_PressedOnClick))
-				cur_tool = tool;
+				cur_tool = !active ? tool : nullptr;
 		};
-		tool_button(0);
+		tool_button(move_tool.get());
 		ImGui::SameLine();
-		tool_button(1);
+		tool_button(flatten_tool.get());
+		ImGui::SameLine();
+		tool_button(smooth_tool.get());
 
 		ImGui::Text("Paint Radius  [R] to Drag-Change");
 		ImGui::SliderFloat("##paint radius", &paint_radius, 0, 64*1024, "%.0f", ImGuiSliderFlags_Logarithmic);
 		
-		tools[cur_tool]->imgui(map);
+		if (cur_tool)
+			cur_tool->imgui(map);
 	}
 
 	void update (Heightmap& map, View3D& view, Input& input) {
@@ -472,7 +592,7 @@ public:
 		
 		update_and_show_edit_circle(cursor_pos.value(), input);
 
-		if (!dragging_lock_buttons)
-			tools[cur_tool]->edit_terrain(map, cursor_pos.value(), paint_radius, brush, input);
+		if (!dragging_lock_buttons && cur_tool)
+			cur_tool->edit_terrain(map, cursor_pos.value(), paint_radius, brush, input);
 	}
 };

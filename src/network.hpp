@@ -4,7 +4,7 @@
 
 struct Person;
 struct Building;
-struct App;
+class App;
 
 namespace network {
 // TODO: naming

@@ -375,7 +375,7 @@ void debug_node (App& app, Node* node, View3D const& view) {
 	//		g_dbgdraw.wire_circle(v->cit->center(), CAR_SIZE*0.5f, lrgba(1,0,0.5f,1));
 	//
 	//		g_dbgdraw.text.draw_text(prints("%d", i++),
-	//			30, 1, g_dbgdraw.text.map_text(v->cit->center(), app.view));
+	//			30, 1, g_dbgdraw.text.map_text(v->cit->center(), view));
 	//	}
 	//}
 	{

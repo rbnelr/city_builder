@@ -199,6 +199,23 @@ mat3 mat_rotate_eulerXYZ (float x, float y, float z) {
 	);
 }
 
+// standard dodgy way of coming up with a tangent space based on normal
+//  if no tanget vector is available
+mat3 dodgy_TBN (vec3 normal) {
+	// up is either up if normal to side, or alternatively to the right (this generate discontinuity, which is why this is dodgy) 
+	vec3 up = abs(normal.z) < 0.999 ? vec3(0,0,1) : vec3(1,0,0);
+	// tangent points to right of surface
+	vec3 tangent = normalize( cross(up, normal) );
+	// bitangent points towards up
+	vec3 bitangent = cross(normal, tangent);
+	// regenerate tangent vector in case it was not orthogonal to normal
+	tangent = cross(bitangent, normal);
+	
+	// build matrix that does tangent space -> world space
+	return mat3(normalize(tangent), normalize(bitangent), normal);
+}
+
+#if defined(_FRAGMENT)
 // TODO: not sure if this code is wrong, or my curb normals are wrong?
 //  hard to debug normals visually, maybe with indirect dbg arrows?
 vec3 normal_map (vec3 normal, vec3 tangent, vec3 norm_sampl) {
@@ -219,24 +236,9 @@ vec3 normal_map (vec3 normal, vec3 tangent, vec3 norm_sampl) {
 	return TBN * norm_sampl;
 }
 
-// standard dodgy way of coming up with a tangent space based on normal
-//  if no tanget vector is available
-mat3 dodgy_TBN (vec3 normal) {
-	// up is either up if normal to side, or alternatively to the right (this generate discontinuity, which is why this is dodgy) 
-	vec3 up = abs(normal.z) < 0.999 ? vec3(0,0,1) : vec3(1,0,0);
-	// tangent points to right of surface
-	vec3 tangent = normalize( cross(up, normal) );
-	// bitangent points towards up
-	vec3 bitangent = cross(normal, tangent);
-	// regenerate tangent vector in case it was not orthogonal to normal
-	tangent = cross(bitangent, normal);
-	
-	// build matrix that does tangent space -> world space
-	return mat3(normalize(tangent), normalize(bitangent), normal);
-}
-
 uniform sampler2D grid_tex;
-uniform sampler2D contours_tex;
+uniform float contour_width_px = 2.0;
+uniform float contour_spacing = 1.0;
 
 vec3 overlay_grid (vec3 col, vec3 pix_pos) {
 	vec2 uv = pix_pos.xy / 80.0;
@@ -245,7 +247,21 @@ vec3 overlay_grid (vec3 col, vec3 pix_pos) {
 }
 
 vec3 overlay_countour_lines (vec3 col, vec3 pix_pos) {
-	float height = pix_pos.z / 0.1;
-	float c = texture(contours_tex, vec2(height, 0.5)).r;
+	float val = pix_pos.z / contour_spacing;
+	// distance to next contour line, 0=on contour line, 0.5=halfway between
+	float f = abs(fract(val - 0.5) - 0.5);
+	// how much the contour value changes between pixels (eg. 10 pixels between countour lines => 0.1)
+	float df = fwidth(val);
+	
+	// f / df => [0,1] is now 0-1 pixel away from contour line
+	// rest creates a antialised lines of contour_width_px out of that
+	// unfortunately this won't work for perfectly flat triangles (constant pix_pos.z)
+	// or rather those triangles are solid white if they happen to lie on a contour line height
+	// we have to make triangles have no line
+	float c = 0.0;
+	if (df > 0.0001)
+		c = 1.0 - clamp(f / df - (contour_width_px-1.0)*0.5, 0.0, 1.0);
+	
 	return mix(col, vec3(c), vec3(0.5));
 }
+#endif

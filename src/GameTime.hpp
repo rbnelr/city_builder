@@ -136,7 +136,7 @@ struct GameTime {
 		
 		ImGui::Separator();
 
-		if (ImGui::TreeNode("Time of Day")) {
+		if (ImGui::TreeNodeEx("Time of Day", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGui::SetNextItemWidth(-70.0f);
 			ImGui::SliderFloat("##Time of Day", &time_of_day, 0,1);
 			ImGui::SameLine();
@@ -147,7 +147,7 @@ struct GameTime {
 		}
 		ImGui::Separator();
 
-		if (ImGui::TreeNode("Time of Year")) {
+		if (ImGui::TreeNodeEx("Time of Year", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGui::SetNextItemWidth(-70.0f);
 			ImGui::SliderFloat("##Time of Year", &time_of_year, 0,1);
 			ImGui::SameLine();
@@ -158,10 +158,13 @@ struct GameTime {
 		}
 		ImGui::Separator();
 		
-		ImGui::SliderAngle("planet_axial_tilt", &planet_axial_tilt, -90, +90, "%.3f deg");
-		ImGui::SliderAngle("map_latitude", &map_latitude, -90, 90, "%.3f deg");
-		ImGui::SliderAngle("map_rotation", &map_rotation, 0, 360, "%.3f deg");
-			
+		if (ImGui::TreeNode("Details")) {
+			ImGui::SliderAngle("Planet Axial Tilt", &planet_axial_tilt, -90, +90, "%.3f deg");
+			ImGui::SliderAngle("Map Latitude", &map_latitude, -90, 90, "%.3f deg");
+			ImGui::SliderAngle("Map Rotation", &map_rotation, 0, 360, "%.3f deg");
+			ImGui::TreePop();
+		}
+
 		ImGui::PopID();
 	}
 	

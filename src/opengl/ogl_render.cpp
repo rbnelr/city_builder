@@ -123,7 +123,7 @@ struct TerrainRenderer {
 	int max_lod = 10;
 
 	void imgui () {
-		if (imgui_Header("TerrainRenderer", true)) {
+		if (imgui_Header("TerrainRenderer")) {
 
 			ImGui::Checkbox("dbg_lod", &dbg_lod);
 
@@ -1345,8 +1345,9 @@ struct Mesher {
 	}
 };
 
-struct OglRenderer : public Renderer {
+class OglRenderer : public Renderer {
 	SERIALIZE(OglRenderer, lighting, passes, entity_render)
+public:
 	
 	virtual void to_json (nlohmann::ordered_json& j) {
 		j["ogl_renderer"] = *this;
@@ -1429,7 +1430,7 @@ struct OglRenderer : public Renderer {
 		}
 
 		void imgui () {
-			if (imgui_Header("Lighting", true)) {
+			if (imgui_Header("Lighting")) {
 
 				imgui_ColorEdit("sun_col", &sun_col);
 				imgui_ColorEdit("sky_col", &sky_col);

@@ -1,14 +1,21 @@
 {
+	"engine": {
+		"input": {
+			"mouselook_sens": 1.0,
+			"mouselook_sens_x_scale": 1.0
+		},
+		"vsync": false
+	},
 	"cam": {
 		"orbit_pos": [
-			642.4190063476563,
-			386.9363098144531,
+			345.5959777832031,
+			1048.505126953125,
 			0.0
 		],
-		"zoom_target": -6.25,
+		"zoom_target": -7.75,
 		"rot_aer": [
-			-1.57346773147583,
-			-0.7281423807144165,
+			0.5041992664337158,
+			-0.35605019330978394,
 			0.0
 		],
 		"vfov": 0.7520636916160583,
@@ -449,20 +456,7 @@
 		"map_rotation": 1.1087902784347534
 	},
 	"interact": {
-		"terraform": {
-			"paint_radius": 10.0,
-			"brush": {
-				"exponent": 3.0
-			},
-			"cur_tool": 1,
-			"move_tool": {
-				"strength": 1.0
-			},
-			"flatten_tool": {
-				"strength": 10.0,
-				"restrict_direction": 0
-			}
-		}
+		"terraform": null
 	},
 	"heightmap": {
 		"inner": {

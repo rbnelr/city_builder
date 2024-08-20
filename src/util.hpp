@@ -308,9 +308,10 @@ inline bool intersect_ray_zcircle (Ray const& ray, float3 center, float r, float
 }
 
 template <typename... TYPES>
-struct NullableVariant {
+class NullableVariant {
 	typedef std::monostate null_t;
 	std::variant<null_t, TYPES...> var;
+public:
 
 	template <typename T>
 	NullableVariant (T ref) {
@@ -343,7 +344,9 @@ struct NullableVariant {
 		return std::holds_alternative<T>(var) ? std::get<T>(var) : nullptr;
 	}
 
-	operator bool () const { return var.index() != 0; }
+	explicit operator bool () const { return var.index() != 0; }
+	bool operator== (NullableVariant const& r) const { return var == r.var; }
+	bool operator!= (NullableVariant const& r) const { return var != r.var; }
 };
 
 struct SelCircle {

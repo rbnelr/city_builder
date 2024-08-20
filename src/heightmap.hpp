@@ -56,7 +56,7 @@ public:
 		}
 		
 		template <typename FUNC>
-		void edit_in_rect (Heightmap& map, float2 pos, float radius, FUNC func) {
+		_FORCEINLINE void edit_in_rect (Heightmap& map, float2 pos, float radius, FUNC func) {
 			// do all math in texel coords
 			float2 center = (pos / (float2)map_size + 0.5f) * (float2)data.size;
 			float2 rad = (radius / (float2)map_size) * (float2)data.size; // 2d because map could potentially be non-square and have non square pixels; weird.
@@ -79,7 +79,7 @@ public:
 		}
 		
 		template <typename FUNC>
-		void gaussian_blur_rect (Heightmap& map, float2 pos, float radius, float sigma, FUNC func) {
+		_FORCEINLINE void gaussian_blur_rect (Heightmap& map, float2 pos, float radius, float sigma, FUNC func) {
 			// do all math in texel coords
 			float2 center = (pos / (float2)map_size + 0.5f) * (float2)data.size;
 			float2 rad = (radius / (float2)map_size) * (float2)data.size; // 2d because map could potentially be non-square and have non square pixels; weird.
@@ -181,6 +181,7 @@ public:
 	// TODO: Actually have this return a resonable height based on cursor position
 	// Raymarch and sample_height each time? Can we avoid huge number of steps?
 	std::optional<float3> raycast_cursor (View3D& view, Input& input) {
+		ZoneScoped;
 	#if 0
 		Ray ray;
 		if (!view.cursor_ray(input, &ray.pos, &ray.dir))
@@ -194,13 +195,16 @@ public:
 		float z = sample_height(pos2d);
 		return float3(pos2d, z);
 	#else
-		// Super slow and not accurate, only real way to accelerate this would probably be to store min max range a larger grid
+		// This is wayyy too slow!
+		// And not even completely accurate
+		// could accelarate using min/max heights in a larger grid
+		// but edge case of shallow rays should still avoid doing sample_bilinear_clamped, since its super slow as well
 		Ray ray;
 		if (!view.cursor_ray(input, &ray.pos, &ray.dir))
 			return {};
 
 		float2 texel_size = (float2)inner.map_size / (float2)inner.data.size;
-		float step = min(texel_size.x, texel_size.y) * 0.1f;
+		float step = min(texel_size.x, texel_size.y);
 
 		float t = 0;
 		for (;;) {
@@ -229,11 +233,11 @@ public:
 	}
 
 	template <typename FUNC>
-	void edit_in_rect (float2 pos, float radius, FUNC func) {
+	_FORCEINLINE void edit_in_rect (float2 pos, float radius, FUNC func) {
 		inner.edit_in_rect(*this, pos, radius, func);
 	}
 	template <typename FUNC>
-	void gaussian_blur_rect (float2 pos, float radius, float sigma, FUNC func) {
+	_FORCEINLINE void gaussian_blur_rect (float2 pos, float radius, float sigma, FUNC func) {
 		inner.gaussian_blur_rect(*this, pos, radius, sigma, func);
 	}
 	
@@ -416,6 +420,7 @@ public:
 		bool sub = input.buttons[TerraformToolButton2].is_down;
 		if (!add && !sub)
 			return;
+		ZoneScoped;
 
 		float speed = (add ? +1.0f : -1.0f) * strength * radius * input.real_dt;
 
@@ -455,6 +460,7 @@ public:
 			target_height = map.sample_height(cursor_pos);
 		}
 		else if (input.buttons[TerraformToolButton].is_down) {
+			ZoneScoped;
 			float speed = strength * radius * input.real_dt;
 			
 			map.edit_in_rect(cursor_pos, radius, [&] (float height, float2 uv) {
@@ -484,6 +490,7 @@ public:
 	}
 	virtual void edit_terrain (Heightmap& map, float3 cursor_pos, float radius, TerraformBrush& brush, Input& input) {
 		if (input.buttons[TerraformToolButton].is_down) {
+			ZoneScoped;
 			// does this make sense? higher sigma essentially means a larger blur radius (blur radius, not radius that we apply the blur to!)
 			// gaussian blurs applied multiple times are equivalent to adding the sigma and doing one blur, so it should probably be scaled by dt
 			// we also want larger radius (editing zoomed out) to blur more

@@ -4,6 +4,7 @@
 #include "engine/opengl.hpp"
 #include "agnostic_render.hpp"
 #include "gl_dbgdraw.hpp"
+#include "textures.hpp"
 #include "render_passes.hpp"
 #include "engine/text_render.hpp"
 
@@ -351,7 +352,6 @@ struct TerrainRenderer {
 				{"terrain_diffuse", *texs.terrain_diffuse, texs.sampler_normal},
 
 				{ "grid_tex", *texs.grid, texs.sampler_normal },
-				{ "contours_tex", *texs.contours, texs.sampler_normal },
 			}});
 			
 			shad_terrain->set_uniform("inv_map_size", 1.0f / (float2)heightmap.inner.map_size);

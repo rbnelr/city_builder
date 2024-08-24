@@ -258,7 +258,7 @@
     <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_glfw.h" />
     <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.h" />
     <ClInclude Include="..\src\entities.hpp" />
-    <ClInclude Include="..\src\GameTime.hpp" />
+    <ClInclude Include="..\src\game_time.hpp" />
     <ClInclude Include="..\src\heightmap.hpp" />
     <ClInclude Include="..\src\interaction.hpp" />
     <ClInclude Include="..\src\network.hpp" />
@@ -311,6 +311,7 @@
       </PrecompiledHeaderFile>
     </ClCompile>
     <ClInclude Include="..\src\opengl\render_passes.hpp" />
+    <ClInclude Include="..\src\opengl\textures.hpp" />
     <ClInclude Include="..\src\textures.hpp" />
     <ClInclude Include="..\src\util.hpp" />
   </ItemGroup>
@@ -402,7 +403,7 @@
       <PreprocessorDefinitions>IMGUI_USER_CONFIG="engine/dear_imgui_custom/imconfig.hpp";BUILD_DEBUG;IMGUI_DEMO;_DEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)..\src\;$(SolutionDir)..\src\engine\;$(SolutionDir)..\src\engine\dear_imgui;$(SolutionDir)..\src\engine\dear_imgui_custom;$(SolutionDir)..\src\engine\kisslib\nlohmann_json\include;$(SolutionDir)..\src\engine\tracy\Public;$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\include;$(SolutionDir)..\..\libs\Assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
@@ -421,7 +422,7 @@
       <PreprocessorDefinitions>IMGUI_USER_CONFIG="engine/dear_imgui_custom/imconfig.hpp";BUILD_RELEASE;NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)..\src\;$(SolutionDir)..\src\engine\;$(SolutionDir)..\src\engine\dear_imgui;$(SolutionDir)..\src\engine\dear_imgui_custom;$(SolutionDir)..\src\engine\kisslib\nlohmann_json\include;$(SolutionDir)..\src\engine\tracy\Public;$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\include;$(SolutionDir)..\..\libs\Assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
@@ -443,7 +444,7 @@
       <PreprocessorDefinitions>IMGUI_USER_CONFIG="engine/dear_imgui_custom/imconfig.hpp";BUILD_TRACY;NDEBUG;TRACY_ENABLE;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)..\src\;$(SolutionDir)..\src\engine\;$(SolutionDir)..\src\engine\dear_imgui;$(SolutionDir)..\src\engine\dear_imgui_custom;$(SolutionDir)..\src\engine\kisslib\nlohmann_json\include;$(SolutionDir)..\src\engine\tracy\Public;$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\include;$(SolutionDir)..\..\libs\Assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
@@ -465,7 +466,7 @@
       <PreprocessorDefinitions>IMGUI_USER_CONFIG="engine/dear_imgui_custom/imconfig.hpp";BUILD_VALIDATE;NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)..\src\;$(SolutionDir)..\src\engine\;$(SolutionDir)..\src\engine\dear_imgui;$(SolutionDir)..\src\engine\dear_imgui_custom;$(SolutionDir)..\src\engine\kisslib\nlohmann_json\include;$(SolutionDir)..\src\engine\tracy\Public;$(SolutionDir)..\..\libs\glfw-3.3.8.bin.WIN64\include;$(SolutionDir)..\..\libs\Assimp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>

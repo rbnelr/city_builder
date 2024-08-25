@@ -114,24 +114,24 @@ struct CubemapFace {
 };
 const CubemapFace _cubemap_faces[6] = {
 	// GL_TEXTURE_CUBE_MAP_POSITIVE_X, right in opengl and in my world
-	CubemapFace( vec3(+1,0,0), vec3(0,-1,0), vec3(0,0,+1) ),
+	CubemapFace( vec3(+1,0,0), vec3(0,-1,0), vec3(0,0,-1) ),
 	// GL_TEXTURE_CUBE_MAP_NEGATIVE_X
-	CubemapFace( vec3(-1,0,0), vec3(0,+1,0), vec3(0,0,+1) ),
+	CubemapFace( vec3(-1,0,0), vec3(0,+1,0), vec3(0,0,-1) ),
 	// GL_TEXTURE_CUBE_MAP_POSITIVE_Y, supposedly up in opengl, but nsight puts it on the bottom, so this face becomes down for me
-	CubemapFace( vec3(0,0,-1), vec3(+1,0,0), vec3(0,+1,0) ),
+	CubemapFace( vec3(0,0,+1), vec3(+1,0,0), vec3(0,+1,0) ),
 	// GL_TEXTURE_CUBE_MAP_NEGATIVE_Y
-	CubemapFace( vec3(0,0,+1), vec3(+1,0,0), vec3(0,-1,0) ),
+	CubemapFace( vec3(0,0,-1), vec3(+1,0,0), vec3(0,-1,0) ),
 	// GL_TEXTURE_CUBE_MAP_POSITIVE_Z // forwad in opengl
-	CubemapFace( vec3(0,+1,0), vec3(+1,0,0), vec3(0,0,+1) ),
+	CubemapFace( vec3(0,+1,0), vec3(+1,0,0), vec3(0,0,-1) ),
 	// GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
-	CubemapFace( vec3(0,-1,0), vec3(-1,0,0), vec3(0,0,+1) ),
+	CubemapFace( vec3(0,-1,0), vec3(-1,0,0), vec3(0,0,-1) ),
 };
 // Map opengl/nsight's cubemap orientation to my z-up system
 vec4 readCubemap (samplerCube cubemap, vec3 dir_world) {
-	return texture(cubemap, vec3(dir_world.x, -dir_world.z, dir_world.y));
+	return texture(cubemap, vec3(dir_world.x, dir_world.z, dir_world.y));
 }
 vec4 readCubemapLod (samplerCube cubemap, vec3 dir_world, float lod) {
-	return textureLod(cubemap, vec3(dir_world.x, -dir_world.z, dir_world.y), lod);
+	return textureLod(cubemap, vec3(dir_world.x, dir_world.z, dir_world.y), lod);
 }
 
 #include "dbg_indirect_draw.glsl"

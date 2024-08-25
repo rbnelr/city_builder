@@ -964,7 +964,7 @@ struct Mesher {
 		float3 forw = normalizesafe(dir);
 		float3 right = float3(rotate90(-(float2)forw), 0); // cw rotate
 		float3 up = cross(right, forw);
-		float rot = deg(90.0f) + angle2d(forw);
+		float rot = angle2d(forw);
 
 		float2 shift = seg.asset->traffic_light_shift;
 		float3 pos = seg.pos_for_node(node) + right * shift.x + forw * shift.y;
@@ -1055,14 +1055,14 @@ struct Mesher {
 
 		V sL0  = { float3(         -width*0.5f              , 0, sidw_z), up,         tang, no_uv, sidewalk_tex_id };
 		V sL1  = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidw_z), up,         tang, no_uv, sidewalk_tex_id };
-		V sL1b = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidw_z), up,         tang, float2(0,1), curb_tex_id };
-		V sL2  = { float3(seg.asset->sidewalkL              , 0, sidw_z), diag_right, tang, float2(0,0.4f), curb_tex_id };
-		V sL3  = { float3(seg.asset->sidewalkL              , 0, road_z), right,      tang, float2(0,0), curb_tex_id };
+		V sL1b = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidw_z), up,         tang, float2(0,0), curb_tex_id };
+		V sL2  = { float3(seg.asset->sidewalkL              , 0, sidw_z), diag_right, tang, float2(0,0.6f), curb_tex_id };
+		V sL3  = { float3(seg.asset->sidewalkL              , 0, road_z), right,      tang, float2(0,1), curb_tex_id };
 		V r0   = { float3(seg.asset->sidewalkL              , 0, road_z), up, tang, no_uv, asphalt_tex_id };
 		V r1   = { float3(seg.asset->sidewalkR              , 0, road_z), up, tang, no_uv, asphalt_tex_id };
-		V sR0  = { float3(seg.asset->sidewalkR              , 0, road_z), -right,    tang, float2(0,0), curb_tex_id };
-		V sR1  = { float3(seg.asset->sidewalkR              , 0, sidw_z), diag_left, tang, float2(0,0.4f), curb_tex_id };
-		V sR2b = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidw_z), up,        tang, float2(0,1), curb_tex_id };
+		V sR0  = { float3(seg.asset->sidewalkR              , 0, road_z), -right,    tang, float2(0,1), curb_tex_id };
+		V sR1  = { float3(seg.asset->sidewalkR              , 0, sidw_z), diag_left, tang, float2(0,0.6f), curb_tex_id };
+		V sR2b = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidw_z), up,        tang, float2(0,0), curb_tex_id };
 		V sR2  = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidw_z), up,        tang, no_uv, sidewalk_tex_id };
 		V sR3  = { float3(         +width*0.5f              , 0, sidw_z), up,        tang, no_uv, sidewalk_tex_id };
 
@@ -1668,11 +1668,12 @@ public:
 			ZoneScopedN("shadow_pass");
 			OGL_TRACE("shadow_pass");
 
-			passes.shadowmap.draw_cascades(view, sky_config, state, [&] (View3D& view, Fbo& depth_fbo, int2 res, GLenum depth_format) {
+			//passes.shadowmap.draw_cascades(view, sky_config, state, [&] (View3D& view, Fbo& depth_fbo, int2 res, GLenum depth_format) {
+			passes.shadowmap.draw_cascades(view, sky_config, state, [&] (View3D& view, GLuint depth_tex) {
 				common_ubo.set_view(view);
 				
 				terrain_render.render_terrain(state, app.heightmap, textures, view, true);
-				clip_render.render(state, depth_fbo, res, depth_format, textures, true);
+				clip_render.render(state, depth_tex, true);
 		
 				network_render.render(state, textures, true);
 
@@ -1689,7 +1690,7 @@ public:
 			passes.begin_geometry_pass(state);
 
 			terrain_render.render_terrain(state, app.heightmap, textures, view);
-			clip_render.render(state, passes.gbuf.fbo, passes.renderscale.size, passes.gbuf.depth_format, textures);
+			clip_render.render(state, passes.gbuf.depth);
 
 			network_render.render(state, textures);
 			decal_render.render(state, passes.gbuf, textures);

@@ -25,6 +25,8 @@ VS2FS Vertex {
 		v.pos = pos;
 		
 		vec2 world_uv = pos.xy * 0.4;
+		world_uv.y = 1.0 - world_uv.y; // all textures flipped!
+		
 		if (tex_id < 0) {
 			v.tex_id = -tex_id;
 			v.uv = world_uv;

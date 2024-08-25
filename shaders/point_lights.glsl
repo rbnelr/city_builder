@@ -28,10 +28,10 @@ void main () {
 	light.cone      = inst_cone;
 	light.intensity = inst_col;
 	
-	if (distance(light.pos, view.cam_pos) < 30.0) {
-		dbgdraw_point(light.pos, 0.5, vec4(1,1,0,1));
-		dbgdraw_vector(light.pos, light.dir * 3.0f, vec4(1,0.8f,0,1));
-	}
+	//if (distance(light.pos, view.cam_pos) < 30.0) {
+	//	dbgdraw_point(light.pos, 0.5, vec4(1,1,0,1));
+	//	dbgdraw_vector(light.pos, light.dir * 3.0f, vec4(1,0.8f,0,1));
+	//}
 	
 	gl_Position = view.world2clip * vec4(world_pos, 1.0);
 }

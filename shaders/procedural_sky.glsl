@@ -75,7 +75,9 @@ vec3 draw_clouds (vec3 col, float sun_stren, vec3 view_point, vec3 dir_world) {
 	if (dir_world.z > 0.0 && t >= 0.0) {
 		vec3 pos = view_point + t * dir_world;
 		
-		vec4 c = texture(clouds, pos.xy / lighting.clouds_sz + lighting.clouds_offset);
+		vec2 uv = pos.xy / lighting.clouds_sz + lighting.clouds_offset;
+		uv.y = 1.0 - uv.y; // all textures are flipped!
+		vec4 c = texture(clouds, uv);
 		
 		col = mix(col.rgb, c.rgb * sun_stren * 1.5, vec3(c.a * 0.8));
 	}

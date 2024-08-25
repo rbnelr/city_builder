@@ -40,7 +40,9 @@
 	}
 	
 	vec3 draw_skybox (in GbufResult g) {
-		vec3 col = procedural_sky(view.cam_pos, g.view_dir);
+		//vec3 col = readCubemap(night_sky, g.view_dir).rgb;
+		vec3 col = readCubemap(pbr_env_map, g.view_dir).rgb;
+		//vec3 col = procedural_sky(view.cam_pos, g.view_dir);
 		return col;
 	}
 	
@@ -86,7 +88,6 @@
 			//col = vec3(g.roughness);
 			
 			//col = overlay_grid(col, g.pos_world);
-			//col = overlay_countour_lines(col, g.pos_world);
 		}
 		else {
 			col = draw_skybox(g);

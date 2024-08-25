@@ -32,7 +32,7 @@ VS2FS Vertex {
 		mat3 mat;
 		// why are we doing a normal rotation and a inverse scale, and then transpose(mat)?
 		mat[0] = rot_mat * vec3(inv_size.x, 0,0);
-		mat[1] = rot_mat * vec3(0, inv_size.y,0);
+		mat[1] = rot_mat * vec3(0, -inv_size.y,0); // flip y coords to get uv coord flipped, since all textures are flipped!
 		mat[2] = rot_mat * vec3(0,0, inv_size.z);
 		v.world2decal = transpose(mat); // cheap inverse, valid for rotation/scale matrix
 		

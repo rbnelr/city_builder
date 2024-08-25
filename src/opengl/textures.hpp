@@ -91,7 +91,7 @@ struct TexLoader {
 			if (is_dds) {
 				for (int i=0; i<6; ++i) {
 					auto filepath = prints(filepath_fmt.c_str(), CUBEMAP_FACE_FILES_NAMES[i]);
-
+			
 					if (dds::readFile(filepath, &ddss[i]) != dds::ReadResult::Success) {
 						fprintf(stderr, "Error! Could not load texture \"%s\"\n", filepath.c_str());
 						return;

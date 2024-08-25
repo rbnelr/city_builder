@@ -27,8 +27,6 @@ VS2FS Vertex {
 	// center, edge and corner lod transitions and having the cpu code select them
 	// they would have to be rotated with a 2x2 matrix
 	void fix_lod_seam (inout vec2 pos) {
-		//vs_dbg = vec3(0);
-		
 		vec2 lod_bound0 = lod_bounds.xy;
 		vec2 lod_bound1 = lod_bounds.zw;
 		float quad_size = offset_scale.z;
@@ -39,13 +37,10 @@ VS2FS Vertex {
 		float tm = max(t.x, t.y);
 		
 		if (tm > 0.0) {
-			
 			vec2 shift = fract(attr_pos * 0.5) * 2.0 * quad_size;
 			
 			if (tm == t.x) pos.y -= shift.y * t.x;
 			else           pos.x -= shift.x * t.y;
-			
-			//vs_dbg = vec3(t, 0.0);
 		}
 	}
 	
@@ -127,6 +122,8 @@ VS2FS Vertex {
 	
 	GBUF_OUT
 	void main () {
+		vec2 uv = v.pos.xy / 32.0;
+		uv.y = 1.0 - uv.y; // all textures are flipped!
 		vec3 col = v.tint * texture(terrain_diffuse, v.pos.xy / 32.0).rgb;
 	
 		//col = overlay_grid(col, v.pos);

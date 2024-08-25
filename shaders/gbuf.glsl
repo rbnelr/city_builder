@@ -61,12 +61,12 @@ uniform sampler2D gbuf_pbr;
 
 // decode only depth (for decal drawing)
 bool decode_gbuf_pos (out vec3 pos_world) {
-	vec2 uv = gl_FragCoord.xy * view.inv_viewport_size;
-
 	// v.uv from fullscreen_triangle.glsl
-	float depth = texture(gbuf_depth, uv).r;
+	float depth = texelFetch(gbuf_depth, ivec2(gl_FragCoord.xy), 0).r;
 	
 	if (depth > 0.0) {
+		vec2 uv = gl_FragCoord.xy * view.inv_viewport_size;
+		
 		pos_world = depth_to_pos_world(depth, uv);
 		return true;
 	}
@@ -74,15 +74,15 @@ bool decode_gbuf_pos (out vec3 pos_world) {
 }
 // full gbuffer decode for defferred lighting
 bool decode_gbuf (out GbufResult r) {
-	vec2 uv = gl_FragCoord.xy * view.inv_viewport_size;
-	
-	float depth = texture(gbuf_depth, uv).r;
-	r.albedo    = texture(gbuf_col,   uv).rgb;
-	r.emissive  = texture(gbuf_emiss, uv).rgb;
-	vec3 normal = texture(gbuf_norm,  uv).rgb;
-	vec2 pbr    = texture(gbuf_pbr,   uv).rg;
+	float depth = texelFetch(gbuf_depth, ivec2(gl_FragCoord.xy), 0).r;
+	r.albedo    = texelFetch(gbuf_col,   ivec2(gl_FragCoord.xy), 0).rgb;
+	r.emissive  = texelFetch(gbuf_emiss, ivec2(gl_FragCoord.xy), 0).rgb;
+	vec3 normal = texelFetch(gbuf_norm,  ivec2(gl_FragCoord.xy), 0).rgb;
+	vec2 pbr    = texelFetch(gbuf_pbr,   ivec2(gl_FragCoord.xy), 0).rg;
 	r.roughness = pbr.r;
 	r.metallic  = pbr.g;
+	
+	vec2 uv = gl_FragCoord.xy * view.inv_viewport_size;
 	
 	// TODO: find a better way of doing this, including finding pos_world
 	// probably by just getting a vector per pixel that, multiplied by a depth value, gives the position, but with reverse depth I might have to first remap reverse depth to 'real' depth

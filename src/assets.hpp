@@ -92,8 +92,6 @@ struct BoneMats {
 
 inline float3x4 obj_transform (float3 pos, float rotZ) {
 	float3x3 rot_mat = rotate3_Z(rotZ);
-	
-	//v.world_pos    = rot_mat * mesh_pos + instance_pos;
 	return translate(pos) * rot_mat;
 }
 
@@ -283,7 +281,7 @@ struct NetworkAsset : public Asset {
 
 		float3 shift = 0;
 		float spacing = 10;
-		float rot = deg(90);
+		float rot = 0;
 
 		AssetPtr<PropAsset> prop = dummy_asset<PropAsset>();
 	};

@@ -99,10 +99,6 @@ struct glDebugDraw {
 
 	glTextRenderer gl_text_render;
 
-
-	//VertexBufferInstancedI vbo_wire_cube   = indexed_instanced_buffer<DebugDraw::PosVertex, DebugDraw::Instance>("DebugDraw.vbo_wire_cube");
-	//VertexBufferInstancedI vbo_wire_sphere = indexed_instanced_buffer<DebugDraw::PosVertex, DebugDraw::Instance>("DebugDraw.vbo_wire_sphere");
-	
 	struct IndirectLineVertex {
 		float4 pos; // vec4 for std430 alignment
 		float4 col;
@@ -112,37 +108,18 @@ struct glDebugDraw {
 			ATTRIB(FLT,4, IndirectLineVertex, col),
 		)
 	};
-	//struct IndirectWireInstace {
-	//	float4 pos; // vec4 for std430 alignment
-	//	float4 size; // vec4 for std430 alignment
-	//	float4 col;
-	//
-	//	template <typename ATTRIBS>
-	//	static void attributes (ATTRIBS& a) {
-	//		a.init(sizeof(IndirectWireInstace), true);
-	//		a.template add<AttribMode::FLOAT, decltype(pos)>(1, "instance_pos", offsetof(IndirectWireInstace, pos));
-	//		a.template add<AttribMode::FLOAT, decltype(size)>(2, "instance_size", offsetof(IndirectWireInstace, size));
-	//		a.template add<AttribMode::FLOAT, decltype(col)>(3, "instance_col", offsetof(IndirectWireInstace, col));
-	//	}
-	//};
 	
-	struct IndirectBuffer {
-		bool update;
-		char _pad[15];
+	static constexpr int IndirectBufferMaxLines = 1024*64;
 
-		struct Lines {
-			glDrawArraysIndirectCommand cmd;
-			IndirectLineVertex vertices[4096*8];
-		} lines;
-	
-		//struct WireInstances {
-		//	glDrawElementsIndirectCommand cmd;
-		//	uint32_t _pad[3]; // padding for std430 alignment
-		//	IndirectWireInstace vertices[4096*2];
-		//};
-		//
-		//WireInstances wire_cubes;
-		//WireInstances wire_spheres;
+	struct IndirectBufferCmd {
+		int update;
+		int max_lines;
+		glDrawArraysIndirectCommand cmd;
+	};
+	struct IndirectBuffer {
+		IndirectBufferCmd cmd_and_more;
+		int _pad[2];
+		IndirectLineVertex lines[IndirectBufferMaxLines];
 	};
 	
 	// indirect_vbo contains all indirect drawing data
@@ -150,16 +127,6 @@ struct glDebugDraw {
 	Vbo indirect_vbo = {"DebugDraw.indirect_draw"}; // = 1x IndirectBuffer
 	
 	Vao indirect_lines_vao = {"DebugDraw.indirect_lines"};
-	
-	//Vao indirect_wire_cube_vao = setup_instanced_vao<DebugDraw::PosVertex, IndirectWireInstace>("DebugDraw.indirect_wire_cubes", 
-	//	{ indirect_vbo, offsetof(IndirectBuffer, wire_cubes.vertices[0]) },
-	//	vbo_wire_cube.mesh_vbo, vbo_wire_cube.mesh_ebo);
-	//
-	//Vao indirect_wire_sphere_vao = setup_instanced_vao<DebugDraw::PosVertex, IndirectWireInstace>("DebugDraw.indirect_wire_spheres", 
-	//	{ indirect_vbo, offsetof(IndirectBuffer, wire_spheres.vertices[0]) },
-	//	vbo_wire_sphere.mesh_vbo, vbo_wire_sphere.mesh_ebo);
-	//
-	//int wire_sphere_indices_count;
 	
 	bool update_indirect = false;
 	bool accum_indirect = false;
@@ -169,22 +136,12 @@ struct glDebugDraw {
 		glBindBuffer(GL_ARRAY_BUFFER, indirect_vbo);
 	
 		{
-			glDrawArraysIndirectCommand cmd = {};
-			cmd.instanceCount = 1;
-			glBufferSubData(GL_ARRAY_BUFFER, offsetof(IndirectBuffer, lines.cmd), sizeof(cmd), &cmd);
+			IndirectBufferCmd cmd = {};
+			cmd.update = (int)update_indirect;
+			cmd.max_lines = IndirectBufferMaxLines;
+			cmd.cmd.instanceCount = 1;
+			glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(cmd), &cmd);
 		}
-	
-		//{
-		//	glDrawElementsIndirectCommand cmd = {};
-		//	cmd.count = ARRLEN(DebugDraw::_wire_cube_indices);
-		//	glBufferSubData(GL_ARRAY_BUFFER, offsetof(IndirectBuffer, wire_cubes.cmd), sizeof(cmd), &cmd);
-		//}
-		//
-		//{
-		//	glDrawElementsIndirectCommand cmd = {};
-		//	cmd.count = wire_sphere_indices_count;
-		//	glBufferSubData(GL_ARRAY_BUFFER, offsetof(IndirectBuffer, wire_spheres.cmd), sizeof(cmd), &cmd);
-		//}
 
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
@@ -200,7 +157,8 @@ struct glDebugDraw {
 		}
 
 		glBindBuffer(GL_ARRAY_BUFFER, indirect_vbo);
-		glBufferSubData(GL_ARRAY_BUFFER, offsetof(IndirectBuffer, update), sizeof(bool), &update_indirect);
+		int intbool = (int)update_indirect;
+		glBufferSubData(GL_ARRAY_BUFFER, offsetof(IndirectBuffer, cmd_and_more.update), sizeof(int), &intbool);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 		if (_clear_indirect || (update_indirect && !accum_indirect)) {
@@ -210,30 +168,8 @@ struct glDebugDraw {
 	}
 
 	glDebugDraw () {
-		setup_vao(IndirectLineVertex::attribs(), indirect_lines_vao, indirect_vbo, 0, offsetof(IndirectBuffer, lines.vertices[0]));
+		setup_vao(IndirectLineVertex::attribs(), indirect_lines_vao, indirect_vbo, 0, offsetof(IndirectBuffer, lines[0]));
 		
-		//{
-		//	glBindBuffer(GL_ARRAY_BUFFER, vbo_wire_cube.mesh_vbo);
-		//	glBufferData(GL_ARRAY_BUFFER, sizeof(DebugDraw::_wire_cube_vertices), DebugDraw::_wire_cube_vertices, GL_STATIC_DRAW);
-		//
-		//	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo_wire_cube.mesh_ebo);
-		//	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(DebugDraw::_wire_cube_indices), DebugDraw::_wire_cube_indices, GL_STATIC_DRAW);
-		//}
-		//
-		//{
-		//	std::vector<uint16_t> indices;
-		//	std::vector<float3> vertices;
-		//	DebugDraw::gen_simple_wire_sphere(&vertices, &indices, 0.5f, 24);
-		//
-		//	wire_sphere_indices_count = (int)indices.size();
-		//
-		//	glBindBuffer(GL_ARRAY_BUFFER, vbo_wire_sphere.mesh_vbo);
-		//	glBufferData(GL_ARRAY_BUFFER, sizeof(float3)*vertices.size(), vertices.data(), GL_STATIC_DRAW);
-		//
-		//	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo_wire_sphere.mesh_ebo);
-		//	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(uint16_t)*indices.size(), indices.data(), GL_STATIC_DRAW);
-		//}
-	
 		glBindBuffer(GL_ARRAY_BUFFER, indirect_vbo);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(IndirectBuffer), nullptr, GL_STREAM_DRAW);
 		clear_indirect();
@@ -292,8 +228,9 @@ struct glDebugDraw {
 				
 				glBindVertexArray(indirect_lines_vao);
 				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_vbo);
-					
-				glDrawArraysIndirect(GL_LINES, (void*)offsetof(IndirectBuffer, lines.cmd));
+				
+				size_t cmd_offs = offsetof(IndirectBuffer, cmd_and_more.cmd);
+				glDrawArraysIndirect(GL_LINES, (void*)cmd_offs);
 
 				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 			}

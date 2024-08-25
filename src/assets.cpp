@@ -5,8 +5,9 @@
 #include "assimp/scene.h"
 #include "assimp/postprocess.h"
 
-// TODO: Why did I not use blender files directly?
-// I think there might have been some issues with trying to do that?
+// Don't actually applly transform matricies when loading vertex data, since simply using per-object origins is more flexible and faster to load as well
+// this allows you to have a bunch of assets together in one blender file without having to clip them all into each other at the origin!
+// Just make sure to not apply blender units when exporting, since this requires the base transform to be used
 
 namespace assimp {
 	float4x4 get_matrix (aiMatrix4x4t<float> const& m) {
@@ -129,9 +130,9 @@ namespace assimp {
 		}
 	}
 	
-	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, SimpleMesh<VertexPN>& data) {
+	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, SimpleMesh<VertexPN>& data) {
 		unsigned base_vertex = (unsigned)data.vertices.size();
-		
+
 		for (unsigned j=0; j<mesh->mNumVertices; ++j) {
 			data.vertices.emplace_back();
 			auto& v = data.vertices.back();
@@ -139,13 +140,13 @@ namespace assimp {
 			auto& pos = mesh->mVertices[j];
 			auto& norm = mesh->mNormals[j];
 
-			v.pos = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
-			v.normal = (float3)(transform * float4(norm.x, norm.y, norm.z, 0.0f));
+			v.pos = float3(pos.x, pos.y, pos.z);
+			v.normal = float3(norm.x, norm.y, norm.z);
 		}
 
 		push_face_indices(mesh, data.indices, base_vertex);
 	}
-	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, SimpleMesh<VertexPos3>& data) {
+	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, SimpleMesh<VertexPos3>& data) {
 		unsigned base_vertex = (unsigned)data.vertices.size();
 		
 		for (unsigned j=0; j<mesh->mNumVertices; ++j) {
@@ -154,13 +155,12 @@ namespace assimp {
 
 			auto& pos = mesh->mVertices[j];
 
-			v.pos = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
-			v.pos = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
+			v.pos = float3(pos.x, pos.y, pos.z);
 		}
 
 		push_face_indices(mesh, data.indices, base_vertex);
 	}
-	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, Mesh<BasicVertex, uint16_t>& data, AABB3& aabb) {
+	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, Mesh<BasicVertex, uint16_t>& data, AABB3& aabb) {
 		unsigned base_vertex = (unsigned)data.vertices.size();
 		
 		auto vtxGrpID = material ? find_vertex_groupID(material->GetName()) : (uint8_t)0;
@@ -174,9 +174,9 @@ namespace assimp {
 			auto* uv   = &mesh->mTextureCoords[0][i];
 			auto* col  = &mesh->mColors[0][i];
 
-			v.pos    = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
-			v.normal = (float3)(transform * float4(norm.x, norm.y, norm.z, 0.0f));
-			v.uv     = mesh->mTextureCoords[0] ? float2(uv->x, uv->y) : float2(0.0f);
+			v.pos    = float3(pos.x, pos.y, pos.z);
+			v.normal = float3(norm.x, norm.y, norm.z);
+			v.uv     = mesh->mTextureCoords[0] ? float2(uv->x, 1.0f-uv->y) : float2(0.0f);
 			//v.col  = mesh->mColors[0] ? float4(col->r, col->g, col->b, col->a) : lrgba(1,1,1,1);
 			v.vtxGrpID = vtxGrpID;
 
@@ -185,7 +185,7 @@ namespace assimp {
 
 		push_face_indices(mesh, data.indices, base_vertex);
 	}
-	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, float4x4 const& transform, Mesh<SimpleAnimVertex, uint16_t>& data, AABB3& aabb, std::unordered_map<int, int>& bone_id_map) {
+	void load_mesh_data (aiMesh const* mesh, aiMaterial* material, Mesh<SimpleAnimVertex, uint16_t>& data, AABB3& aabb, std::unordered_map<int, int>& bone_id_map) {
 		unsigned base_vertex = (unsigned)data.vertices.size();
 		
 		for (unsigned i=0; i<mesh->mNumVertices; ++i) {
@@ -197,9 +197,9 @@ namespace assimp {
 			auto* uv   = &mesh->mTextureCoords[0][i];
 			auto* col  = &mesh->mColors[0][i];
 
-			v.pos    = (float3)(transform * float4(pos.x, pos.y, pos.z, 1.0f));
-			v.normal = (float3)(transform * float4(norm.x, norm.y, norm.z, 0.0f));
-			v.uv     = mesh->mTextureCoords[0] ? float2(uv->x, uv->y) : float2(0.0f);
+			v.pos    = float3(pos.x, pos.y, pos.z);
+			v.normal = float3(norm.x, norm.y, norm.z);
+			v.uv     = mesh->mTextureCoords[0] ? float2(uv->x, 1.0f-uv->y) : float2(0.0f);
 			//v.col  = mesh->mColors[0] ? float4(col->r, col->g, col->b, col->a) : lrgba(1,1,1,1);
 			v.boneID = 0; // assume first bone to get reasonable result at least // (uint8_t)-1;
 
@@ -226,9 +226,7 @@ namespace assimp {
 
 	template <typename... ARGS>
 	// Recursively load fbx tree, applying transformations to vertices
-	void load_join_mesh_recurse (aiScene const* scene, aiNode const* node, float4x4 const& parent_transform, ARGS&... args) {
-		float4x4 transform = node_transform(node, parent_transform);
-	
+	void load_join_mesh_recurse (aiScene const* scene, aiNode const* node, ARGS&... args) {
 		for (unsigned int i=0; i<node->mNumMeshes; ++i) {
 			assert(node->mMeshes[i] < scene->mNumMeshes);
 			if (node->mMeshes[i] >= scene->mNumMeshes) continue; // for good measure
@@ -236,15 +234,16 @@ namespace assimp {
 			
 			assert(mesh->mMaterialIndex < scene->mNumMaterials);
 			auto* material = mesh->mMaterialIndex < scene->mNumMaterials ? scene->mMaterials[mesh->mMaterialIndex] : nullptr; // for good measure
-			load_mesh_data(mesh, material, transform, args...);
+			load_mesh_data(mesh, material, args...);
 		}
 	
 		for (unsigned int i=0; i<node->mNumChildren; ++i)
-			load_join_mesh_recurse(scene, node->mChildren[i], transform, args...);
+			load_join_mesh_recurse(scene, node->mChildren[i], args...);
 	}
 	
 	bool load_basic (char const* filename, AssetMesh<BasicVertex, uint16_t>* out_mesh) {
 		printf("Loading basic mesh \"%s\"...\n", filename);
+		ZoneScoped;
 
 		Assimp::Importer importer;
 
@@ -260,8 +259,6 @@ namespace assimp {
 		}
 
 		//print_scene(scene, filename);
-
-		auto transform = get_base_transform(scene);
 		
 		if (!scene->mRootNode) return false;
 
@@ -279,7 +276,7 @@ namespace assimp {
 			if (!node)
 				break;
 			out_mesh->mesh_lods.resize(lod_i+1);
-			load_join_mesh_recurse(scene, node, transform, out_mesh->mesh_lods[lod_i], out_mesh->aabb);
+			load_join_mesh_recurse(scene, node, out_mesh->mesh_lods[lod_i], out_mesh->aabb);
 		}
 
 		return out_mesh->mesh_lods.size() > 0 &&
@@ -290,6 +287,7 @@ namespace assimp {
 	bool load_simple_anim (char const* filename, AssetMesh<SimpleAnimVertex, uint16_t>* out_mesh,
 			BoneMats* out_mats, float* out_wheel_r) {
 		printf("Loading simple animated mesh \"%s\"...\n", filename);
+		ZoneScoped;
 
 		Assimp::Importer importer;
 
@@ -297,15 +295,13 @@ namespace assimp {
 			aiComponent_TEXTURES | aiComponent_LIGHTS | aiComponent_CAMERAS | aiComponent_MATERIALS);
 		
 		auto* scene = importer.ReadFile(filename, aiProcess_Triangulate|aiProcess_JoinIdenticalVertices|
-			aiProcess_CalcTangentSpace|aiProcess_ImproveCacheLocality|aiProcess_PopulateArmatureData);
+				aiProcess_CalcTangentSpace|aiProcess_ImproveCacheLocality|aiProcess_PopulateArmatureData);
 		if (!scene) {
 			fprintf(stderr, "Assimp error: %s\n", importer.GetErrorString());
 			return false;
 		}
 
 		//print_scene(scene, filename);
-
-		auto transform = get_base_transform(scene);
 		
 		if (!scene->mRootNode) return false;
 
@@ -361,7 +357,7 @@ namespace assimp {
 			if (!node)
 				break;
 			out_mesh->mesh_lods.resize(lod_i+1);
-			load_join_mesh_recurse(scene, node, transform, out_mesh->mesh_lods[lod_i], out_mesh->aabb, bone_id_map);
+			load_join_mesh_recurse(scene, node, out_mesh->mesh_lods[lod_i], out_mesh->aabb, bone_id_map);
 		}
 
 		return out_mesh->mesh_lods.size() > 0 &&
@@ -371,6 +367,7 @@ namespace assimp {
 	
 	template<> bool load_simple<VertexPos3> (char const* filename, SimpleMesh<VertexPos3>* out_mesh) {
 		printf("Loading simple mesh \"%s\"...\n", filename);
+		ZoneScoped;
 
 		Assimp::Importer importer;
 		// Drop everything except vertex position to avoid aiProcess_JoinIdenticalVertices not producing optimal mesh
@@ -388,17 +385,16 @@ namespace assimp {
 		}
 
 		//print_scene(scene, filename);
-
-		auto transform = get_base_transform(scene);
 		
 		if (!scene->mRootNode) return false;
-		load_join_mesh_recurse(scene, scene->mRootNode, transform, *out_mesh);
+		load_join_mesh_recurse(scene, scene->mRootNode, *out_mesh);
 
 		return out_mesh->vertices.size() > 0 && out_mesh->indices.size() > 0;
 	}
 	
 	template<> bool load_simple<VertexPN> (char const* filename, SimpleMesh<VertexPN>* out_mesh) {
 		printf("Loading simple mesh \"%s\"...\n", filename);
+		ZoneScoped;
 
 		Assimp::Importer importer;
 		importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS,
@@ -414,11 +410,9 @@ namespace assimp {
 		}
 
 		//print_scene(scene, filename);
-
-		auto transform = get_base_transform(scene);
 		
 		if (!scene->mRootNode) return false;
-		load_join_mesh_recurse(scene, scene->mRootNode, transform, *out_mesh);
+		load_join_mesh_recurse(scene, scene->mRootNode, *out_mesh);
 
 		return out_mesh->vertices.size() > 0 && out_mesh->indices.size() > 0;
 	}

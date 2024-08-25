@@ -314,7 +314,7 @@ struct PBR_Render {
 		}
 		if (redraw_env_map) {
 			draw_env_map(state, texs);
-			// redraw_env_map = false;
+			//redraw_env_map = false; // always redraw
 		}
 	}
 
@@ -451,6 +451,7 @@ struct DirectionalCascadedShadowmap {
 
 	// TODO: might be able to use layered FBOs? what's the advantage?
 	std::vector<Fbo> fbos;
+	std::vector<TextureView> tex_views;
 	
 	// needed later during lighting
 	View3D view_casc0;
@@ -488,6 +489,7 @@ struct DirectionalCascadedShadowmap {
 		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
 
 		fbos.resize(cascades);
+		tex_views.resize(cascades);
 		
 		for (int i=0; i<cascades; ++i) {
 			fbos[i] = Fbo("DirectionalShadowmap.fbo");
@@ -501,6 +503,9 @@ struct DirectionalCascadedShadowmap {
 			if (status != GL_FRAMEBUFFER_COMPLETE) {
 				fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
 			}
+
+			tex_views[i] = TextureView("DirectionalShadowmap.view");
+			glTextureView(tex_views[i], GL_TEXTURE_2D, shadow_tex, depth_format, 0, 1, i, 1);
 		}
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -566,7 +571,7 @@ struct DirectionalCascadedShadowmap {
 			casc_size *= cascade_factor;
 			casc_depth_range *= cascade_factor;
 
-			draw_scene(view, cascade_fbo, shadow_res, depth_format);
+			draw_scene(view, tex_views[i]);
 		}
 	}
 };
@@ -695,31 +700,51 @@ struct ClippingRenderer {
 		instance_count = (GLsizei)instances.size();
 	}
 
-	int2 resolution = -1;
-	Render_Texture tmp_copy_tex;
 	Sampler depth_sampler = make_sampler("gbuf_sampler", FILTER_NEAREST, GL_CLAMP_TO_EDGE);
 	
-	void render (StateManager& state, Fbo& depth_fbo, int2 res, GLenum depth_format, Textures& texs, bool shadow_pass=false) {
+	void render (StateManager& state, GLuint depth, bool shadow_pass=false) {
 		ZoneScoped;
 		OGL_TRACE("ClippingRenderer");
 
-		if (resolution != res) {
-			tmp_copy_tex = Render_Texture("gbuf.depth.copy", res, depth_format);
-			resolution = res;
-		}
+		//if (depth_copy.cur_res != fbo_res)
+		//	depth_copy = DepthCopy(fbo_res, depth_format);
 
 		// Need to copy depth buffer because we can't write to it and read it at the same time, no idea if there is a good way around this
 		// maybe rendering into stencil buffer and doing something with that
+		
 		// copies from current FBO, no idea how it knows which channel to copy...
-		glBindTexture(GL_TEXTURE_2D, tmp_copy_tex);
-		glCopyTexSubImage2D(GL_TEXTURE_2D,0, 0,0, 0,0, res.x, res.y);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		//glBindTexture(GL_TEXTURE_2D, tmp_copy_tex);
+		//glCopyTexSubImage2D(GL_TEXTURE_2D,0, 0,0, 0,0, res.x, res.y); // This syncs cpu and gpu!!!!
+		//glBindTexture(GL_TEXTURE_2D, 0);
+
+		//glBindFramebuffer(GL_READ_FRAMEBUFFER, draw_fbo);
+		//glBindFramebuffer(GL_DRAW_FRAMEBUFFER, depth_copy.fbo);
+		//glBlitFramebuffer(0,0, fbo_res.x,fbo_res.y,  0,0, fbo_res.x,fbo_res.y,  GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+		//glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+		//glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		//
+		//glBindFramebuffer(GL_FRAMEBUFFER, draw_fbo); // rebind because GL_DRAW_FRAMEBUFFER == GL_FRAMEBUFFER ??
+
+		// Normally would require a copy of the depth buffer here, but doing so takes time (bandwidth) and is not trivial to implement either
+		// Both glCopyTexSubImage2D and glBlitFramebuffer seem to introduce cpu-gpu sync (I think), which sucks and even hurts perf
+		// this might just be because I accidentally recreated the tmp texture every time due to both shadow and geom pass needing it
+		// not sure how best to correctly allow a temp depth buffer per render pass
+		
+		// Instead read and write depth buffer at the same time!
+		// Normally this would not be allowed (undefined behavior)
+		// But according to 9.3 Feedback Loops Between Textures and the Frame-buffer
+		// we fulfill the condition of
+		//  > there is only a single read and write of each texel,
+		//    and the read is in the fragment shader invocation that writes the same texel
+		//    (e.g. using texelFetch2D(sampler, ivec2(gl_FragCoord.xy), 0);).
+		// I first read depth using texelFetch2D, then write using gl_FragDepth = 0.0 both in the same fragment shader
+		// it seems to work!
 
 		if (shad->prog) {
 			glUseProgram(shad->prog);
 
 			state.bind_textures(shad, {
-				{ "gbuf_depth", { GL_TEXTURE_2D, tmp_copy_tex }, depth_sampler },
+				{ "gbuf_depth", { GL_TEXTURE_2D, depth }, depth_sampler },
 				//{ "test_tex", texs.terrain_diffuse, texs.sampler_normal },
 			});
 
@@ -739,8 +764,6 @@ struct ClippingRenderer {
 				glDrawElementsInstanced(GL_TRIANGLES, index_count, GL_UNSIGNED_SHORT, (void*)0, instance_count);
 			}
 		}
-
-		glInvalidateTexImage(tmp_copy_tex, 0); // Is this good practice?
 
 		glBindVertexArray(0);
 	}

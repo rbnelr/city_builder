@@ -13,7 +13,8 @@ class Heightmap {
 	friend SERIALIZE_FROM_JSON(Heightmap) {
 		t = {}; // reset heightmap, if load_heightmap_data fails, don't want prev map to stick around
 		SERIALIZE_FROM_JSON_EXPAND(inner, outer, height_min, height_range)
-		t.load_binary();
+		if (!t.load_binary())
+			t.create_empty_map();
 	}
 	
 public:
@@ -22,12 +23,18 @@ public:
 	struct HeightmapZone {
 		SERIALIZE(HeightmapZone, map_size);
 
-		int2 map_size;
+		int2 map_size = -1;
 		Image<pixel_t> data;
 
 		// cleared by renderer
 		// NOTE: hi is inclusive
 		RectInt dirty_rect = RectInt::INF;
+
+		void set_empty (int2 resolution=1024, pixel_t init_value=UINT16_MAX/10) {
+			data = Image<pixel_t>(resolution);
+			data.clear(init_value);
+			invalidate();
+		}
 
 		void invalidate (RectInt rect=RectInt::INF) {
 			dirty_rect.add(rect);
@@ -289,6 +296,11 @@ public:
 	}
 
 ////
+	void create_empty_map () {
+		inner.set_empty();
+		outer.set_empty();
+	}
+
 	bool import (const char* inner_filename, const char* outer_filename) {
 		ZoneScoped;
 		printf("loading heightmap...\n");

@@ -740,9 +740,10 @@ struct DynamicVehicle {
 	int    instance_id; // uGH!!! avoiding this (gl_BaseInstance + gl_InstanceID) requires opengl 4.6
 	int    tex_id;
 	float3 pos;
-	float3 tint;
-	
-	float _pad[3] = {};
+	float3 tint; // could be 8bit (srgb?)
+	uint8v4 glow; // lights, brake lights, blinker L, blinker R; could probably be 4 bits!
+
+	float _pad[2];
 
 	// can't be float3x4 even though that would be more efficient because that involves absurd hack where you load every float manually
 	float4x4 bone_rot[5];
@@ -754,6 +755,7 @@ struct DynamicVehicle {
 		ATTRIB(INT,1, DynamicVehicle, tex_id),
 		ATTRIB(FLT,3, DynamicVehicle, pos),
 		ATTRIB(FLT,3, DynamicVehicle, tint),
+		ATTRIB(UBYTE_UNORM,4, DynamicVehicle, glow),
 	)
 };
 
@@ -1514,17 +1516,22 @@ public:
 				uint32_t instance_idx = (uint32_t)instances.size();
 				auto& instance = instances.emplace_back();
 
-				update_vehicle_instance(instance, *entity, instance_idx, view);
+				update_vehicle_instance(instance, *entity, instance_idx, view, app.input.real_dt);
 			}
 		}
 
 		entity_render.vehicles.upload<0>(instances, true);
 	}
 	
-	void update_vehicle_instance (DynamicVehicle& instance, Person& entity, int i, View3D& view) {
+	void update_vehicle_instance (DynamicVehicle& instance, Person& entity, int i, View3D& view, float dt) {
 		auto& bone_mats = entity.owned_vehicle->bone_mats;
-	
+		
 		int tex_id = textures.bindless_textures[entity.owned_vehicle->tex_filename];
+
+		auto vehicle_hash = (uint32_t)hash((size_t)entity.vehicle.get());
+		float rand1 = (float)vehicle_hash / (float)UINT_MAX;
+
+		bool blinker_on = entity.vehicle->update_blinker(rand1, dt);
 
 		// TODO: network code shoud ensure length(dir) == CAR_SIZE
 		float3 center;
@@ -1536,7 +1543,12 @@ public:
 		instance.tex_id = tex_id;
 		instance.pos = center;
 		instance.tint = entity.col;
-				
+
+		instance.glow.x = 255;
+		instance.glow.y = entity.vehicle->brake_light > 0.5f ? 255 : 0;
+		instance.glow.z = entity.vehicle->blinker < 0.0f && blinker_on ? 255 : 0;
+		instance.glow.w = entity.vehicle->blinker > 0.0f && blinker_on ? 255 : 0;
+		
 		float3x3 heading_rot = rotate3_Z(ang);
 
 		// skip expensive bone matricies computation when too far away

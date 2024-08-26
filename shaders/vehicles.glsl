@@ -4,12 +4,15 @@
 #include "entity_instances.glsl"
 
 VS2FS Vertex {
+	vec3 model_pos;
 	vec3 world_pos;
 	vec3 world_normal;
 	vec2 uv;
 	
 	flat vec3 tint_col;
 	flat int tex_id;
+	
+	flat vec4 glow;
 } v;
 
 #ifdef _VERTEX
@@ -23,18 +26,21 @@ layout(location = 5) in int   inst_instance_id;
 layout(location = 6) in int   inst_tex_id;
 layout(location = 7) in vec3  inst_pos;
 layout(location = 8) in vec3  inst_tint;
+layout(location = 9) in vec4  inst_glow;
 // could get these like this as well, if ssbo is needed anyway for bone array like access
 // -> instance[gl_InstanceID].posx, instance[gl_InstanceID].posy ...
 
 void main () {
 	mat4x3 bone_transform = mat4x3(instance[inst_instance_id].bone_rot[mesh_boneID]);
 	
+	v.model_pos    = mesh_pos;
 	v.world_pos    = (bone_transform * vec4(mesh_pos, 1.0)).xyz + inst_pos;
 	v.world_normal = mat3(bone_transform) * mesh_normal;
 	
 	v.uv           = mesh_uv;
 	v.tint_col     = inst_tint;
 	v.tex_id       = inst_tex_id;
+	v.glow         = inst_glow;
 	
 	gl_Position = view.world2clip * vec4(v.world_pos, 1.0);
 }
@@ -44,16 +50,38 @@ void main () {
 #ifdef _FRAGMENT
 	uniform sampler2D tex;
 	
+	vec3 vehicle_emiss (vec3 glow_tex) {
+		vec3 emiss = vec3(0.0);
+		
+		const vec3 front_lights_col = vec3(0.8, 0.8, 0.4) * 4.0;
+		const vec3 rear_lights_col  = vec3(0.8, 0.05, 0.01) * 4.0;
+		const vec3 brake_col        = vec3(0.8, 0.01, 0.005) * 3.0;
+		const vec3 blinker_col      = vec3(0.8, 0.2, 0.01) * 2.0;
+		
+		vec3 lights_col = v.model_pos.x > 0.0 ? front_lights_col : rear_lights_col;
+		emiss += v.glow.r * glow_tex.r * lights_col;
+		
+		emiss += v.glow.g * glow_tex.g * brake_col;
+		
+		float blinker_on = v.model_pos.y > 0.0 ? v.glow.z : v.glow.w;
+		emiss += blinker_on * glow_tex.b * blinker_col;
+		
+		return emiss;
+	}
+	
 	GBUF_OUT
 	void main () {
 		vec4 diff = texture(bindless_tex(v.tex_id, 0), v.uv);
 		vec3 TRM  = texture(bindless_tex(v.tex_id, 2), v.uv).rgb;
+		vec3 glow = texture(bindless_tex(v.tex_id, 3), v.uv).rgb;
 		
 		// PBR.R as tint channel to tint albedo with instance color
 		diff.rgb *= mix(vec3(1.0), v.tint_col, TRM.r);
 		
+		vec3 emiss = vehicle_emiss(glow);
+		
 		frag_col   = diff;
-		frag_emiss = vec4(0,0,0,1);
+		frag_emiss = vec4(emiss,1);
 		frag_norm  = vec4(v.world_normal, 1.0);
 		frag_pbr   = vec4(TRM.gb, 0,1);
 	}

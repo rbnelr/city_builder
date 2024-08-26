@@ -17,7 +17,9 @@
 		float posx, posy, posz;
 		float tintr, tintg, tintb;
 		
-		float pad0, pad1, pad2;
+		uint glow_tex;
+		
+		float pad0, pad1;
 		
 		mat4 bone_rot[5];
 	};

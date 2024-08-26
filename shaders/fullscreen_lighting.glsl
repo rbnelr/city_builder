@@ -41,8 +41,8 @@
 	
 	vec3 draw_skybox (in GbufResult g) {
 		//vec3 col = readCubemap(night_sky, g.view_dir).rgb;
-		vec3 col = readCubemap(pbr_env_map, g.view_dir).rgb;
-		//vec3 col = procedural_sky(view.cam_pos, g.view_dir);
+		//vec3 col = readCubemap(pbr_env_map, g.view_dir).rgb;
+		vec3 col = procedural_sky(view.cam_pos, g.view_dir);
 		return col;
 	}
 	

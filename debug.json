@@ -8,14 +8,14 @@
 	},
 	"cam": {
 		"orbit_pos": [
-			403.72052001953125,
-			1002.6952514648438,
+			990.4909057617188,
+			402.44732666015625,
 			0.0
 		],
-		"zoom_target": -5.75,
+		"zoom_target": -5.5,
 		"rot_aer": [
-			-2.3420965671539307,
-			-0.42935338616371155,
+			-1.7221636772155762,
+			-0.21362994611263275,
 			0.0
 		],
 		"vfov": 0.7520636916160583,
@@ -444,8 +444,8 @@
 		"speed_unit": "KPH"
 	},
 	"time": {
-		"target_gamespeed": 2.0,
-		"time_of_day": 0.550000011920929,
+		"target_gamespeed": 1.0,
+		"time_of_day": 0.28299999237060547,
 		"day_duration": 600.0,
 		"pause_day": true,
 		"time_of_year": 0.6869999766349792,
@@ -453,7 +453,7 @@
 		"pause_year": true,
 		"planet_axial_tilt": 0.40910521149635315,
 		"map_latitude": 0.7284654974937439,
-		"map_rotation": 1.1087902784347534
+		"map_rotation": 0.21118485927581787
 	},
 	"interact": {
 		"terraform": null

@@ -177,6 +177,8 @@ struct PathState {
 
 	SegLane cur_lane = {}; // always valid
 	SegLane next_lane = {}; // only valid if cur_node != null
+
+	Turns cur_turn = Turns::NONE;
 };
 
 struct ActiveVehicle {
@@ -224,6 +226,19 @@ struct ActiveVehicle {
 	// curvature, ie. 1/turn_radius, positive means left
 	float turn_curv = 0;
 	float wheel_roll = 0;
+
+	float blinker = 0;
+	float blinker_timer = 0; // could get eliminated (a fixed number of blinker timers indexed using vehicle id hash)
+	float brake_light = 0;
+
+	bool update_blinker (float rand_num, float dt) {
+		constexpr float blinker_freq_min = 1.6f;
+		constexpr float blinker_freq_max = 1.2f;
+
+		blinker_timer += dt * lerp(blinker_freq_min, blinker_freq_max, rand_num);
+		blinker_timer = fmodf(blinker_timer, 1.0f);
+		return blinker_timer > 0.5f;
+	}
 
 	float3 center () { return (front_pos + rear_pos)*0.5; };
 	

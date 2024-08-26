@@ -313,6 +313,11 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 					// still has next node, pick lane after cur_node based on required lane for turn at next_node
 					s.next_lane = pick_next_lane(s.cur_lane, seg1, next_node, seg2);
 				}
+
+				if (seg1) {
+					assert(cur_node);
+					s.cur_turn = classify_turn(cur_node, seg0, seg1);
+				}
 			}
 
 			auto l = s.cur_lane.clac_lane_info();
@@ -331,6 +336,7 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		else {
 			s.cur_lane = prev_state->cur_lane;
 			s.next_lane = prev_state->next_lane;
+			s.cur_turn = prev_state->cur_turn;
 			cur_node = find_node(s.cur_lane.seg, s.next_lane.seg);
 
 			auto l  = s.cur_lane.clac_lane_info();
@@ -1156,7 +1162,6 @@ void update_vehicle_suspension (App& app, ActiveVehicle& vehicle, float3 local_a
 }
 
 void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float dt) {
-
 	float aggress = vehicle->cit->topspeed_accel_mul();
 
 	assert(vehicle->bez_t < 1.0f);
@@ -1164,10 +1169,14 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 
 	float old_speed = vehicle->speed;
 	float new_speed = old_speed;
+	
+	vehicle->brake_light = 0.0f;
 
 	// car speed change
 	float target_speed = speed_limit * vehicle->brake;
-	if (target_speed >= new_speed) {
+	if (target_speed < 0.33f) target_speed = 0;
+
+	if (target_speed > new_speed) {
 		float accel = aggress * calc_car_accel(app.net.settings.car_accel, speed_limit, new_speed);
 		new_speed += accel * dt;
 		new_speed = min(new_speed, target_speed);
@@ -1176,6 +1185,9 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 		//new_speed = target_speed; // brake instantly for now
 		new_speed -= aggress * calc_car_deccel(app.net.settings.car_deccel, speed_limit, new_speed);
 		new_speed = max(new_speed, target_speed);
+
+		if (new_speed > 0.33f)
+			vehicle->brake_light = 1.0f;
 	}
 
 	vehicle->speed = new_speed;
@@ -1202,6 +1214,13 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 		}
 
 		vehicle->state = get_path_state(app.net, vehicle, vehicle->idx, &vehicle->state);
+
+		float blinker = 0;
+		if (vehicle->state.state == PathState::SEGMENT || vehicle->state.state == PathState::NODE) {
+			if      (vehicle->state.cur_turn == Turns::LEFT ) blinker = -1;
+			else if (vehicle->state.cur_turn == Turns::RIGHT) blinker = +1;
+		}
+		vehicle->blinker = blinker;
 	}
 
 	// eval bezier at car front

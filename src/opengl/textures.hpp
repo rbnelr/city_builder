@@ -243,7 +243,7 @@ struct Textures {
 
 	BindlessTextureManager bindless_textures;
 
-	Sampler sampler_normal = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
+	Sampler sampler_normal  = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
 	Sampler sampler_cubemap = make_sampler("sampler_cubemap", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
 
 	HeightmapTextures heightmap;
@@ -271,7 +271,17 @@ struct Textures {
 
 		auto pbr = TexLoader::add_tex_suffix(name, ".pbr");
 		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
-		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(pbr), mips, 2));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(pbr ), mips, 2));
+	}
+	template <typename T>
+	void texture_pbr_glow (Jobs& jobs, std::string&& name, bool mips=true) {
+		bindless_textures.add_entry(TexLoader::get_basename(name));
+
+		auto pbr  = TexLoader::add_tex_suffix(name, ".pbr");
+		auto glow = TexLoader::add_tex_suffix(name, ".glow");
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(pbr ), mips, 2));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(glow), mips, 3));
 	}
 
 	template <typename T>
@@ -335,8 +345,8 @@ struct Textures {
 		texture_norm<srgb8 >(j, concat(pavement, ".png"), true, 1.5f);
 		texture_norm<srgb8 >(j, concat(curb, ".png"));
 		
-		texture_pbr<srgb8 >(j, "vehicles/car.png");
-		texture_pbr<srgb8 >(j, "vehicles/bus.png");
+		texture_pbr_glow<srgb8 >(j, "vehicles/car.png");
+		texture_pbr_glow<srgb8 >(j, "vehicles/bus.png");
 		texture_pbr<srgb8 >(j, "buildings/house.png");
 		texture_pbr<srgb8 >(j, "props/traffic_light.png");
 

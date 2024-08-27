@@ -59,6 +59,9 @@ struct View3D {
 };
 
 struct Lighting {
+	float exposure; // multiplier, go from lux to exposure corrected units
+	float inv_exposure;
+	
 	float time_of_day;
 	
 	mat4 sun2world;
@@ -128,10 +131,10 @@ const CubemapFace _cubemap_faces[6] = {
 };
 // Map opengl/nsight's cubemap orientation to my z-up system
 vec4 readCubemap (samplerCube cubemap, vec3 dir_world) {
-	return texture(cubemap, vec3(dir_world.x, dir_world.z, dir_world.y));
+	return texture(cubemap, dir_world.xzy);
 }
 vec4 readCubemapLod (samplerCube cubemap, vec3 dir_world, float lod) {
-	return textureLod(cubemap, vec3(dir_world.x, dir_world.z, dir_world.y), lod);
+	return textureLod(cubemap, dir_world.xzy, lod);
 }
 
 #include "dbg_indirect_draw.glsl"

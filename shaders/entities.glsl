@@ -79,7 +79,7 @@ void main () {
 		
 		frag_col   = col;
 		// PBR.R as emissive channel
-		frag_emiss = vec4(v.emissive_col * ERM.r, 1);
+		frag_emiss = vec4(v.emissive_col * ERM.r * lighting.exposure, 1);
 		frag_norm  = vec4(v.world_normal, 1);
 		frag_pbr   = vec4(ERM.gb, 0,1);
 	}

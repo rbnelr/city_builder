@@ -53,10 +53,10 @@ void main () {
 	vec3 vehicle_emiss (vec3 glow_tex) {
 		vec3 emiss = vec3(0.0);
 		
-		const vec3 front_lights_col = vec3(0.8, 0.8, 0.4) * 4.0;
-		const vec3 rear_lights_col  = vec3(0.8, 0.05, 0.01) * 4.0;
-		const vec3 brake_col        = vec3(0.8, 0.01, 0.005) * 3.0;
-		const vec3 blinker_col      = vec3(0.8, 0.2, 0.01) * 2.0;
+		const vec3 front_lights_col = vec3(0.8, 0.8, 0.4) * 0.7;
+		const vec3 rear_lights_col  = vec3(0.8, 0.05, 0.01) * 0.6;
+		const vec3 brake_col        = vec3(0.8, 0.01, 0.005) * 1.0;
+		const vec3 blinker_col      = vec3(0.8, 0.2, 0.01) * 1.0;
 		
 		vec3 lights_col = v.model_pos.x > 0.0 ? front_lights_col : rear_lights_col;
 		emiss += v.glow.r * glow_tex.r * lights_col;
@@ -81,7 +81,7 @@ void main () {
 		vec3 emiss = vehicle_emiss(glow);
 		
 		frag_col   = diff;
-		frag_emiss = vec4(emiss,1);
+		frag_emiss = vec4(emiss * lighting.exposure,1);
 		frag_norm  = vec4(v.world_normal, 1.0);
 		frag_pbr   = vec4(TRM.gb, 0,1);
 	}

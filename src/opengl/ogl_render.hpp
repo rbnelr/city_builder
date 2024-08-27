@@ -9,7 +9,7 @@
 namespace ogl {
 
 class OglRenderer : public Renderer {
-	SERIALIZE(OglRenderer, lighting, passes, entity_render)
+	SERIALIZE(OglRenderer, exposure, lighting, passes, entity_render)
 public:
 	
 	virtual void to_json (nlohmann::ordered_json& j) {
@@ -22,6 +22,8 @@ public:
 	virtual void imgui (App& app) {
 		//if (imgui_Header("Renderer", true)) {
 		if (ImGui::Begin("Renderer")) {
+
+			exposure.imgui();
 			
 			passes.imgui();
 			entity_render.light_renderer.imgui();
@@ -45,6 +47,8 @@ public:
 
 	glDebugDraw gl_dbgdraw;
 	
+	Exposure exposure;
+
 	CommonUniforms common_ubo;
 	
 	RenderPasses passes;
@@ -88,11 +92,11 @@ public:
 		
 		auto sky_config = app.time.calc_sky_config(view);
 		
-		lighting.update(app, sky_config);
+		lighting.update(app, exposure, sky_config);
 		
 	#if RENDERER_DEBUG_LABELS
 		// Dummy call because first gl event in nsight is always bugged, and by doing this the next OGL_TRACE() actually works
-		glBindTexture(GL_TEXTURE_2D, 0);
+		glBindVertexArray(0);
 	#endif
 		
 		{

@@ -109,7 +109,10 @@ struct HeightmapTextures {
 
 inline GLenum dds_compressed_internat_format (dds::Image const& img) {
 	switch (img.format) {
-		case DXGI_FORMAT_BC1_UNORM: return GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
+		case DXGI_FORMAT_BC1_UNORM: return GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT;
+		//case DXGI_FORMAT_BC3_UNORM: return GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT;
+
+		case DXGI_FORMAT_BC7_UNORM: return GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM;
 	}
 	assert(false);
 	return 0;
@@ -331,8 +334,11 @@ struct Textures {
 		// Or just define standard texture suffixes and just keep slots empty inside bindless lut for the (few) non-pbr materials?
 		Jobs j;
 		texture     <srgba8>(j, "skybox/clouds.png");
-		texture_norm<srgb8 >(j, "skybox/moon.png");
-		cubemap     <srgba8>(j, "skybox/night_sky/%s.dds", true, &night_sky);
+		texture_norm<srgba8>(j, "skybox/moon.png");
+		//cubemap     <srgba8>(j, "skybox/night_sky/uncompressed/%s.png", true, &night_sky);
+		cubemap     <srgba8>(j, "skybox/night_sky/BC1/%s.dds", true, &night_sky);
+		//cubemap     <srgba8>(j, "skybox/night_sky/BC7/%s.dds", true, &night_sky);
+
 		texture<srgba8>(j, "misc/grid2.png");
 		texture<srgb8 >(j, "ground/Rock_Moss.jpg");
 		texture<srgb8 >(j, "misc/cracks.png");

@@ -40,7 +40,7 @@ vec3 draw_sun (vec3 sun_color, float sun_stren, vec3 dir_world) {
 	float c = 1.0 - clamp(map(deg, sun_ang_size_half, sun_ang_size_half + sun_falloff), 0.0, 1.0);
 	c = c*c;
 
-	return sun_color * 100.0 * c;
+	return sun_color * 100.0 * c; // sun light in 0-100 range
 }
 
 vec3 draw_moon (vec3 col, float sun_stren, vec3 dir_world) {
@@ -62,7 +62,7 @@ vec3 draw_moon (vec3 col, float sun_stren, vec3 dir_world) {
 		
 		float sun_bright = max(dot(sun_dir_in_moon_space, nrm), 0.0) * 10.0;
 		
-		vec3 light = albedo.rgb * (sun_bright * lighting.sun_col * 0.04 + 0.002);
+		vec3 light = albedo.rgb * (sun_bright * lighting.sun_col * 0.04 + 0.002); // TODO: find accurate value
 		
 		col = mix(col, light, albedo.aaa);
 	}

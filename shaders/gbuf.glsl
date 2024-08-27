@@ -76,7 +76,7 @@ bool decode_gbuf_pos (out vec3 pos_world) {
 bool decode_gbuf (out GbufResult r) {
 	float depth = texelFetch(gbuf_depth, ivec2(gl_FragCoord.xy), 0).r;
 	r.albedo    = texelFetch(gbuf_col,   ivec2(gl_FragCoord.xy), 0).rgb;
-	r.emissive  = texelFetch(gbuf_emiss, ivec2(gl_FragCoord.xy), 0).rgb;
+	r.emissive  = texelFetch(gbuf_emiss, ivec2(gl_FragCoord.xy), 0).rgb * lighting.inv_exposure;
 	vec3 normal = texelFetch(gbuf_norm,  ivec2(gl_FragCoord.xy), 0).rgb;
 	vec2 pbr    = texelFetch(gbuf_pbr,   ivec2(gl_FragCoord.xy), 0).rg;
 	r.roughness = pbr.r;

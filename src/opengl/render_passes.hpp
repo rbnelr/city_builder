@@ -87,15 +87,22 @@ struct PBR_Render {
 	// TODO: dynamically adjust env map with exposure?
 	static constexpr GLenum env_map_format = GL_R11F_G11F_B10F; // GL_R11F_G11F_B10F // unfortunately rgb16f is not supported!!!?, need to waste 1/4 of memory or use a non-functional format??
 	static constexpr const char* env_map_format_compute = "r11f_g11f_b10f"; // GL_R11F_G11F_B10F
+	//static constexpr GLenum env_map_format = GL_RGBA32F; // GL_R11F_G11F_B10F // unfortunately rgb16f is not supported!!!?, need to waste 1/4 of memory or use a non-functional format??
+	//static constexpr const char* env_map_format_compute = "rgba32f"; // GL_R11F_G11F_B10F
 
 	Shader* shad_integrate_brdf = g_shaders.compile("pbr_integrate_brdf");
+	
+	Shader* shad_gen_env = g_shaders.compile("pbr_env_raster",
+		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER }, {{"MODE","0"}});
+	Shader* shad_mapmap_env = g_shaders.compile("pbr_env_raster",
+		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER }, {{"MODE","1"}});
 
 	static constexpr int3 COMPUTE_CONVOLVE_WG = int3(8,8,1);
-	Shader* shad_compute_gen_env  = g_shaders.compile_compute("pbr_compute", {{"MODE","0"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
-	Shader* shad_compute_gen_mips = g_shaders.compile_compute("pbr_compute", {{"MODE","1"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
-	Shader* shad_compute_copy     = g_shaders.compile_compute("pbr_compute", {{"MODE","2"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
-	Shader* shad_compute_convolve = g_shaders.compile_compute("pbr_compute", {{"MODE","3"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
-
+	Shader* shad_compute_gen_env  = g_shaders.compile_compute("pbr_env_compute", {{"MODE","0"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
+	Shader* shad_compute_gen_mips = g_shaders.compile_compute("pbr_env_compute", {{"MODE","1"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
+	Shader* shad_compute_copy     = g_shaders.compile_compute("pbr_env_compute", {{"MODE","2"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
+	Shader* shad_compute_convolve = g_shaders.compile_compute("pbr_env_compute", {{"MODE","3"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
+	
 	Texture2D brdf_LUT;
 	int brdf_LUT_res = 256; // Seems to be enough
 	bool recreate_brdf = true;
@@ -197,7 +204,7 @@ struct PBR_Render {
 	}
 
 	void create_env_map () {
-		base_env_map = create_cubemap(env_res, calc_mipmaps(env_res, env_res), "PBR.env_map");
+		base_env_map = create_cubemap(env_res, calc_mipmaps(env_res, env_res), "PBR.base_env_map");
 		pbr_env_convolved = create_cubemap(env_res, env_mips, "PBR.pbr_env_convolved");
 	}
 	void draw_env_map (StateManager& state, Textures& texs) {
@@ -205,17 +212,23 @@ struct PBR_Render {
 		OGL_TRACE("draw_env_map");
 
 		int res = env_res;
-		{
+		
+		static bool compute_phase0 = false;
+		ImGui::Checkbox("compute_phase0", &compute_phase0);
+		static bool compute_phase1 = false;
+		ImGui::Checkbox("compute_phase1", &compute_phase1);
+
+		if (compute_phase0) {
 			OGL_TRACE("gen_env");
 
 			glUseProgram(shad_compute_gen_env->prog);
 			shad_compute_gen_env->set_uniform("resolution", int2(res));
 
-			state.bind_textures(shad_compute_gen_mips, {
-				{ "clouds", *texs.clouds },
-				{ "night_sky", texs.night_sky, texs.sampler_cubemap },
-				{ "moon", *texs.moon },
-				{ "moon_nrm", *texs.moon_nrm },
+			state.bind_textures(shad_compute_gen_env, {
+				{ "clouds",    *texs.clouds,    texs.sampler_normal },
+				{ "night_sky",  texs.night_sky, texs.sampler_cubemap },
+				{ "moon",      *texs.moon,      texs.sampler_normal },
+				{ "moon_nrm",  *texs.moon_nrm,  texs.sampler_normal },
 			});
 
 			glBindImageTexture(0, base_env_map, 0, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
@@ -224,7 +237,30 @@ struct PBR_Render {
 
 			glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 		}
-		{
+		else {
+			glBindVertexArray(state.dummy_vao);
+		
+			PipelineState s;
+			s.depth_test   = false;
+			s.depth_write  = false;
+			s.blend_enable = false;
+			state.set_no_override(s);
+
+			glUseProgram(shad_gen_env->prog);
+			state.bind_textures(shad_gen_env, {
+				{ "clouds",    *texs.clouds,    texs.sampler_normal },
+				{ "night_sky",  texs.night_sky, texs.sampler_cubemap },
+				{ "moon",      *texs.moon,      texs.sampler_normal },
+				{ "moon_nrm",  *texs.moon_nrm,  texs.sampler_normal },
+			});
+
+			auto fbo = make_and_bind_temp_fbo_layered(base_env_map, 0);
+			glViewport(0, 0, res, res);
+
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+		}
+
+		if (compute_phase1) {
 			OGL_TRACE("gen mips");
 			glUseProgram(shad_compute_gen_mips->prog);
 			state.bind_textures(shad_compute_gen_mips, {
@@ -244,12 +280,43 @@ struct PBR_Render {
 				glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 			}
 		}
+		else {
+			//glBindTexture(GL_TEXTURE_CUBE_MAP, base_env_map);
+			//glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+			//glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+			
+			glBindVertexArray(state.dummy_vao);
+		
+			PipelineState s;
+			s.depth_test   = false;
+			s.depth_write  = false;
+			s.blend_enable = false;
+			state.set_no_override(s);
+
+			glUseProgram(shad_mapmap_env->prog);
+			
+			state.bind_textures(shad_mapmap_env, {
+				{ "base_env_map", base_env_map },
+			});
+
+			for (int mip=1; mip<env_mips; ++mip) {
+				res = max(res / 2, 1);
+				
+				auto fbo = make_and_bind_temp_fbo_layered(base_env_map, mip);
+				glViewport(0, 0, res, res);
+				
+				shad_mapmap_env->set_uniform("prev_mip", (float)(mip-1));
+				
+				glDrawArrays(GL_TRIANGLES, 0, 3);
+			}
+		}
 		
 		res = env_res;
 		{
 			OGL_TRACE("copy mip0");
 
 			glUseProgram(shad_compute_copy->prog);
+			state.bind_textures(shad_compute_copy, {});
 			shad_compute_copy->set_uniform("resolution", int2(res));
 
 			glBindImageTexture(0, pbr_env_convolved, 0, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
@@ -282,6 +349,9 @@ struct PBR_Render {
 				dispatch_compute(int3(BATCH_SIZE,res*res,6), int3(BATCH_SIZE,4,1));
 			}
 		}
+		
+		glBindImageTexture(0, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+		glBindImageTexture(1, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
 
 		// TODO: Is this correct?
 		glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -909,7 +979,7 @@ public:
 
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
-	SERIALIZE(RenderPasses, renderscale, shadowmap_opt, exposure)
+	SERIALIZE(RenderPasses, renderscale, shadowmap_opt)
 
 	render::RenderScale renderscale;
 	Sampler renderscale_sampler         = make_sampler("renderscale_sampler", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
@@ -928,19 +998,10 @@ struct RenderPasses {
 	DirectionalCascadedShadowmap::Options shadowmap_opt;
 	std::unique_ptr<DirectionalCascadedShadowmap> shadowmap;
 	
-	float exposure = 1.0f;
-	
 	void imgui () {
 		renderscale.imgui();
 		shadowmap_opt.imgui(shadowmap.get());
 		pbr.imgui();
-
-		if (ImGui::TreeNode("Postprocessing")) {
-			ImGui::Text("For how many Lux is the camera exposure set?");
-			// Note: slider is backwards because lux is the useful unit, but 'more' exposure means exposing for less lux
-			ImGui::SliderFloat("exposure", &exposure, 1000000.0f, 0.0001f, "%12.4f", ImGuiSliderFlags_Logarithmic);
-			ImGui::TreePop();
-		}
 	}
 	
 	void update (StateManager& state, Textures& texs, int2 window_size) {
@@ -989,14 +1050,19 @@ struct RenderPasses {
 			tex += gbuf.textures();
 			pbr.prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
 
-			tex += { "clouds", *texs.clouds, texs.sampler_normal };
+			tex += { "clouds",   *texs.clouds,    texs.sampler_normal };
 			tex += { "night_sky", texs.night_sky, texs.sampler_cubemap };
-			tex += { "moon", *texs.moon };
-			tex += { "moon_nrm", *texs.moon_nrm };
-			tex += { "grid_tex", *texs.grid, texs.sampler_normal };
+			tex += { "moon",     *texs.moon,      texs.sampler_normal };
+			tex += { "moon_nrm", *texs.moon_nrm,  texs.sampler_normal };
+			tex += { "grid_tex", *texs.grid,      texs.sampler_normal };
 
 			if (shadowmap) shadowmap->prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
 			
+			static float visualize_env_lod = 0;
+			ImGui::SliderFloat("visualize_env_lod", &visualize_env_lod, 0, 20);
+
+			shad_fullscreen_lighting->set_uniform("visualize_env_lod", visualize_env_lod);
+
 			state.bind_textures(shad_fullscreen_lighting, tex);
 			draw_fullscreen_triangle(state);
 		}
@@ -1021,8 +1087,6 @@ struct RenderPasses {
 		
 		if (shad_postprocess->prog) {
 			glUseProgram(shad_postprocess->prog);
-				
-			shad_postprocess->set_uniform("exposure", 1.0f / exposure); // exposure in lux to map lux into 0-1 requires division
 
 			state.bind_textures(shad_postprocess, {
 				{ "lighting_fbo", { GL_TEXTURE_2D, lighting_fbo.col }, get_renderscale_sampler() }

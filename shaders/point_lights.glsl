@@ -196,24 +196,24 @@ void main () {
 		bool gbuf_valid = decode_gbuf(g);
 		//if (!decode_gbuf(g)) discard;
 		
-		frag_col = airglow(gbuf_valid, g.pos_world);
+		vec3 col = airglow(gbuf_valid, g.pos_world);
 		
 		vec3 frag2light = light.pos - g.pos_world;
 		float dist_sqr = dot(frag2light, frag2light);
-		if (dist_sqr >= light.radius*light.radius)
-			return;
+		if (dist_sqr < light.radius*light.radius) {
+			float dist = sqrt(dist_sqr);
+			frag2light /= dist; // normalize
 			
-		float dist = sqrt(dist_sqr);
-		frag2light /= dist; // normalize
+			float cone = cone_falloff(-frag2light);
+			if (cone > 0.0) {
+				float dotLN = max(dot(g.normal_world, frag2light), 0.0);
+				vec3 light = cone * dotLN * falloff(dist) * light.intensity;
+				
+				col += pbr_analytical_light(g, light, frag2light);
+			}
+		}
 		
-		float cone = cone_falloff(-frag2light);
-		if (cone <= 0.0)
-			return;
-		
-		float dotLN = max(dot(g.normal_world, frag2light), 0.0);
-		vec3 light = cone * dotLN * falloff(dist) * light.intensity;
-		
-		frag_col += pbr_analytical_light(g, light, frag2light);
+		frag_col = col * lighting.exposure; // exposure corrected
 		
 		//frag_col = frag2light;
 		//frag_col = vec3(0.00005,0.0,0.0);

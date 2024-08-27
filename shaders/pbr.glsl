@@ -252,12 +252,12 @@ uniform float       pbr_env_roughness_curve;
 
 vec3 pbr_sample_specular_env_map (vec3 direction, float roughness) {
 	float lod = pow(roughness, pbr_env_roughness_curve) * pbr_env_map_last_mip;
-	return readCubemapLod(pbr_env_map, direction, lod).rgb;
+	return readCubemapLod(pbr_env_map, direction, lod).rgb * lighting.inv_exposure; // un-exposure correct (work in lux space)
 }
 vec3 pbr_sample_diffuse_env_map (vec3 direction) {
-	return readCubemapLod(pbr_env_map, direction, pbr_env_map_last_mip).rgb;
+	return readCubemapLod(pbr_env_map, direction, pbr_env_map_last_mip).rgb * lighting.inv_exposure;
 }
-
+/*
 // Accurate reference implementation for specular brdf for comparison, using one loop
 vec3 pbr_reference_env_light (in GbufResult g) {
 	
@@ -329,7 +329,8 @@ vec3 pbr_IBL_test (in GbufResult g) {
 	vec3 specular = (brdf.x * F0 + brdf.y);
 	vec3 diffuse = g.albedo * (1.0/PI) * (1.0 - F) * (1.0 - g.metallic);
 	return spec_light * specular + diff_light * diffuse;
-}
+}*/
+
 // Optimized specular approximation using textures, extremely fast
 vec3 pbr_IBL (in GbufResult g) {
 	vec3 refl = reflect(g.view_dir, g.normal_world);

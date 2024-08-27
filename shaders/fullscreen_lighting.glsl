@@ -37,9 +37,10 @@
 		}
 	}
 	
+	uniform float visualize_env_lod = 0.0;
 	vec3 draw_skybox (in GbufResult g) {
 		//vec3 col = readCubemap(night_sky, g.view_dir).rgb;
-		//vec3 col = readCubemap(pbr_env_map, g.view_dir).rgb;
+		//vec3 col = readCubemapLod(pbr_env_map, g.view_dir, round(visualize_env_lod)).rgb * lighting.inv_exposure;
 		vec3 col = procedural_sky(view.cam_pos, g.view_dir);
 		return col;
 	}
@@ -74,7 +75,7 @@
 			col = draw_skybox(g);
 		}
 		
-		frag_col = vec4(col, 1.0);
+		frag_col = vec4(col * lighting.exposure, 1.0); // exposure corrected
 		
 		//debug_window_shadow(shadowmap, 0.0);
 		//debug_window(gbuf_depth);

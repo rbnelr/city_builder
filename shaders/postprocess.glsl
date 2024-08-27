@@ -59,13 +59,10 @@
 		        (hdr * (a * hdr + b) + d * f)) - e / f;
 	}
 	
-	uniform float exposure = 1.0;
-	
 	out vec4 frag_col;
 	void main () {
 		vec3 col = texture(fbo_col, v.uv).rgb;
-		
-		col *= exposure;
+		// already exposure corrected
 		
 		col = tonemap_ACESFilmic(col);
 		

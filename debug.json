@@ -456,7 +456,7 @@
 		"map_rotation": 0.21118485927581787
 	},
 	"interact": {
-		"terraform": null
+		"terraform": {}
 	},
 	"heightmap": {
 		"inner": {
@@ -560,7 +560,8 @@
 				"renderscale": 1.0,
 				"nearest": false
 			},
-			"shadowmap": {
+			"shadowmap_opt": {
+				"enabled": true,
 				"shadow_res": 2048,
 				"cascades": 4,
 				"cascade_factor": 2.5,

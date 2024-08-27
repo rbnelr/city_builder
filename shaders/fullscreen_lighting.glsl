@@ -2,8 +2,6 @@
 #include "common.glsl"
 #include "fullscreen_triangle.glsl"
 
-#define SHADOWMAP 1
-
 #ifdef _FRAGMENT
 	#define GBUF_IN 1
 	#include "gbuf.glsl"
@@ -49,53 +47,34 @@
 	void main () {
 		GbufResult g;
 		bool valid = decode_gbuf(g);
-		vec3 col = vec3(0);
-		//col = vec3(.4);
+		vec3 col;
 		
 		if (valid) {
+			//g.albedo = vec3(1);
+			//g.roughness *= 0.4;
+			//g.metallic = 1.0;
+			
+			col = pbr_IBL(g);
+			col += g.emissive;
+			
 		#if SHADOWMAP
 			float shadow = sun_shadowmap(g.pos_world, g.normal_world);
 		#else
 			float shadow = 1.0;
 		#endif 
-			
-			//g.albedo = vec3(1);
-			//g.roughness *= 0.4;
-			//g.metallic = 1.0;
-			
-			{
-				//if (gl_FragCoord.x > 950) {
-				//if (bool(1)) {
-				//	col = pbr_reference_env_light(g);
-					//col = pbr_approx_env_light(g);
-				//} else {
-					col = pbr_IBL(g);
-					//col = pbr_IBL_test(g);
-				//}
-				
-				col += g.emissive;
-				
-				float shadow = sun_shadowmap(g.pos_world, g.normal_world);
-				if (shadow >= 0.0f) {
-					vec3 sun_light = atmos_scattering(lighting.sun_col);
-					sun_light *= sun_strength() * 3.0;
-					col += shadow * pbr_analytical_light(g, sun_light, dir2sun());
-				}
-				//col = shadow.xxx;
+			if (shadow >= 0.0f) {
+				vec3 sun_light = atmos_scattering(lighting.sun_col);
+				sun_light *= sun_strength() * 3.0;
+				col += shadow * pbr_analytical_light(g, sun_light, dir2sun());
 			}
 			
 			col = apply_fog(col, g.pos_world);
-			//col = vec3(g.roughness);
-			
-			//col = overlay_grid(col, g.pos_world);
 		}
 		else {
 			col = draw_skybox(g);
 		}
 		
 		frag_col = vec4(col, 1.0);
-		//frag_col = vec4(normal, 1.0);
-		//frag_col = vec4(depth,depth,depth, 1.0);
 		
 		//debug_window_shadow(shadowmap, 0.0);
 		//debug_window(gbuf_depth);

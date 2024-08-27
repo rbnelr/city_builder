@@ -390,29 +390,55 @@ struct PBR_Render {
 
 // TODO: Debug why cascade 0 is not working???
 struct DirectionalCascadedShadowmap {
-	SERIALIZE(DirectionalCascadedShadowmap, shadow_res, cascades, cascade_factor, size, depth_range, bias_fac_world, bias_max_world)
 
-	// (square) pixel resultion of each shadowmap cascade
-	int shadow_res = 2048;
-	// number of cascades
-	int cascades = 4;
+	// Seperate Options to allow deallocating entire class if effect is disabled, TODO: do for all things that are optional right now
+	struct Options {
+		SERIALIZE(Options, enabled, shadow_res, cascades, cascade_factor, size, depth_range, bias_fac_world, bias_max_world)
+		
+		bool enabled = false;
 
-	float cascade_factor = 3.0f;
+		// (square) pixel resultion of each shadowmap cascade
+		int shadow_res = 2048;
+		// number of cascades
+		int cascades = 4;
 
-	// worldspace size of first cascade (width and height, this determines shadow resolution on surfaces)
-	float size = 512;
-	// worldspace length of cascade (what range the depth gets mapped to, this determines depth artefacts)
-	float depth_range = 700;
+		float cascade_factor = 3.0f;
 
-	// shadow bias parameters
-	float bias_fac_world = 2.0f;
-	float bias_max_world = 10.0f;
+		// worldspace size of first cascade (width and height, this determines shadow resolution on surfaces)
+		float size = 512;
+		// worldspace length of cascade (what range the depth gets mapped to, this determines depth artefacts)
+		float depth_range = 700;
 
-	// computed values for shader
-	float texel_size;
-	float bias_fac;
-	float bias_max;
+		// shadow bias parameters
+		float bias_fac_world = 2.0f;
+		float bias_max_world = 10.0f;
+		
+		void imgui (DirectionalCascadedShadowmap* shadowmap) {
+			if (!ImGui::TreeNode("DirectionalShadowmap")) return;
+			
+			ImGui::Checkbox("enabled", &enabled);
 
+			bool changed = ImGui::InputInt("shadow_res", &shadow_res);
+			changed      = ImGui::InputInt("cascades", &cascades) || changed;
+
+			shadow_res = clamp(shadow_res, 1, 1024*16);
+			cascades = clamp(cascades, 1, 16);
+		
+			ImGui::DragFloat("cascade_factor", &cascade_factor, 0.1f, 1, 8);
+
+			ImGui::DragFloat("size", &size, 0.1f, 0, 1024*16);
+			ImGui::DragFloat("depth_range", &depth_range, 0.1f, 0, 1024*16);
+
+			ImGui::DragFloat("bias_fac", &bias_fac_world, 0.1f);
+			ImGui::DragFloat("bias_max", &bias_max_world, 0.1f);
+
+			ImGui::TreePop();
+
+			if (shadowmap) shadowmap->tex_changed = shadowmap->tex_changed || changed;
+		}
+	};
+	Options& opt;
+	
 	static constexpr GLenum depth_format = GL_DEPTH_COMPONENT16;
 
 	class Textures {
@@ -458,40 +484,23 @@ struct DirectionalCascadedShadowmap {
 
 	bool tex_changed = true;
 
-	void imgui () {
-		if (!ImGui::TreeNode("DirectionalShadowmap")) return;
+	// computed values for shader
+	float texel_size;
+	float bias_fac;
+	float bias_max;
 
-		tex_changed = ImGui::InputInt("shadow_res", &shadow_res) || tex_changed;
-		tex_changed = ImGui::InputInt("cascades", &cascades) || tex_changed;
-		shadow_res = clamp(shadow_res, 1, 1024*16);
-		cascades = clamp(cascades, 1, 16);
-		
-		ImGui::DragFloat("cascade_factor", &cascade_factor, 0.1f, 1, 8);
-
-		ImGui::DragFloat("size", &size, 0.1f, 0, 1024*16);
-		ImGui::DragFloat("depth_range", &depth_range, 0.1f, 0, 1024*16);
-
-		ImGui::DragFloat("bias_fac", &bias_fac_world, 0.1f);
-		ImGui::DragFloat("bias_max", &bias_max_world, 0.1f);
-
-		ImGui::Text("res: %.3f m\nbias_fac: %.4f m (%.5f depth)\nbias_max: %.4f m (%.5f depth)",
-			texel_size, bias_fac_world * texel_size, bias_fac, bias_max_world * texel_size, bias_max);
-
-		ImGui::TreePop();
-	}
-
-	void resize (int2 tex_res) {
+	void resize () {
 		glActiveTexture(GL_TEXTURE0);
 
-		shadow_tex = Textures("DirectionalShadowmap.depth", tex_res, cascades, depth_format);
+		shadow_tex = Textures("DirectionalShadowmap.depth", opt.shadow_res, opt.cascades, depth_format);
 		
 		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
 		glSamplerParameteri(sampler2, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
 
-		fbos.resize(cascades);
-		tex_views.resize(cascades);
+		fbos.resize(opt.cascades);
+		tex_views.resize(opt.cascades);
 		
-		for (int i=0; i<cascades; ++i) {
+		for (int i=0; i<opt.cascades; ++i) {
 			fbos[i] = Fbo("DirectionalShadowmap.fbo");
 			glBindFramebuffer(GL_FRAMEBUFFER, fbos[i]);
 
@@ -513,16 +522,18 @@ struct DirectionalCascadedShadowmap {
 
 	void update () {
 		// bias at 45deg should be size of shadowmap texel in world space because with flat surface can sample at most that amount wrong
-		texel_size = size / (float)shadow_res;
+		texel_size = opt.size / (float)opt.shadow_res;
 
-		bias_fac = bias_fac_world * texel_size / depth_range;
-		bias_max = bias_max_world * texel_size / depth_range;
-
+		bias_fac = opt.bias_fac_world * texel_size / opt.depth_range;
+		bias_max = opt.bias_max_world * texel_size / opt.depth_range;
+		
+		ImGui::Text("Shadowmap: res: %.3f m\nbias_fac: %.4f m (%.5f depth)\nbias_max: %.4f m (%.5f depth)",
+			texel_size, opt.bias_fac_world * texel_size, bias_fac, opt.bias_max_world * texel_size, bias_max);
 
 		if (!tex_changed) return;
 		tex_changed = false;
 
-		resize(int2(shadow_res,shadow_res));
+		resize();
 	}
 
 	void prepare_uniforms_and_textures (Shader* shad, TextureBinds& textures) {
@@ -530,7 +541,7 @@ struct DirectionalCascadedShadowmap {
 		shad->set_uniform("shadowmap_dir", (float3x3)view_casc0.cam2world * float3(0,0,-1));
 		shad->set_uniform("shadowmap_bias_fac", bias_fac);
 		shad->set_uniform("shadowmap_bias_max", bias_max);
-		shad->set_uniform("shadowmap_cascade_factor", cascade_factor);
+		shad->set_uniform("shadowmap_cascade_factor", opt.cascade_factor);
 
 		textures += { "shadowmap",  { GL_TEXTURE_2D_ARRAY, shadow_tex }, sampler };
 		textures += { "shadowmap2", { GL_TEXTURE_2D_ARRAY, shadow_tex }, sampler2 };
@@ -539,17 +550,17 @@ struct DirectionalCascadedShadowmap {
 	template <typename FUNC>
 	void draw_cascades (View3D& view, GameTime::SkyConfig& sky, StateManager& state, FUNC draw_scene) {
 		
-		float casc_size = size;
-		float casc_depth_range = depth_range;
+		float casc_size = opt.size;
+		float casc_depth_range = opt.depth_range;
 
-		for (int i=0; i<cascades; ++i) {
+		for (int i=0; i<opt.cascades; ++i) {
 			auto& cascade_fbo = fbos[i];
 
 			ZoneScopedN("draw cascade");
 			OGL_TRACE("draw cascade");
 
 			glBindFramebuffer(GL_FRAMEBUFFER, cascade_fbo);
-			glViewport(0, 0, shadow_res, shadow_res);
+			glViewport(0, 0, opt.shadow_res, opt.shadow_res);
 			
 			PipelineState s; // Set state (glDepthMask) so glClear actully bothers to do anything!
 			state.set_no_override(s);
@@ -563,13 +574,13 @@ struct DirectionalCascadedShadowmap {
 			float3x4 sun2world = translate(center) * sky.sun2world;
 
 			View3D view = ortho_view(casc_size, casc_size, -casc_depth_range*0.5f, +casc_depth_range*0.5f,
-				world2sun, sun2world, (float)shadow_res);
+				world2sun, sun2world, (float)opt.shadow_res);
 			
 			if (i == 0)
 				view_casc0 = view;
 
-			casc_size *= cascade_factor;
-			casc_depth_range *= cascade_factor;
+			casc_size *= opt.cascade_factor;
+			casc_depth_range *= opt.cascade_factor;
 
 			draw_scene(view, tex_views[i]);
 		}
@@ -863,7 +874,7 @@ struct DefferedPointLightRenderer {
 
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
-	SERIALIZE(RenderPasses, renderscale, shadowmap, exposure)
+	SERIALIZE(RenderPasses, renderscale, shadowmap_opt, exposure)
 
 	Gbuffer gbuf;
 
@@ -913,7 +924,8 @@ struct RenderPasses {
 	};
 	LightingFbo lighting_fbo;
 	
-	DirectionalCascadedShadowmap shadowmap;
+	DirectionalCascadedShadowmap::Options shadowmap_opt;
+	std::unique_ptr<DirectionalCascadedShadowmap> shadowmap;
 
 	render::RenderScale renderscale;
 	
@@ -933,7 +945,7 @@ struct RenderPasses {
 	
 	void imgui () {
 		renderscale.imgui();
-		shadowmap.imgui();
+		shadowmap_opt.imgui(shadowmap.get());
 		pbr.imgui();
 
 		if (ImGui::TreeNode("Postprocessing")) {
@@ -947,7 +959,10 @@ struct RenderPasses {
 	void update (StateManager& state, Textures& texs, int2 window_size) {
 		ZoneScoped;
 
-		shadowmap.update();
+		if (!!shadowmap != shadowmap_opt.enabled)
+			shadowmap = shadowmap_opt.enabled ? std::make_unique<DirectionalCascadedShadowmap>(shadowmap_opt) : nullptr;
+
+		if (shadowmap) shadowmap->update();
 		pbr.update(state, texs);
 
 		if (renderscale.update(window_size)) {
@@ -974,6 +989,9 @@ struct RenderPasses {
 	}
 
 	void fullscreen_lighting_pass (StateManager& state, Textures& texs, DefferedPointLightRenderer& light_renderer) {
+		if (shad_fullscreen_lighting && shad_fullscreen_lighting->set_macro("SHADOWMAP", shadowmap != nullptr))
+			shad_fullscreen_lighting->recompile();
+
 		if (shad_fullscreen_lighting->prog) {
 			ZoneScoped;
 			OGL_TRACE("fullscreen_lighting");
@@ -990,7 +1008,7 @@ struct RenderPasses {
 			tex += { "moon_nrm", *texs.moon_nrm };
 			tex += { "grid_tex", *texs.grid, texs.sampler_normal };
 
-			shadowmap.prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
+			if (shadowmap) shadowmap->prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
 			
 			state.bind_textures(shad_fullscreen_lighting, tex);
 			draw_fullscreen_triangle(state);

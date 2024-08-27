@@ -64,47 +64,6 @@ struct Mesh {
 	}
 };
 
-struct TriRenderer {
-	Shader* shad  = g_shaders.compile("tris");
-
-	struct Vertex {
-		float3 pos;
-		float2 uv;
-		float4 col;
-
-		VERTEX_CONFIG(
-			ATTRIB(FLT,3, Vertex, pos),
-			ATTRIB(FLT,2, Vertex, uv),
-			ATTRIB(FLT,4, Vertex, col),
-		)
-	};
-
-	VertexBufferI vbo = vertex_bufferI<Vertex>("TriRenderer.Vertex");
-
-	Mesh<Vertex, uint32_t> mesh;
-
-	void render (StateManager& state, Textures& texs) {
-		OGL_TRACE("TriRenderer");
-		ZoneScoped;
-
-		if (shad->prog) {
-			glUseProgram(shad->prog);
-
-			state.bind_textures(shad, {
-				//{ "turn_arrows", tex.turn_arrows, tex.sampler_normal }
-			});
-
-			PipelineState s;
-			s.blend_enable = true;
-			state.set(s);
-
-			mesh.stream_draw(vbo);
-		}
-
-		glBindVertexArray(0);
-	}
-};
-
 struct TerrainRenderer {
 	static constexpr int TERRAIN_CHUNK_SZ = 32; // 128 is max with GL_UNSIGNED_SHORT indices
 
@@ -1677,12 +1636,12 @@ public:
 			common_ubo.set_view(view);
 		};
 
-		{
+		if (passes.shadowmap) {
 			ZoneScopedN("shadow_pass");
 			OGL_TRACE("shadow_pass");
 
 			//passes.shadowmap.draw_cascades(view, sky_config, state, [&] (View3D& view, Fbo& depth_fbo, int2 res, GLenum depth_format) {
-			passes.shadowmap.draw_cascades(view, sky_config, state, [&] (View3D& view, GLuint depth_tex) {
+			passes.shadowmap->draw_cascades(view, sky_config, state, [&] (View3D& view, GLuint depth_tex) {
 				common_ubo.set_view(view);
 				
 				terrain_render.render_terrain(state, app.heightmap, textures, view, true);

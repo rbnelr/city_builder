@@ -82,6 +82,9 @@
       <Filter>engine\imgui</Filter>
     </ClCompile>
     <ClCompile Include="..\src\main.cpp" />
+    <ClCompile Include="..\src\opengl\objects.cpp">
+      <Filter>opengl</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="engine">
@@ -235,8 +238,22 @@
     <ClInclude Include="..\src\entities.hpp" />
     <ClInclude Include="..\src\game_time.hpp" />
     <ClInclude Include="..\src\bezier.hpp" />
-    <ClInclude Include="..\src\textures.hpp" />
     <ClInclude Include="..\src\opengl\textures.hpp">
+      <Filter>opengl</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\opengl\post_passes.hpp">
+      <Filter>opengl</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\opengl\terrain.hpp">
+      <Filter>opengl</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\opengl\objects.hpp">
+      <Filter>opengl</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\opengl\ogl_render.hpp">
+      <Filter>opengl</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\opengl\ogl_common.hpp">
       <Filter>opengl</Filter>
     </ClInclude>
   </ItemGroup>

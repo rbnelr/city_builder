@@ -1,0 +1,227 @@
+#pragma once
+#include "common.hpp"
+#include "ogl_common.hpp"
+#include "terrain.hpp"
+#include "objects.hpp"
+#include "render_passes.hpp"
+#include "engine/text_render.hpp"
+
+namespace ogl {
+
+class OglRenderer : public Renderer {
+	SERIALIZE(OglRenderer, lighting, passes, entity_render)
+public:
+	
+	virtual void to_json (nlohmann::ordered_json& j) {
+		j["ogl_renderer"] = *this;
+	}
+	virtual void from_json (nlohmann::ordered_json const& j) {
+		if (j.contains("ogl_renderer")) j.at("ogl_renderer").get_to(*this);
+	}
+	
+	virtual void imgui (App& app) {
+		//if (imgui_Header("Renderer", true)) {
+		if (ImGui::Begin("Renderer")) {
+			
+			passes.imgui();
+			entity_render.light_renderer.imgui();
+			textures.imgui();
+
+		#if OGL_USE_REVERSE_DEPTH
+			ImGui::Checkbox("reverse_depth", &ogl::reverse_depth);
+		#endif
+
+			gl_dbgdraw.imgui(g_dbgdraw.text);
+
+			lod.imgui();
+
+			lighting.imgui();
+			terrain_render.imgui();
+		}
+		ImGui::End();
+	}
+
+	StateManager state;
+
+	glDebugDraw gl_dbgdraw;
+	
+	CommonUniforms common_ubo;
+	
+	RenderPasses passes;
+
+	Lighting lighting;
+
+	TerrainRenderer terrain_render;
+	
+	NetworkRenderer network_render;
+	DecalRenderer   decal_render;
+
+	ClippingRenderer clip_render;
+
+	EntityRenderers entity_render;
+
+	//SkyboxRenderer skybox;
+	
+	LOD_Func lod;
+
+	Textures textures;
+
+	OglRenderer () {
+		
+	}
+
+	virtual void reload_textures () {
+		textures.reload_all();
+	}
+	
+	void upload_static_instances (App& app);
+	void update_dynamic_traffic_signals (Network& net);
+	void upload_vehicle_instances (App& app, View3D& view);
+	void update_vehicle_instance (DynamicVehicle& instance, Person& entity, int i, View3D& view, float dt);
+	
+	virtual void begin (App& app) {
+		ZoneScoped;
+		gl_dbgdraw.gl_text_render.begin(g_dbgdraw.text); // upload text and init data structures to allow text printing
+	}
+	virtual void end (App& app, View3D& view) {
+		ZoneScoped;
+		
+		auto sky_config = app.time.calc_sky_config(view);
+		
+		lighting.update(app, sky_config);
+		
+	#if RENDERER_DEBUG_LABELS
+		// Dummy call because first gl event in nsight is always bugged, and by doing this the next OGL_TRACE() actually works
+		glBindTexture(GL_TEXTURE_2D, 0);
+	#endif
+		
+		{
+			ZoneScopedN("uploads");
+			OGL_TRACE("uploads");
+
+			textures.heightmap.update_changes(app.heightmap);
+
+			if (app.assets.assets_reloaded) {
+				ZoneScopedN("assets_reloaded");
+				entity_render.upload_meshes(app.assets);
+			}
+
+			if (app.entities.buildings_changed) {
+				ZoneScopedN("buildings_changed");
+
+				upload_static_instances(app);
+			}
+
+			upload_vehicle_instances(app, view);
+			update_dynamic_traffic_signals(app.network);
+		}
+
+		{
+			ZoneScopedN("setup");
+			OGL_TRACE("setup");
+
+			{
+				//OGL_TRACE("set state defaults");
+
+				state.wireframe          = gl_dbgdraw.wireframe;
+				state.wireframe_no_cull  = gl_dbgdraw.wireframe_no_cull;
+				state.wireframe_no_blend = gl_dbgdraw.wireframe_no_blend;
+
+				state.set_default();
+
+				glEnable(GL_LINE_SMOOTH);
+				glLineWidth(gl_dbgdraw.line_width);
+			}
+
+			{
+				common_ubo.begin();
+				common_ubo.set_lighting(lighting);
+				textures.bindless_textures.update_lut(SSBO_BINDING_BINDLESS_TEX_LUT);
+
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_DBGDRAW_INDIRECT, gl_dbgdraw.indirect_vbo);
+
+				gl_dbgdraw.update(app.input);
+			}
+		}
+
+		passes.update(state, textures, app.input.window_size);
+
+		auto update_view_resolution = [&] (int2 res) {
+			
+			view.viewport_size = (float2)res;
+			view.inv_viewport_size = 1.0f / view.viewport_size;
+
+			common_ubo.set_view(view);
+		};
+
+		if (passes.shadowmap) {
+			ZoneScopedN("shadow_pass");
+			OGL_TRACE("shadow_pass");
+
+			//passes.shadowmap.draw_cascades(view, sky_config, state, [&] (View3D& view, Fbo& depth_fbo, int2 res, GLenum depth_format) {
+			passes.shadowmap->draw_cascades(view, sky_config, state, [&] (View3D& view, GLuint depth_tex) {
+				common_ubo.set_view(view);
+				
+				terrain_render.render_terrain(state, app.heightmap, textures, view, true);
+				clip_render.render(state, depth_tex, true);
+		
+				network_render.render(state, textures, true);
+
+				entity_render.draw_all(state, true);
+			});
+		}
+		
+		update_view_resolution(passes.renderscale.size);
+
+		{
+			ZoneScopedN("geometry_pass");
+			OGL_TRACE("geometry_pass");
+			
+			passes.begin_geometry_pass(state);
+
+			terrain_render.render_terrain(state, app.heightmap, textures, view);
+			clip_render.render(state, passes.gbuf.depth);
+
+			network_render.render(state, textures);
+			decal_render.render(state, passes.gbuf, textures);
+		
+			entity_render.draw_all(state);
+
+			// TODO: draw during lighting pass?
+			//  how to draw it without depth buffer? -> could use gbuf_normal == vec3(0) as draw condition?
+			//skybox.render_skybox_last(state, textures);
+		}
+
+		{
+			ZoneScopedN("lighting_pass");
+			OGL_TRACE("lighting_pass");
+			
+			passes.begin_lighting_pass();
+
+			passes.fullscreen_lighting_pass(state, textures, entity_render.light_renderer);
+
+			passes.end_lighting_pass();
+		}
+		
+		update_view_resolution(app.input.window_size);
+
+		passes.postprocess(state, app.input.window_size);
+
+		gl_dbgdraw.render(state, g_dbgdraw);
+
+		{
+			ZoneScopedN("draw ui");
+			OGL_TRACE("draw ui");
+		
+			if (app.trigger_screenshot && !app.screenshot_hud) take_screenshot(app.input.window_size);
+		
+			// draw HUD
+			app.draw_imgui();
+
+			if (app.trigger_screenshot && app.screenshot_hud)  take_screenshot(app.input.window_size);
+			app.trigger_screenshot = false;
+		}
+	}
+};
+
+} // namespace ogl

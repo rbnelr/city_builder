@@ -107,7 +107,7 @@ struct HeightmapTextures {
 };
 
 
-GLenum dds_compressed_internat_format (dds::Image const& img) {
+inline GLenum dds_compressed_internat_format (dds::Image const& img) {
 	switch (img.format) {
 		case DXGI_FORMAT_BC1_UNORM: return GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
 	}
@@ -115,7 +115,7 @@ GLenum dds_compressed_internat_format (dds::Image const& img) {
 	return 0;
 }
 
-void upload_imageCube_DDS (GLuint tex, const dds::Image imgs[], bool gen_mips) {
+inline void upload_imageCube_DDS (GLuint tex, const dds::Image imgs[], bool gen_mips) {
 	glBindTexture(GL_TEXTURE_CUBE_MAP, tex);
 	
 	for (int i=0; i<6; ++i) {

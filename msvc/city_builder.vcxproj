@@ -310,7 +310,13 @@
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
       </PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="..\src\opengl\objects.cpp" />
+    <ClInclude Include="..\src\opengl\objects.hpp" />
+    <ClInclude Include="..\src\opengl\ogl_common.hpp" />
+    <ClInclude Include="..\src\opengl\ogl_render.hpp" />
+    <ClInclude Include="..\src\opengl\post_passes.hpp" />
     <ClInclude Include="..\src\opengl\render_passes.hpp" />
+    <ClInclude Include="..\src\opengl\terrain.hpp" />
     <ClInclude Include="..\src\opengl\textures.hpp" />
     <ClInclude Include="..\src\util.hpp" />
   </ItemGroup>

@@ -46,12 +46,12 @@ struct TexLoader {
 
 		virtual void execute () {
 			ZoneScoped;
-			printf("loading texture \"%s\"...\n", name.c_str());
+			log("loading texture \"%s\"...\n", name.c_str());
 
 			std::string filepath = prints("assets/%s", name.c_str());
 
 			if (!Image<T>::load_from_file(filepath.c_str(), &img)) {
-				fprintf(stderr, "Error! Could not load texture \"%s\"\n", name.c_str());
+				log_warn("Error! Could not load texture \"%s\"\n", name.c_str());
 				return;
 			}
 
@@ -83,7 +83,7 @@ struct TexLoader {
 
 		virtual void execute () {
 			ZoneScoped;
-			printf("loading cubemap \"%s\"...\n", name_fmt.c_str());
+			log("loading cubemap \"%s\"...\n", name_fmt.c_str());
 			
 			std::string filepath_fmt = prints("assets/%s", name_fmt.c_str());
 			
@@ -93,7 +93,7 @@ struct TexLoader {
 					auto filepath = prints(filepath_fmt.c_str(), CUBEMAP_FACE_FILES_NAMES[i]);
 			
 					if (dds::readFile(filepath, &ddss[i]) != dds::ReadResult::Success) {
-						fprintf(stderr, "Error! Could not load texture \"%s\"\n", filepath.c_str());
+						log_warn("Error! Could not load texture \"%s\"\n", filepath.c_str());
 						return;
 					}
 				}
@@ -103,7 +103,7 @@ struct TexLoader {
 					auto filepath = prints(filepath_fmt.c_str(), CUBEMAP_FACE_FILES_NAMES[i]);
 			
 					if (!Image<T>::load_from_file(filepath.c_str(), &imgs[i])) {
-						fprintf(stderr, "Error! Could not load texture \"%s\"\n", filepath.c_str());
+						log_warn("Error! Could not load texture \"%s\"\n", filepath.c_str());
 						return;
 					}
 				}

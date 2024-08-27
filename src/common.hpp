@@ -89,6 +89,36 @@ using namespace kiss;
 
 inline render::DebugDraw g_dbgdraw; // really need something like this to be global
 
+template <typename... Ts>
+inline void log (const char* format, Ts... args) {
+	fprintf(stdout, format, args...);
+	fflush(stdout);
+}
+template <typename... Ts>
+inline void log_warn (const char* format, Ts... args) {
+	fprintf(stdout, "\x1B[33m");
+	fprintf(stdout, format, args...);
+	fprintf(stdout, "\033[0m");
+	fflush(stdout);
+}
+template <typename... Ts>
+inline void log_error (const char* format, Ts... args) {
+	fprintf(stdout, "\x1B[31m");
+	fprintf(stdout, format, args...);
+	fprintf(stdout, "\033[0m");
+	fflush(stdout);
+}
+
+template <typename... Ts>
+[[noreturn]] inline void fatal_error (const char* format, Ts... args) {
+	log_error(format, args...);
+	// throw unhandled exception which dbgbreaks or
+	// opens generic abort message box if running normally, so user can read log in (open) console window
+	// TODO: hide console window at runtime and log both into file and into imgui/ingame log?
+	// show log during fatal_error in message box or somehow unhide console window if hidden?
+	throw std::runtime_error(prints(format, args...));
+}
+
 #include "util.hpp"
 
 inline void imgui_style () {

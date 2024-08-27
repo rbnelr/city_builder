@@ -605,11 +605,12 @@ struct EntityRenderer {
 	EntityRenderer (const char* dbg_name, AssetMeshes<ASSET_T>& meshes, const char* shad_name, const char* variant_name="_VARIANT"):
 		dbg_name{dbg_name}, meshes{meshes} {
 
-		shad = g_shaders.compile(shad_name, {{variant_name, "1"}}); // #define <variant_name> to select specific shader
+		shad = g_shaders.compile(shad_name, {{variant_name, "1"}},
+			false, prints("%s (%s)", shad_name, variant_name).c_str());
 
-		shad_lod_cull = g_shaders.compile("lod_cull", {{variant_name, "1"},
+		shad_lod_cull = g_shaders.compile_compute("lod_cull", {{variant_name, "1"},
 			{"GROUPSZ", prints("%d", AssetMeshes<ASSET_T>::COMPUTE_GROUPSZ)},
-		}, { shader::COMPUTE_SHADER });
+		}, false, prints("%s (%s)", "lod_cull", variant_name).c_str());
 
 		setup_vao();
 	}

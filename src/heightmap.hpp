@@ -303,14 +303,14 @@ public:
 
 	bool import (const char* inner_filename, const char* outer_filename) {
 		ZoneScoped;
-		printf("loading heightmap...\n");
+		log("loading heightmap...\n");
 
 		Image<pixel_t> in, out;
 		bool success = Image<pixel_t>::load_from_file("assets/heightmap.png", &in);
 		success =      Image<pixel_t>::load_from_file("assets/heightmap_outer.png", &out) && success;
 
 		if (!success || in.size.x < 2 || in.size.y < 2 || out.size.x < 2 || out.size.y < 2) {
-			fprintf(stderr, "Error! Could not load heightmap!\n");
+			log_error("Error! Could not load heightmap!\n");
 			return false;
 		}
 

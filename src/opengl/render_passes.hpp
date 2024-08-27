@@ -75,7 +75,7 @@ struct Gbuffer {
 		
 		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 		if (status != GL_FRAMEBUFFER_COMPLETE) {
-			fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
+			fatal_error("glCheckFramebufferStatus: %x\n", status);
 		}
 		
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -102,10 +102,10 @@ struct PBR_Render {
 	Shader* shad_integrate_brdf = g_shaders.compile("pbr_integrate_brdf");
 
 	static constexpr int3 COMPUTE_CONVOLVE_WG = int3(8,8,1);
-	Shader* shad_compute_gen_env  = g_shaders.compile("pbr_compute", {{"MODE","0"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}}, { shader::COMPUTE_SHADER });
-	Shader* shad_compute_gen_mips = g_shaders.compile("pbr_compute", {{"MODE","1"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}}, { shader::COMPUTE_SHADER });
-	Shader* shad_compute_copy     = g_shaders.compile("pbr_compute", {{"MODE","2"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}}, { shader::COMPUTE_SHADER });
-	Shader* shad_compute_convolve = g_shaders.compile("pbr_compute", {{"MODE","3"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}}, { shader::COMPUTE_SHADER });
+	Shader* shad_compute_gen_env  = g_shaders.compile_compute("pbr_compute", {{"MODE","0"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
+	Shader* shad_compute_gen_mips = g_shaders.compile_compute("pbr_compute", {{"MODE","1"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
+	Shader* shad_compute_copy     = g_shaders.compile_compute("pbr_compute", {{"MODE","2"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
+	Shader* shad_compute_convolve = g_shaders.compile_compute("pbr_compute", {{"MODE","3"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
 
 	Texture2D brdf_LUT;
 	int brdf_LUT_res = 256; // Seems to be enough
@@ -501,7 +501,7 @@ struct DirectionalCascadedShadowmap {
 
 			GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 			if (status != GL_FRAMEBUFFER_COMPLETE) {
-				fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
+				fatal_error("glCheckFramebufferStatus: %x\n", status);
 			}
 
 			tex_views[i] = TextureView("DirectionalShadowmap.view");
@@ -902,7 +902,7 @@ struct RenderPasses {
 		
 				GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 				if (status != GL_FRAMEBUFFER_COMPLETE) {
-					fprintf(stderr, "glCheckFramebufferStatus: %x\n", status);
+					fatal_error("glCheckFramebufferStatus: %x\n", status);
 				}
 			}
 

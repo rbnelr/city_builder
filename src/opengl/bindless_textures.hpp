@@ -125,7 +125,7 @@ struct BindlessTextureManager {
 	int add_entry (std::string&& name) {
 		auto id = this->operator[](name);
 		if (id != 0) {
-			fprintf(stderr, "Error! Texture \"%s\" already added", name.c_str());
+			log_error("Error! Texture \"%s\" already added", name.c_str());
 			assert(false);
 			return id; // return id anyway to avoid crashes (just overwrites it)
 		}

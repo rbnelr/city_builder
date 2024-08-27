@@ -3,7 +3,7 @@
 Engine* new_app ();
 
 int main () {
-	printf("Starting application...\n");
+	log("Starting application...\n");
 	Engine* app = new_app();
 	int ret = app->main_loop();
 	delete app;

@@ -64,8 +64,8 @@ struct Lighting {
 	float2 clouds_vel = rotate2(deg(30)) * float2(100.0);	// current cloud velocity in m/s
 
 	void update (App& app, Exposure& expo, GameTime::SkyConfig& sky) {
-		exposure = 1.0f / expo.exposure;
-		inv_exposure = expo.exposure;
+		exposure     = 1.0f / (expo.exposure / 1000.0f );
+		inv_exposure =         expo.exposure / 1000.0f;
 
 		time_of_day = app.time.time_of_day;
 

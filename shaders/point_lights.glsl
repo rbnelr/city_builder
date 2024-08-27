@@ -111,7 +111,7 @@ void main () {
 		float fadeout = max(1.0 - x, 0.0);
 		fadeout *= fadeout;
 		
-		float d = dist + 1.0;
+		float d = dist + 0.0;
 		return fadeout / (d*d);
 	}
 	float cone_falloff (vec3 light2frag) {
@@ -159,7 +159,6 @@ void main () {
 		res = max(res, 0.0);
 		
 		res *= res; // squared looks a bit more natural?
-		//return res * 0.0001 * light.intensity; // arbitrary 'in scatter' factor?
 	
 		return res;
 	}
@@ -187,7 +186,7 @@ void main () {
 			return vec3(0);
 		
 		float total_light = integrate_falloff(ray_start, ray_dir, t0, t1);
-		return total_light * 0.0002 * light.intensity;
+		return total_light * 0.0001 * light.intensity;
 	}
 	
 	out vec3 frag_col;

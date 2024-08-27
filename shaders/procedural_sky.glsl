@@ -11,7 +11,7 @@ vec3 nightSky_light (vec3 dir_world) {
 	if (dir_world.z < -0.04)
 		return vec3(0);
 	vec3 dir = mat3(lighting.world2solar) * dir_world;
-	return map(dir_world.z, -0.04, 0.0) * readCubemap(night_sky, dir).rgb * 0.0005;
+	return map(dir_world.z, -0.04, 0.0) * readCubemap(night_sky, dir).rgb * 0.00001;
 }
 
 // sun gets darker towards horizon and to 0 at night
@@ -35,16 +35,16 @@ vec3 draw_sun (vec3 sun_color, float sun_stren, vec3 dir_world) {
 
 	float deg = acos(dot(dir_world, dir2sun()));
 	
-	const float sun_ang_size_half = 0.53*2.0 * (PI/180.0) * 0.5; // 0.53 degrees in real life!
+	const float sun_ang_size_half = 0.53*4.0 * (PI/180.0) * 0.5; // 0.53 degrees in real life!
 	const float sun_falloff = sun_ang_size_half * 0.5;
 	float c = 1.0 - clamp(map(deg, sun_ang_size_half, sun_ang_size_half + sun_falloff), 0.0, 1.0);
 	c = c*c;
 
-	return sun_color * 100.0 * c; // sun light in 0-100 range
+	return sun_color * 500.0 * c; // sun light in 0-100 range
 }
 
 vec3 draw_moon (vec3 col, float sun_stren, vec3 dir_world) {
-	const float moon_ang_size = 0.53*2.0 * (PI/180.0);
+	const float moon_ang_size = 0.53*4.0 * (PI/180.0);
 	const float moon_half_flat_size = tan(moon_ang_size*0.5)*2.0;
 	
 	vec3 dir = mat3(lighting.world2moon) * dir_world;
@@ -62,7 +62,7 @@ vec3 draw_moon (vec3 col, float sun_stren, vec3 dir_world) {
 		
 		float sun_bright = max(dot(sun_dir_in_moon_space, nrm), 0.0) * 10.0;
 		
-		vec3 light = albedo.rgb * (sun_bright * lighting.sun_col * 0.04 + 0.002); // TODO: find accurate value
+		vec3 light = albedo.rgb * (sun_bright * lighting.sun_col * 0.02 + 0.00004); // TODO: find accurate value
 		
 		col = mix(col, light, albedo.aaa);
 	}

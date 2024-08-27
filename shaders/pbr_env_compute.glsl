@@ -28,19 +28,7 @@ vec3 get_world_dir () {
 	return _get_world_dir(xy, face);
 }
 
-#if MODE == 0
-// Generate enviroment map
-	uniform layout(binding=0, ENV_PIXEL_FORMAT) restrict writeonly imageCube tex_out;
-	uniform float exposure = 1.0;
-	
-	void main () {
-		if (gl_GlobalInvocationID.x >= resolution.x || gl_GlobalInvocationID.y >= resolution.y) return;
-		
-		vec3 ref_point = view.cam_pos;
-		vec3 col = procedural_sky(ref_point, get_world_dir()) * lighting.exposure;
-		imageStore(tex_out, ivec3(gl_GlobalInvocationID), vec4(col, 1.0));
-	}
-#elif MODE == 1
+#if MODE == 1
 // Generate mipmaps
 	uniform layout(binding=0, ENV_PIXEL_FORMAT) restrict writeonly imageCube tex_out;
 	uniform samplerCube env_map;

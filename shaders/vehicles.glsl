@@ -66,7 +66,7 @@ void main () {
 		float blinker_on = v.model_pos.y > 0.0 ? v.glow.z : v.glow.w;
 		emiss += blinker_on * glow_tex.b * blinker_col;
 		
-		return emiss;
+		return emiss * 0.5;
 	}
 	
 	GBUF_OUT

@@ -1,6 +1,4 @@
 Tomorrows Agenda (It was today's...):
-Must do!                                           1. Fix loading times (please) -> before caching consider whipping up a quick threadpool solution to see how easy it really is to mulithread texture decoding + maybe meshes
-Just get it done...                                2. Actually add blinkers like I planned
 Can you finish it?                                 3. Lane and traffic light stuff
 Wow Ethan, great moves. Keep it up, proud of you.  4. Actual city building? Literally just road placing and building for now!
 
@@ -42,7 +40,7 @@ Traffic lights
 * -> need to rethink how drawing many small props etc with unique params by type works
  -> kinda did that? (Consider it done once blinkers are in)
  
-Add blinker and brake light state to cars!
+*Add blinker and brake light state to cars!
  -> Maybe even add point lights?
  
 ===================== Graphics, so not really progress =========================
@@ -93,7 +91,7 @@ Big shadow improvement
   -> Could consider testing if it cant be queued with one frame delay, opengl probably doesn't have a async compute queue though, if it had, you could even update it every 2 frames etc.
  > IBL realtime env map + directional sun (with shadowmap) + numerous point lights are all working
 
-Make shadows disableable, I want all resources to be deallocated in this case
+*Make shadows disableable, I want all resources to be deallocated in this case
 
 Bloom?
 

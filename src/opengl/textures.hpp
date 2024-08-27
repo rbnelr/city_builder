@@ -335,9 +335,7 @@ struct Textures {
 		Jobs j;
 		texture     <srgba8>(j, "skybox/clouds.png");
 		texture_norm<srgba8>(j, "skybox/moon.png");
-		//cubemap     <srgba8>(j, "skybox/night_sky/uncompressed/%s.png", true, &night_sky);
-		cubemap     <srgba8>(j, "skybox/night_sky/BC1/%s.dds", true, &night_sky);
-		//cubemap     <srgba8>(j, "skybox/night_sky/BC7/%s.dds", true, &night_sky);
+		cubemap     <srgba8>(j, "skybox/night_sky/%s.dds", true, &night_sky);
 
 		texture<srgba8>(j, "misc/grid2.png");
 		texture<srgb8 >(j, "ground/Rock_Moss.jpg");

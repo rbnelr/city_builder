@@ -15,7 +15,7 @@ struct Gbuffer {
 	// rgb albedo (emmisive is simply very bright)
 	// might be able to afford using GL_RGB8 since it's mostly just albedo from textures
 	static constexpr GLenum col_format   = GL_SRGB8; // GL_RGB16F GL_RGB8
-	static constexpr GLenum emiss_format = GL_RGB16F;
+	static constexpr GLenum emiss_format = GL_R11F_G11F_B10F; // can be low range because exposure corrected
 	// rgb normal
 	// GL_RGB8 requires encoding normals, might be better to have camera space normals without z
 	// seems like 8 bits might be to little for normals
@@ -82,23 +82,16 @@ struct Gbuffer {
 };
 
 struct PBR_Render {
-	// GL_R11F_G11F_B10F is not noticably different and like 40% faster due to being memory read bottlenecked
-	// *actually my starry night sky + moon skybox looks wonky and flashes, probably due to the values being too small for the format
-	// TODO: dynamically adjust env map with exposure?
-	static constexpr GLenum env_map_format = GL_R11F_G11F_B10F; // GL_R11F_G11F_B10F // unfortunately rgb16f is not supported!!!?, need to waste 1/4 of memory or use a non-functional format??
-	static constexpr const char* env_map_format_compute = "r11f_g11f_b10f"; // GL_R11F_G11F_B10F
-	//static constexpr GLenum env_map_format = GL_RGBA32F; // GL_R11F_G11F_B10F // unfortunately rgb16f is not supported!!!?, need to waste 1/4 of memory or use a non-functional format??
-	//static constexpr const char* env_map_format_compute = "rgba32f"; // GL_R11F_G11F_B10F
+	// low range float buffer to store light color, since it's exposure corrected, so values will never be too large
+	// still want floating point to allow values >1 so bloom can some range to play with
+	static constexpr GLenum env_map_format = GL_R11F_G11F_B10F;
+	static constexpr const char* env_map_format_compute = "r11f_g11f_b10f";
 
 	Shader* shad_integrate_brdf = g_shaders.compile("pbr_integrate_brdf");
 	
-	Shader* shad_gen_env = g_shaders.compile("pbr_env_raster",
-		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER }, {{"MODE","0"}});
-	Shader* shad_mapmap_env = g_shaders.compile("pbr_env_raster",
-		{ shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER }, {{"MODE","1"}});
+	Shader* shad_gen_env = g_shaders.compile_stages("pbr_env_raster", { shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER }, {});
 
 	static constexpr int3 COMPUTE_CONVOLVE_WG = int3(8,8,1);
-	Shader* shad_compute_gen_env  = g_shaders.compile_compute("pbr_env_compute", {{"MODE","0"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
 	Shader* shad_compute_gen_mips = g_shaders.compile_compute("pbr_env_compute", {{"MODE","1"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
 	Shader* shad_compute_copy     = g_shaders.compile_compute("pbr_env_compute", {{"MODE","2"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
 	Shader* shad_compute_convolve = g_shaders.compile_compute("pbr_env_compute", {{"MODE","3"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
@@ -213,31 +206,7 @@ struct PBR_Render {
 
 		int res = env_res;
 		
-		static bool compute_phase0 = false;
-		ImGui::Checkbox("compute_phase0", &compute_phase0);
-		static bool compute_phase1 = false;
-		ImGui::Checkbox("compute_phase1", &compute_phase1);
-
-		if (compute_phase0) {
-			OGL_TRACE("gen_env");
-
-			glUseProgram(shad_compute_gen_env->prog);
-			shad_compute_gen_env->set_uniform("resolution", int2(res));
-
-			state.bind_textures(shad_compute_gen_env, {
-				{ "clouds",    *texs.clouds,    texs.sampler_normal },
-				{ "night_sky",  texs.night_sky, texs.sampler_cubemap },
-				{ "moon",      *texs.moon,      texs.sampler_normal },
-				{ "moon_nrm",  *texs.moon_nrm,  texs.sampler_normal },
-			});
-
-			glBindImageTexture(0, base_env_map, 0, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
-
-			dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
-
-			glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-		}
-		else {
+		{
 			glBindVertexArray(state.dummy_vao);
 		
 			PipelineState s;
@@ -260,7 +229,7 @@ struct PBR_Render {
 			glDrawArrays(GL_TRIANGLES, 0, 3);
 		}
 
-		if (compute_phase1) {
+		{
 			OGL_TRACE("gen mips");
 			glUseProgram(shad_compute_gen_mips->prog);
 			state.bind_textures(shad_compute_gen_mips, {
@@ -278,36 +247,6 @@ struct PBR_Render {
 				dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
 				
 				glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-			}
-		}
-		else {
-			//glBindTexture(GL_TEXTURE_CUBE_MAP, base_env_map);
-			//glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
-			//glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
-			
-			glBindVertexArray(state.dummy_vao);
-		
-			PipelineState s;
-			s.depth_test   = false;
-			s.depth_write  = false;
-			s.blend_enable = false;
-			state.set_no_override(s);
-
-			glUseProgram(shad_mapmap_env->prog);
-			
-			state.bind_textures(shad_mapmap_env, {
-				{ "base_env_map", base_env_map },
-			});
-
-			for (int mip=1; mip<env_mips; ++mip) {
-				res = max(res / 2, 1);
-				
-				auto fbo = make_and_bind_temp_fbo_layered(base_env_map, mip);
-				glViewport(0, 0, res, res);
-				
-				shad_mapmap_env->set_uniform("prev_mip", (float)(mip-1));
-				
-				glDrawArrays(GL_TRIANGLES, 0, 3);
 			}
 		}
 		

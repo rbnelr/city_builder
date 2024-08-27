@@ -65,7 +65,7 @@
 		#endif 
 			if (shadow >= 0.0f) {
 				vec3 sun_light = atmos_scattering(lighting.sun_col);
-				sun_light *= sun_strength() * 3.0;
+				sun_light *= sun_strength() * 4.0;
 				col += shadow * pbr_analytical_light(g, sun_light, dir2sun());
 			}
 			

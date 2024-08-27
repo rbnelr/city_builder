@@ -204,7 +204,7 @@ struct PropAsset : public Asset {
 	//  controlled as in, turn off at night or not etc.
 	std::vector<PointLight> lights;
 
-	bool imgui (Settings& settings) {
+	bool imgui (Options& opt) {
 		bool changed = Asset::imgui();
 		
 		// TODO: implement generic vector/set iteration with item add/remove feature (sort by name for sets?)
@@ -244,7 +244,7 @@ struct TrafficLightAsset : public Asset {
 		return mast_base + mast_dir * t;
 	}
 
-	bool imgui (Settings& settings) {
+	bool imgui (Options& opt) {
 		bool changed = ImGui::DragFloat3("mast_base", &mast_base.x, 0.1f);
 		changed = ImGui::DragFloat3("mast_dir", &mast_dir.x, 0.1f) || changed;
 		mast_dir = normalizesafe(mast_dir);
@@ -332,7 +332,7 @@ struct NetworkAsset : public Asset {
 		}
 	}
 
-	bool imgui (Settings& settings) {
+	bool imgui (Options& opt) {
 		bool changed = false;
 
 		changed = ImGui::InputText("name", &name) || changed;
@@ -376,7 +376,7 @@ struct NetworkAsset : public Asset {
 
 		changed = ImGui::DragFloat2("traffic_light_shift", &traffic_light_shift.x, 0.1f) || changed;
 		
-		changed = imgui_slider_speed(settings, "speed_limit", &speed_limit, 0, 200/KPH_PER_MS) || changed;
+		changed = opt.imgui_slider_speed("speed_limit", &speed_limit, 0, 200/KPH_PER_MS) || changed;
 
 		if (changed) update_cached();
 		return changed;
@@ -425,7 +425,7 @@ struct BuildingAsset : public Asset {
 	
 	AssetMesh<BasicVertex> mesh;
 
-	bool imgui (Settings& settings) {
+	bool imgui (Options& opt) {
 		bool changed = false;
 
 		changed = ImGui::InputText("name", &name) || changed;
@@ -528,7 +528,7 @@ struct AssetCollection {
 	auto begin () const { return set.begin(); }
 	auto end () const { return set.end(); }
 
-	void imgui (const char* label, Settings& settings) {
+	void imgui (const char* label, Options& opt) {
 		if (!ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_NoTreePushOnOpen)) return;
 		ImGui::PushID(label);
 
@@ -537,7 +537,7 @@ struct AssetCollection {
 			for (auto& item : set) {
 				if (ImGui::TableNextColumn()) {
 					if (ImGui::TreeNode(item.get(), item->name.c_str())) {
-						item->imgui(settings);
+						item->imgui(opt);
 						ImGui::TreePop();
 					}
 				}
@@ -595,16 +595,16 @@ struct Assets {
 		assets_reloaded = true;
 	}
 
-	void imgui (Settings& settings) {
+	void imgui (Options& opt) {
 		if (!imgui_Header("Assets")) return;
 
 		if (ImGui::Button("Reload All"))
 			reload_all();
 		
-		props         .imgui("props",          settings);
-		traffic_lights.imgui("traffic_lights", settings);
-		networks      .imgui("networks",       settings);
-		buildings     .imgui("buildings",      settings);
+		props         .imgui("props",          opt);
+		traffic_lights.imgui("traffic_lights", opt);
+		networks      .imgui("networks",       opt);
+		buildings     .imgui("buildings",      opt);
 
 		ImGui::PopID();
 	}

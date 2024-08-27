@@ -1,0 +1,83 @@
+{
+	"time": {
+		"target_gamespeed": 1.0,
+		"time_of_day": 0.28299999237060547,
+		"day_duration": 600.0,
+		"pause_day": true,
+		"time_of_year": 0.6869999766349792,
+		"year_duration": 1032.0,
+		"pause_year": true,
+		"planet_axial_tilt": 0.40910521149635315,
+		"map_latitude": 0.7284654974937439,
+		"map_rotation": 0.21118485927581787
+	},
+	"heightmap": {
+		"inner": {
+			"map_size": [
+				16384,
+				16384
+			]
+		},
+		"outer": {
+			"map_size": [
+				131072,
+				131072
+			]
+		},
+		"height_min": -150.0,
+		"height_range": 3276.75
+	},
+	"cam": {
+		"orbit_pos": [
+			990.4909057617188,
+			402.44732666015625,
+			0.0
+		],
+		"zoom_target": -5.5,
+		"rot_aer": [
+			-1.7221636772155762,
+			-0.21362994611263275,
+			0.0
+		],
+		"vfov": 0.7520636916160583,
+		"clip_near": 0.25,
+		"clip_far": 10000.0
+	},
+	"network": {
+		"settings": {
+			"car_accel": 4.5,
+			"car_deccel": 5.0,
+			"car_rear_drag_ratio": 0.4000000059604645,
+			"intersec_heur": {
+				"wait_boost_fac": 1.0,
+				"progress_boost": 30.0,
+				"exit_eta_penal": 10.0,
+				"right_before_left_penal": 15.0,
+				"conflict_eta_penal": 20.0,
+				"yield_lane_penal": 50.0
+			},
+			"suspension": {
+				"max": [
+					0.1745329201221466,
+					0.10471975803375244,
+					0.25
+				],
+				"spring_k": [
+					50.0,
+					50.0,
+					50.0
+				],
+				"spring_damp": [
+					5.0,
+					5.0,
+					5.0
+				],
+				"accel_fac": [
+					0.20000000298023224,
+					0.20000000298023224,
+					0.20000000298023224
+				]
+			}
+		}
+	}
+}

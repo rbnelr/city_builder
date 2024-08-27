@@ -57,8 +57,6 @@ struct CameraTrack {
 
 // TODO: rework this!, probably mirror how heightmap with its tools works
 struct Interaction {
-	SERIALIZE(Interaction, terraform)
-
 	enum Mode {
 		INSPECT=0,
 		BUILD,

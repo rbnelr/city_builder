@@ -7,7 +7,7 @@ C:\apps\cloc.exe  src shaders --exclude-dir=engine --by-file
 @echo.
 @echo.
 @echo ======================== framework code ==================================
-C:\apps\cloc.exe src/engine --exclude-dir=dear_imgui,glad,kisslib,tracy --by-file
+C:\apps\cloc.exe src/engine --exclude-dir=dear_imgui,glad,kisslib,tracy,ankerl,dds_image --by-file
 
 @echo.
 @echo.

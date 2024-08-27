@@ -465,15 +465,15 @@ void debug_person (App& app, Person* person, View3D const& view) {
 			start_t = s.next_start_t;
 			if (s.state == PathState::ENTER_BUILDING) break;
 
-			s = get_path_state(app.net, person->vehicle.get(), i+1, &s);
+			s = get_path_state(app.network, person->vehicle.get(), i+1, &s);
 		}
 	}
 
 	ImGui::Separator();
 	ImGui::TextColored(lrgba(person->col, 1), "debug person");
 	
-	ImGui::Text("Speed Limit: %7s", format_speed(get_cur_speed_limit(person->vehicle.get()), app.settings.speed_unit).c_str());
-	ImGui::Text("Speed: %7s",       format_speed(person->vehicle->speed, app.settings.speed_unit).c_str());
+	ImGui::Text("Speed Limit: %7s", app.options.format_speed(get_cur_speed_limit(person->vehicle.get())).c_str());
+	ImGui::Text("Speed: %7s",       app.options.format_speed(person->vehicle->speed).c_str());
 
 	static ValuePlotter speed_plot = ValuePlotter();
 	speed_plot.push_value(person->vehicle->speed);
@@ -798,7 +798,7 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 	}
 	
 	auto clac_penalty = [&] (NodeVehicle& v, float conf_t0) {
-		auto& heur = app.net.settings.intersec_heur;
+		auto& heur = app.network.settings.intersec_heur;
 
 		float penalty = 0;
 
@@ -1134,6 +1134,7 @@ void network::ActiveVehicle::calc_pos (float3* pos, float* ang) {
 }
 
 void update_vehicle_suspension (App& app, ActiveVehicle& vehicle, float3 local_accel, float dt) {
+	auto& sett = app.network.settings;
 	// assume constant mass
 
 	float3 ang = vehicle.suspension_ang;
@@ -1143,25 +1144,27 @@ void update_vehicle_suspension (App& app, ActiveVehicle& vehicle, float3 local_a
 	//float2 accel = -ang * app.net.settings.suspension_spring_k;
 	
 	// quadratic for more smooth spring limit (and more wobbly around zero)
-	float3 accel = -ang * abs(ang / app.net.settings.suspension.max) * app.net.settings.suspension.spring_k * 3;
+	float3 accel = -ang * abs(ang / sett.suspension.max) * sett.suspension.spring_k * 3;
 	
 	// spring point accel
-	accel += local_accel * app.net.settings.suspension.accel_fac;
+	accel += local_accel * sett.suspension.accel_fac;
 	// spring dampening
-	accel -= vel * app.net.settings.suspension.spring_damp;
+	accel -= vel * sett.suspension.spring_damp;
 
 	// apply vel, pos and clamp
 	vel += accel * dt;
 	vel = clamp(vel, -100, +100);
 
 	ang += vel * dt;
-	ang = clamp(ang, -app.net.settings.suspension.max, +app.net.settings.suspension.max);
+	ang = clamp(ang, -sett.suspension.max, +sett.suspension.max);
 
 	vehicle.suspension_ang = ang;
 	vehicle.suspension_ang_vel = vel;
 }
 
 void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float dt) {
+	auto& sett = app.network.settings;
+
 	float aggress = vehicle->cit->topspeed_accel_mul();
 
 	assert(vehicle->bez_t < 1.0f);
@@ -1177,13 +1180,13 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 	if (target_speed < 0.33f) target_speed = 0;
 
 	if (target_speed > new_speed) {
-		float accel = aggress * calc_car_accel(app.net.settings.car_accel, speed_limit, new_speed);
+		float accel = aggress * calc_car_accel(sett.car_accel, speed_limit, new_speed);
 		new_speed += accel * dt;
 		new_speed = min(new_speed, target_speed);
 	}
 	else {
 		//new_speed = target_speed; // brake instantly for now
-		new_speed -= aggress * calc_car_deccel(app.net.settings.car_deccel, speed_limit, new_speed);
+		new_speed -= aggress * calc_car_deccel(sett.car_deccel, speed_limit, new_speed);
 		new_speed = max(new_speed, target_speed);
 
 		if (new_speed > 0.33f)
@@ -1213,7 +1216,7 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 			return;
 		}
 
-		vehicle->state = get_path_state(app.net, vehicle, vehicle->idx, &vehicle->state);
+		vehicle->state = get_path_state(app.network, vehicle, vehicle->idx, &vehicle->state);
 
 		float blinker = 0;
 		if (vehicle->state.state == PathState::SEGMENT || vehicle->state.state == PathState::NODE) {
@@ -1240,7 +1243,7 @@ void update_vehicle (App& app, Metrics::Var& met, ActiveVehicle* vehicle, float 
 	//float forw_amount = dot(new_front - old_front, forw);
 
 	float car_len = vehicle->car_len();
-	float3 ref_point = old_rear + car_len*app.net.settings.car_rear_drag_ratio * moveDirs.forw; // Kinda works to avoid goofy car rear movement?
+	float3 ref_point = old_rear + car_len*sett.car_rear_drag_ratio * moveDirs.forw; // Kinda works to avoid goofy car rear movement?
 
 	float3 new_rear = new_front - normalizesafe(new_front - ref_point) * car_len;
 

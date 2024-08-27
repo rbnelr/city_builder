@@ -9,6 +9,7 @@ textures/*
 
 window_placement.bin
 heightmap.data
+graphics_settings.json
 imgui.ini
 
 *.exe

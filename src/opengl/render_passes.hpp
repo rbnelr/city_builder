@@ -872,63 +872,57 @@ struct DefferedPointLightRenderer {
 	}
 };
 
+
+class LightingFbo {
+	MOVE_ONLY_CLASS(LightingFbo); // No move implemented for now
+public:
+	// Need to include gbuf depth buffer in lighting fbo because point light require depth testing (but not depth writing)
+	// at the same time we can't apply defferred point lights to the gbuf itself, since albedo need to stay around, so we need this seperate render target
+	// attaching the existing depth to a second FBO should be the correct solution
+
+	static void swap (LightingFbo& l, LightingFbo& r) {
+		std::swap(l.fbo, r.fbo);
+		std::swap(l.col, r.col);
+	}
+
+	Fbo fbo = {};
+	Render_Texture col = {};
+
+	LightingFbo () {}
+	LightingFbo (std::string_view label, int2 size, GLenum color_format, Render_Texture& depth, bool mips=false) {
+		GLint levels = mips ? calc_mipmaps(size.x, size.y) : 1;
+
+		std::string lbl = (std::string)label;
+
+		col = Render_Texture(lbl+".col", size, color_format, levels);
+
+		{
+			fbo = Fbo(lbl+".fbo");
+			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, col, 0);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
+
+			GLuint bufs[] = { GL_COLOR_ATTACHMENT0 };
+			glDrawBuffers(ARRLEN(bufs), bufs);
+		
+			GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+			if (status != GL_FRAMEBUFFER_COMPLETE) {
+				fatal_error("glCheckFramebufferStatus: %x\n", status);
+			}
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+};
+
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
 	SERIALIZE(RenderPasses, renderscale, shadowmap_opt, exposure)
 
-	Gbuffer gbuf;
-
-	// Need to include gbuf depth buffer in lighting fbo because point light require depth testing (but not depth writing)
-	// at the same time we can't apply defferred point lights to the gbuf itself, since albedo need to stay around, so we need this seperate render target
-	// attaching the existing depth to a second FBO should be the correct solution
-	struct LightingFbo {
-		MOVE_ONLY_CLASS(LightingFbo); // No move implemented for now
-	public:
-
-		static void swap (LightingFbo& l, LightingFbo& r) {
-			std::swap(l.fbo, r.fbo);
-			std::swap(l.col, r.col);
-		}
-
-		Fbo fbo = {};
-		Render_Texture col = {};
-
-		LightingFbo () {}
-		LightingFbo (std::string_view label, int2 size, GLenum color_format, Render_Texture& depth, bool mips=false) {
-			GLint levels = mips ? calc_mipmaps(size.x, size.y) : 1;
-
-			std::string lbl = (std::string)label;
-
-			col = Render_Texture(lbl+".col", size, color_format, levels);
-
-			{
-				fbo = Fbo(lbl+".fbo");
-				glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, col, 0);
-				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
-
-				GLuint bufs[] = { GL_COLOR_ATTACHMENT0 };
-				glDrawBuffers(ARRLEN(bufs), bufs);
-		
-				GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-				if (status != GL_FRAMEBUFFER_COMPLETE) {
-					fatal_error("glCheckFramebufferStatus: %x\n", status);
-				}
-			}
-
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glBindTexture(GL_TEXTURE_2D, 0);
-		}
-
-	};
-	LightingFbo lighting_fbo;
-	
-	DirectionalCascadedShadowmap::Options shadowmap_opt;
-	std::unique_ptr<DirectionalCascadedShadowmap> shadowmap;
-
 	render::RenderScale renderscale;
-	
 	Sampler renderscale_sampler         = make_sampler("renderscale_sampler", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
 	Sampler renderscale_sampler_nearest = make_sampler("renderscale_sampler_nearest", FILTER_NEAREST, GL_CLAMP_TO_EDGE);
 	
@@ -936,10 +930,14 @@ struct RenderPasses {
 		return renderscale.nearest ? renderscale_sampler_nearest : renderscale_sampler;
 	}
 
+	Gbuffer gbuf;
+	LightingFbo lighting_fbo;
 	PBR_Render pbr;
-	
 	Shader* shad_fullscreen_lighting = g_shaders.compile("fullscreen_lighting");
-	Shader* shad_postprocess = g_shaders.compile("postprocess");
+	Shader* shad_postprocess         = g_shaders.compile("postprocess");
+	
+	DirectionalCascadedShadowmap::Options shadowmap_opt;
+	std::unique_ptr<DirectionalCascadedShadowmap> shadowmap;
 	
 	float exposure = 1.0f;
 	

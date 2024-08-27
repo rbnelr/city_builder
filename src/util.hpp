@@ -19,38 +19,42 @@ inline constexpr const char* SpeedUnitStr[] = {
 };
 NLOHMANN_JSON_SERIALIZE_ENUM(SpeedUnit, { {SpeedUnit::MS,"MS"}, {SpeedUnit::KPH,"KPH"}, {SpeedUnit::MPH,"MPH"} })
 
-inline std::string format_speed (float speed, SpeedUnit unit) {
-	return prints("%.0f %s", speed * SpeedUnitPerMs[(int)unit], SpeedUnitStr[(int)unit]);
-}
-
-struct Settings {
-	SERIALIZE(Settings, speed_unit)
+// "Global" options
+struct Options {
+	SERIALIZE(Options, speed_unit)
 
 	SpeedUnit speed_unit = SpeedUnit::KPH;
+	
+	static std::string format_speed (float speed, SpeedUnit unit) {
+		return prints("%.0f %s", speed * SpeedUnitPerMs[(int)unit], SpeedUnitStr[(int)unit]);
+	}
+	std::string format_speed (float speed) {
+		return format_speed(speed, speed_unit);
+	}
+
+	bool imgui_slider_speed (const char* label, float* speed, float min, float max) {
+		float fac = SpeedUnitPerMs[(int)speed_unit];
+
+		float val = *speed * fac;
+		min *= fac;
+		max *= fac;
+
+		bool ret = ImGui::SliderFloat(
+			prints("%s (%s)",label, SpeedUnitStr[(int)speed_unit]).c_str(),
+			&val, min, max);
+
+		*speed = val / fac;
+		return ret;
+	}
 
 	void imgui () {
-		if (!imgui_Header("Settings")) return;
+		if (!imgui_Header("Options")) return;
 		
 		ImGui::Combo("speed_unit", (int*)&speed_unit, SpeedUnitStr, ARRLEN(SpeedUnitStr));
 
 		ImGui::PopID();
 	}
 };
-
-inline bool imgui_slider_speed (Settings& settings, const char* label, float* speed, float min, float max) {
-	float fac = SpeedUnitPerMs[(int)settings.speed_unit];
-
-	float val = *speed * fac;
-	min *= fac;
-	max *= fac;
-
-	bool ret = ImGui::SliderFloat(
-		prints("%s (%s)",label, SpeedUnitStr[(int)settings.speed_unit]).c_str(),
-		&val, min, max);
-
-	*speed = val / fac;
-	return ret;
-}
 
 #ifdef _WIN32
 #include "engine/kisslib/clean_windows_h.hpp"

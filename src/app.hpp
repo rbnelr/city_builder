@@ -585,25 +585,89 @@ struct TestMapBuilder {
 	}
 };
 
+struct Savefiles {
+	static constexpr const char* app_settings_json = "settings.json";
+	static constexpr const char* graphics_settings_json = "graphics_settings.json";
+	
+	template <typename FUNC>
+	static inline void load (const char* filepath, FUNC from_json) {
+		ZoneScoped;
+		try {
+			json json;
+			if (load_json(filepath, &json)) {
+				from_json(json);
+			}
+		} catch (std::exception& ex) {
+			log_error("Error when deserializing something: %s", ex.what());
+		}
+	}
+	template <typename FUNC>
+	static inline void save (const char* filepath, FUNC to_json) {
+		ZoneScoped;
+		try {
+			json json;
+			to_json(json);
+			save_json(filepath, json);
+		} catch (std::exception& ex) {
+			log_error("Error when serializing something: %s", ex.what());
+		}
+	}
+};
+
 class App : public Engine {
 public:
 
 	App (): Engine{"City Builder"} {}
 	virtual ~App () {}
 	
-	friend SERIALIZE_TO_JSON(App) {
-		to_json(j["engine"], (Engine const&)t);
-		SERIALIZE_TO_JSON_EXPAND(cam, dbg_cam, assets, settings, time, interact, heightmap, net, test, test_map_builder);
-		t.renderer->to_json(j);
+	void load_app_settings () {
+		Savefiles::load(Savefiles::app_settings_json, [&] (json const& j) { auto& t = *this;
+			SERIALIZE_FROM_JSON_EXPAND(assets, input, options, test, test_map_builder)
+		});
 	}
-	friend SERIALIZE_FROM_JSON(App) {
-		from_json(j["engine"], (Engine&)t);
-		SERIALIZE_FROM_JSON_EXPAND(cam, dbg_cam, assets, settings, time, interact, heightmap, net, test, test_map_builder);
-		t.renderer->from_json(j);
+	void save_app_settings () {
+		Savefiles::save(Savefiles::app_settings_json, [&] (json& j) { auto& t = *this;
+			SERIALIZE_TO_JSON_EXPAND(assets, input, options, test, test_map_builder)
+		});
+	}
+	
+	void load_graphics_settings () {
+		Savefiles::load(Savefiles::graphics_settings_json, [&] (json const& j) {
+			nlohmann::try_get_to(j, "vsync", vsync);
+			renderer->from_json(j);
+
+			set_vsync(vsync); // set json-loaded vsync
+		});
+	}
+	void save_graphics_settings () {
+		Savefiles::save(Savefiles::graphics_settings_json, [&] (json& j) {
+			j["vsync"] = vsync;
+			renderer->to_json(j);
+		});
 	}
 
-	virtual void json_load () { deserialize("debug.json", this); }
-	virtual void json_save () { serialize("debug.json", *this); }
+	// TODO: refactor this stuff into a map object that you can actually from different files/folders to switch between
+	void load_map () {
+		Savefiles::load("map.json", [&] (json const& j) { auto& t = *this;
+			SERIALIZE_FROM_JSON_EXPAND(time, heightmap, cam, network)
+		});
+	}
+	void save_map () {
+		Savefiles::save("map.json", [&] (json& j) { auto& t = *this;
+			SERIALIZE_TO_JSON_EXPAND(time, heightmap, cam, network)
+		});
+	}
+
+	virtual void json_load () {
+		load_app_settings();
+		load_graphics_settings();
+		load_map();
+	}
+	virtual void json_save () {
+		save_app_settings();
+		save_graphics_settings();
+		save_map();
+	}
 
 	virtual void imgui () {
 		ZoneScoped;
@@ -619,12 +683,12 @@ public:
 		interact.imgui(heightmap);
 
 		heightmap.imgui();
-		net.imgui();
+		network.imgui();
 		
 		ImGui::Separator();
 
-		settings.imgui();
-		assets.imgui(settings);
+		options.imgui();
+		assets.imgui(options);
 
 		renderer->imgui(*this);
 	}
@@ -640,7 +704,7 @@ public:
 		return success;
 	}
 
-	Settings settings;
+	Options options;
 	
 	Assets assets;
 
@@ -658,7 +722,7 @@ public:
 
 	Heightmap heightmap;
 	Entities entities;
-	Network net;
+	Network network;
 
 	float sim_dt () {
 		return time.pause_sim ? 0 : input.dt * time.target_gamespeed;
@@ -707,9 +771,9 @@ public:
 		
 		time.update(input);
 
-		test_map_builder.update(assets, entities, net, interact, sim_rand);
+		test_map_builder.update(assets, entities, network, interact, sim_rand);
 
-		net.simulate(*this);
+		network.simulate(*this);
 
 	////
 		View3D view = update_camera(interact.cam_track);
@@ -717,7 +781,7 @@ public:
 		//test.update(input, view);
 
 		// select after updating positions
-		interact.update(heightmap, entities, net, view, input);
+		interact.update(heightmap, entities, network, view, input);
 
 		//cone_test(view);
 		
@@ -725,7 +789,7 @@ public:
 		time.visualize_planet(view);
 		time.calc_sky_config(view);
 
-		net.draw_debug(*this, view);
+		network.draw_debug(*this, view);
 		
 		g_dbgdraw.axis_gizmo(view, input.window_size);
 		return view;

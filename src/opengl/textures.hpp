@@ -1,146 +1,19 @@
 #pragma once
 #include "common.hpp"
-#include "app.hpp"
 #include "opengl.hpp"
 #include "bindless_textures.hpp"
+#include "heightmap.hpp"
+#include "engine/dds_image/include/dds.hpp"
+#include "engine/dds_image/include/dds_formats.hpp"
+#include "engine/kisslib/threadpool.hpp"
+
+namespace dds {
+	struct Image;
+}
 
 namespace ogl {
 
-struct TexLoader {
-	
-	static std::string add_tex_suffix (std::string_view filename, std::string_view suffix) {
-		std::string_view base;
-		auto ext = kiss::get_ext(filename, &base, true);
-		return kiss::concat(base, suffix, ext);
-	}
-	static std::string get_basename (std::string_view filepath) {
-		// make sure to split first to avoid any '.' in path
-		std::string_view filename;
-		std::string_view path = kiss::get_path(filepath, &filename);
-
-		std::string_view base;
-		kiss::split(filename, '.', &base, 1);
-		
-		return kiss::concat(path, base);
-	}
-
-	struct BaseJob {
-		virtual ~BaseJob() {}
-		// run on threads
-		virtual void execute () = 0;
-		// finish on main thread
-		virtual void finish (BindlessTextureManager& bindless) = 0;
-	};
-
-	template <typename T>
-	struct LoadTexture2D : public BaseJob {
-		std::string name;
-		bool mips;
-		int bindless_slot;
-		// results
-		bool success = false;
-
-		Image<T> img;
-
-		LoadTexture2D (std::string&& name, bool mips, int bindless_slot): name{name}, mips{mips}, bindless_slot{bindless_slot} {}
-
-		virtual void execute () {
-			ZoneScoped;
-			log("loading texture \"%s\"...\n", name.c_str());
-
-			std::string filepath = prints("assets/%s", name.c_str());
-
-			if (!Image<T>::load_from_file(filepath.c_str(), &img)) {
-				log_warn("Error! Could not load texture \"%s\"\n", name.c_str());
-				return;
-			}
-
-			success = true;
-		}
-
-		virtual void finish (BindlessTextureManager& bindless) {
-			auto base_name = get_basename(name);
-			if (success) {
-				// HACK: or is it? Remove .png etc from filename before plugging into bindless textures, 
-				bindless.upload_texture<T>(base_name, bindless_slot, img, mips);
-			}
-		}
-	};
-	template <typename T>
-	struct LoadCubemap : public BaseJob {
-		std::string name_fmt;
-		bool mips;
-		TextureCubemap* result_ptr; // need resulting texture due to not having bindless cubemaps
-		// results
-		bool success = false;
-
-		bool is_dds;
-
-		Image<T> imgs[6];
-		dds::Image ddss[6];
-		
-		LoadCubemap (std::string&& name_fmt, bool mips, TextureCubemap* result_ptr): name_fmt{name_fmt}, mips{mips}, result_ptr{result_ptr} {}
-
-		virtual void execute () {
-			ZoneScoped;
-			log("loading cubemap \"%s\"...\n", name_fmt.c_str());
-			
-			std::string filepath_fmt = prints("assets/%s", name_fmt.c_str());
-			
-			is_dds = kiss::get_ext(filepath_fmt) == "dds";
-			if (is_dds) {
-				for (int i=0; i<6; ++i) {
-					auto filepath = prints(filepath_fmt.c_str(), CUBEMAP_FACE_FILES_NAMES[i]);
-			
-					if (dds::readFile(filepath, &ddss[i]) != dds::ReadResult::Success) {
-						log_warn("Error! Could not load texture \"%s\"\n", filepath.c_str());
-						return;
-					}
-				}
-			}
-			else {
-				for (int i=0; i<6; ++i) {
-					auto filepath = prints(filepath_fmt.c_str(), CUBEMAP_FACE_FILES_NAMES[i]);
-			
-					if (!Image<T>::load_from_file(filepath.c_str(), &imgs[i])) {
-						log_warn("Error! Could not load texture \"%s\"\n", filepath.c_str());
-						return;
-					}
-				}
-			}
-
-			success = true;
-		}
-
-		virtual void finish (BindlessTextureManager& bindless) {
-			if (!success) return;
-
-			if (is_dds) {
-				*result_ptr = {std::string_view(name_fmt)};
-				ogl::upload_imageCube_DDS(*result_ptr, ddss, mips);
-			}
-			else {
-				*result_ptr = {std::string_view(name_fmt)};
-				ogl::upload_imageCube(*result_ptr, imgs, mips);
-			}
-		}
-	};
-
-	const int num_lod_threads = max(std::thread::hardware_concurrency()-2, 2);
-	Threadpool<BaseJob> tex_load_threadpool = Threadpool<BaseJob>(num_lod_threads, TPRIO_BACKGROUND, "texload threads");
-
-	void kickoff_loads (std::vector<std::unique_ptr<BaseJob>>&& loads) {
-		tex_load_threadpool.jobs.push_n(loads.data(), loads.size());
-	}
-	void wait_for_finish_loads (BindlessTextureManager& bindless, int num_results) {
-		//tex_load_threadpool.contribute_work(); // Don't contribute work because we should rather just spend the time uploading as soon as possible
-		for (int i=0; i<num_results; ++i) {
-			auto res = tex_load_threadpool.results.pop_wait();
-			res->finish(bindless);
-			// Job object gets destroyed
-		}
-	}
-};
+static constexpr char const* CUBEMAP_FACE_FILES_NAMES[] = {"px","nx","py","ny","pz","nz"};
 
 struct HeightmapTextures {
 
@@ -233,6 +106,175 @@ struct HeightmapTextures {
 	}
 };
 
+
+GLenum dds_compressed_internat_format (dds::Image const& img) {
+	switch (img.format) {
+		case DXGI_FORMAT_BC1_UNORM: return GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
+	}
+	assert(false);
+	return 0;
+}
+
+void upload_imageCube_DDS (GLuint tex, const dds::Image imgs[], bool gen_mips) {
+	glBindTexture(GL_TEXTURE_CUBE_MAP, tex);
+	
+	for (int i=0; i<6; ++i) {
+		assert(imgs[i].dimension == dds::ResourceDimension::Texture2D && imgs[i].arraySize == 1);
+
+		auto format = dds_compressed_internat_format(imgs[i]);
+		auto& data = imgs[i].mipmaps[0];
+		glCompressedTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X+i, 0, format,
+			(GLsizei)imgs[i].width, (GLsizei)imgs[i].height, 0, (GLsizei)data.size(), data.data());
+	}
+			
+	if (gen_mips) {
+		glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+	} else {
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, 0);
+	}
+
+	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+}
+
+struct TexLoader {
+	struct BaseJob {
+		virtual ~BaseJob() {}
+		// run on threads
+		virtual void execute () = 0;
+		// finish on main thread
+		virtual void finish (BindlessTextureManager& bindless) = 0;
+	};
+
+	
+	static std::string add_tex_suffix (std::string_view filename, std::string_view suffix) {
+		std::string_view base;
+		auto ext = kiss::get_ext(filename, &base, true);
+		return kiss::concat(base, suffix, ext);
+	}
+	static std::string get_basename (std::string_view filepath) {
+		// make sure to split first to avoid any '.' in path
+		std::string_view filename;
+		std::string_view path = kiss::get_path(filepath, &filename);
+
+		std::string_view base;
+		kiss::split(filename, '.', &base, 1);
+		
+		return kiss::concat(path, base);
+	}
+
+	template <typename T>
+	struct LoadTexture2D : public BaseJob {
+		std::string name;
+		bool mips;
+		int bindless_slot;
+		// results
+		bool success = false;
+
+		Image<T> img;
+
+		LoadTexture2D (std::string&& name, bool mips, int bindless_slot): name{name}, mips{mips}, bindless_slot{bindless_slot} {}
+
+		virtual void execute () {
+			ZoneScoped;
+			log("loading texture \"%s\"...\n", name.c_str());
+
+			std::string filepath = prints("assets/%s", name.c_str());
+
+			if (!Image<T>::load_from_file(filepath.c_str(), &img)) {
+				log_warn("Error! Could not load texture \"%s\"\n", name.c_str());
+				return;
+			}
+
+			success = true;
+		}
+
+		virtual void finish (BindlessTextureManager& bindless) {
+			auto base_name = get_basename(name);
+			if (success) {
+				// HACK: or is it? Remove .png etc from filename before plugging into bindless textures, 
+				bindless.upload_texture<T>(base_name, bindless_slot, img, mips);
+			}
+		}
+	};
+	template <typename T>
+	struct LoadCubemap : public BaseJob {
+		std::string name_fmt;
+		bool mips;
+		TextureCubemap* result_ptr; // need resulting texture due to not having bindless cubemaps
+		// results
+		bool success = false;
+
+		bool is_dds;
+
+		Image<T> imgs[6];
+		dds::Image ddss[6];
+		
+		LoadCubemap (std::string&& name_fmt, bool mips, TextureCubemap* result_ptr): name_fmt{name_fmt}, mips{mips}, result_ptr{result_ptr} {}
+
+		virtual void execute () {
+			ZoneScoped;
+			log("loading cubemap \"%s\"...\n", name_fmt.c_str());
+			
+			std::string filepath_fmt = prints("assets/%s", name_fmt.c_str());
+			
+			is_dds = kiss::get_ext(filepath_fmt) == "dds";
+			if (is_dds) {
+				for (int i=0; i<6; ++i) {
+					auto filepath = prints(filepath_fmt.c_str(), CUBEMAP_FACE_FILES_NAMES[i]);
+			
+					if (dds::readFile(filepath, &ddss[i]) != dds::ReadResult::Success) {
+						log_warn("Error! Could not load texture \"%s\"\n", filepath.c_str());
+						return;
+					}
+				}
+			}
+			else {
+				for (int i=0; i<6; ++i) {
+					auto filepath = prints(filepath_fmt.c_str(), CUBEMAP_FACE_FILES_NAMES[i]);
+			
+					if (!Image<T>::load_from_file(filepath.c_str(), &imgs[i])) {
+						log_warn("Error! Could not load texture \"%s\"\n", filepath.c_str());
+						return;
+					}
+				}
+			}
+
+			success = true;
+		}
+
+		virtual void finish (BindlessTextureManager& bindless) {
+			if (!success) return;
+
+			if (is_dds) {
+				*result_ptr = {std::string_view(name_fmt)};
+				upload_imageCube_DDS(*result_ptr, ddss, mips);
+			}
+			else {
+				*result_ptr = {std::string_view(name_fmt)};
+				upload_imageCube(*result_ptr, imgs, mips);
+			}
+		}
+	};
+
+	const int num_lod_threads = max(std::thread::hardware_concurrency()-2, 2);
+	Threadpool<BaseJob> tex_load_threadpool = Threadpool<BaseJob>(num_lod_threads, TPRIO_BACKGROUND, "texload threads");
+	
+	typedef std::vector<std::unique_ptr<TexLoader::BaseJob>> Jobs;
+
+	void kickoff_loads (Jobs&& loads) {
+		tex_load_threadpool.jobs.push_n(loads.data(), loads.size());
+	}
+	void wait_for_finish_loads (BindlessTextureManager& bindless, int num_results) {
+		//tex_load_threadpool.contribute_work(); // Don't contribute work because we should rather just spend the time uploading as soon as possible
+		for (int i=0; i<num_results; ++i) {
+			auto res = tex_load_threadpool.results.pop_wait();
+			res->finish(bindless);
+			// Job object gets destroyed
+		}
+	}
+};
+
 struct Textures {
 	TexLoader loader;
 	
@@ -247,47 +289,6 @@ struct Textures {
 	Sampler sampler_cubemap = make_sampler("sampler_cubemap", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
 
 	HeightmapTextures heightmap;
-
-	typedef std::vector<std::unique_ptr<TexLoader::BaseJob>> Jobs;
-
-
-	template <typename T>
-	void texture (Jobs& jobs, std::string&& name, bool mips=true) {
-		bindless_textures.add_entry(TexLoader::get_basename(name));
-		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
-	}
-	template <typename T>
-	void texture_norm (Jobs& jobs, std::string&& name, bool mips=true, float uv_scale=1) {
-		int id = bindless_textures.add_entry(TexLoader::get_basename(name));
-		bindless_textures.entries[id].uv_scale = uv_scale; // TODO: maybe do this differently?
-
-		auto norm = TexLoader::add_tex_suffix(name, ".norm");
-		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
-		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(norm), mips, 1));
-	}
-	template <typename T>
-	void texture_pbr (Jobs& jobs, std::string&& name, bool mips=true) {
-		bindless_textures.add_entry(TexLoader::get_basename(name));
-
-		auto pbr = TexLoader::add_tex_suffix(name, ".pbr");
-		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
-		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(pbr ), mips, 2));
-	}
-	template <typename T>
-	void texture_pbr_glow (Jobs& jobs, std::string&& name, bool mips=true) {
-		bindless_textures.add_entry(TexLoader::get_basename(name));
-
-		auto pbr  = TexLoader::add_tex_suffix(name, ".pbr");
-		auto glow = TexLoader::add_tex_suffix(name, ".glow");
-		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
-		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(pbr ), mips, 2));
-		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(glow), mips, 3));
-	}
-
-	template <typename T>
-	void cubemap (Jobs& jobs, std::string&& name, bool mips, TextureCubemap* result_ptr) {
-		jobs.push_back(std::make_unique<TexLoader::LoadCubemap<T>>(std::move(name), mips, result_ptr));
-	}
 
 	// These are not treated as non-bindless for now
 	TextureCubemap night_sky;
@@ -315,10 +316,11 @@ struct Textures {
 		"misc/turn_arrow_SR" ,
 		"misc/turn_arrow_LSR",
 	};
+	
+	typedef TexLoader::Jobs Jobs;
 
 	void reload_all () {
 		ZoneScoped;
-		
 		bindless_textures.clear();
 
 		// TODO: encode this in assets json somehow, part of this is already specified in assets as tex_filename
@@ -369,6 +371,45 @@ struct Textures {
 	void imgui () {
 		if (ImGui::Button("Reload All Textures"))
 			reload_all();
+	}
+
+
+	template <typename T>
+	void texture (Jobs& jobs, std::string&& name, bool mips=true) {
+		bindless_textures.add_entry(TexLoader::get_basename(name));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
+	}
+	template <typename T>
+	void texture_norm (Jobs& jobs, std::string&& name, bool mips=true, float uv_scale=1) {
+		int id = bindless_textures.add_entry(TexLoader::get_basename(name));
+		bindless_textures.entries[id].uv_scale = uv_scale; // TODO: maybe do this differently?
+
+		auto norm = TexLoader::add_tex_suffix(name, ".norm");
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(norm), mips, 1));
+	}
+	template <typename T>
+	void texture_pbr (Jobs& jobs, std::string&& name, bool mips=true) {
+		bindless_textures.add_entry(TexLoader::get_basename(name));
+
+		auto pbr = TexLoader::add_tex_suffix(name, ".pbr");
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(pbr ), mips, 2));
+	}
+	template <typename T>
+	void texture_pbr_glow (Jobs& jobs, std::string&& name, bool mips=true) {
+		bindless_textures.add_entry(TexLoader::get_basename(name));
+
+		auto pbr  = TexLoader::add_tex_suffix(name, ".pbr");
+		auto glow = TexLoader::add_tex_suffix(name, ".glow");
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(pbr ), mips, 2));
+		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(glow), mips, 3));
+	}
+
+	template <typename T>
+	void cubemap (Jobs& jobs, std::string&& name, bool mips, TextureCubemap* result_ptr) {
+		jobs.push_back(std::make_unique<TexLoader::LoadCubemap<T>>(std::move(name), mips, result_ptr));
 	}
 };
 

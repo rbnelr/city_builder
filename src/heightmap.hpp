@@ -523,7 +523,6 @@ class HeightmapTerraform {
 	//SERIALIZE(HeightmapTerraform, paint_radius, move_tool, flatten_tool, smooth_tool)
 	// It feels better when these things are not kept across restarts, resonable defaults feel better?
 	// cur_tool is also UI state, ie which button is clicked, which no one expect to be restored ever
-	SERIALIZE_NONE(HeightmapTerraform)
 
 	float paint_radius = 25;
 

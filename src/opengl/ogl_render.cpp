@@ -1174,7 +1174,7 @@ struct Mesher {
 	void remesh_network () {
 		ZoneScoped;
 		
-		for (auto& seg : app.net.segments) {
+		for (auto& seg : app.network.segments) {
 			mesh_segment(*seg);
 
 			auto v = seg->clac_seg_vecs();
@@ -1262,7 +1262,7 @@ struct Mesher {
 			}
 		}
 
-		for (auto& node : app.net.nodes) {
+		for (auto& node : app.network.nodes) {
 			mesh_node(node.get());
 		}
 	}
@@ -1595,7 +1595,7 @@ public:
 			}
 
 			upload_car_instances(app, view);
-			Mesher::update_dynamic_traffic_signals(app.net, entity_render);
+			Mesher::update_dynamic_traffic_signals(app.network, entity_render);
 		}
 
 		{

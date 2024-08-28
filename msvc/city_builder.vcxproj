@@ -320,14 +320,6 @@
     <ClInclude Include="..\src\opengl\textures.hpp" />
     <ClInclude Include="..\src\util.hpp" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="..\shaders\common.glsl" />
-    <None Include="..\shaders\dbg_lines.glsl" />
-    <None Include="..\shaders\dbg_tris.glsl" />
-    <None Include="..\shaders\ocean.glsl" />
-    <None Include="..\shaders\skybox.glsl" />
-    <None Include="..\shaders\terrain.glsl" />
-  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>

@@ -674,8 +674,9 @@ public:
 		
 		cam.imgui("cam");
 		dbg_cam.imgui("dbg_cam");
-		ImGui::SameLine();
-		ImGui::Checkbox("View", &view_dbg_cam);
+
+		ImGui::Checkbox("View Debug Cam", &view_dbg_cam);
+		ImGui::Checkbox("Remote Control Cam", &remote_control_cam);
 		
 		ImGui::Separator();
 
@@ -717,7 +718,7 @@ public:
 	Interaction interact;
 
 	Flycam dbg_cam = Flycam(0, 0, 100);
-	bool view_dbg_cam = false;
+	bool view_dbg_cam = false, remote_control_cam = false;
 	bool dbg_cam_cursor_was_enabled;
 
 	Heightmap heightmap;
@@ -735,7 +736,8 @@ public:
 
 	Test test;
 
-	View3D update_camera (CameraTrack& track) {
+	View3D update_camera () {
+		auto& track = interact.cam_track;
 		
 		track.update(interact.selection, &cam.orbit_pos, &cam.rot_aer.x);
 		
@@ -755,15 +757,32 @@ public:
 			}
 		}
 		
+		//
+
 		View3D view;
 		if (!view_dbg_cam) {
 			view = cam.update(input, (float2)input.window_size, track.offset, track.rot_offset);
 		}
+		else if (remote_control_cam) {
+			View3D real_view = cam.update(input, (float2)input.window_size, track.offset, track.rot_offset);
+			view = dbg_cam.clac_view((float2)input.window_size);
+
+			if (view_dbg_cam)
+				g_dbgdraw.camera(real_view, lrgba(1,1,0,1));
+		}
 		else {
+			View3D real_view = cam.clac_view((float2)input.window_size, track.offset, track.rot_offset);
 			view = dbg_cam.update(input, (float2)input.window_size);
+
+			if (view_dbg_cam)
+				g_dbgdraw.camera(real_view, lrgba(1,1,0,1));
 		}
 
 		return view;
+	}
+
+	View3D dbg_get_main_view () {
+		return cam.clac_view((float2)input.window_size, interact.cam_track.offset, interact.cam_track.rot_offset);
 	}
 
 	View3D update () {
@@ -776,7 +795,7 @@ public:
 		network.simulate(*this);
 
 	////
-		View3D view = update_camera(interact.cam_track);
+		View3D view = update_camera();
 		
 		//test.update(input, view);
 

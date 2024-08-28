@@ -80,14 +80,14 @@
 #include "engine/kisslib/serialization.hpp"
 using namespace kiss;
 
+#include "camera.hpp"
+#include "engine/agnostic_render.hpp"
+
 #include "engine/ankerl/unordered_dense.h"
 
 #include "tracy/Tracy.hpp"
 #include "dear_imgui.hpp"
 #include "engine.hpp"
-#include "engine/agnostic_render.hpp"
-
-inline render::DebugDraw g_dbgdraw; // really need something like this to be global
 
 template <typename... Ts>
 inline void log (const char* format, Ts... args) {

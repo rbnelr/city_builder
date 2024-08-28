@@ -82,6 +82,8 @@ struct Gbuffer {
 };
 
 struct PBR_Render {
+	SERIALIZE(PBR_Render, env_res, env_mips, sampler_per_res)
+
 	// low range float buffer to store light color, since it's exposure corrected, so values will never be too large
 	// still want floating point to allow values >1 so bloom can some range to play with
 	static constexpr GLenum env_map_format = GL_R11F_G11F_B10F;
@@ -104,12 +106,11 @@ struct PBR_Render {
 	int env_res = 384;
 	int env_mips = 8; // env_res=384 -> 3x3
 	std::vector<int> sampler_per_res = std::vector<int>({ // num_samples for each resolution
-		512,512,512,512,512,512, // 1,2,4,8,16,32
-		512, // 64
-		256, // 128
-		256, // 256
-		64, // 512
-		64, // 1024
+		2048,2048,2048,2048, // 1,2,4,8
+		512,     // 16
+		256,256, // 32,64
+		128,128, // 128,256
+		64,64 // 512,1024
 	});
 	// adjust roughness with  roughness_mip = pow(roughness, env_roughness_curve)
 	// to squeeze more of the low roughness into the lower mips, so we waste less blurry high roughness on the high-res mips
@@ -117,9 +118,13 @@ struct PBR_Render {
 	float env_roughness_curve = 0.6f;
 	bool recreate_env_map = true;
 	bool redraw_env_map = true;
+	bool freeze_redrawing = false;
+	bool issue_barrier = false;
 
 	void imgui () {
 		if (ImGui::TreeNode("PBR")) {
+			ImGui::Checkbox("freeze_redrawing", &freeze_redrawing);
+
 			recreate_brdf = ImGui::SliderInt("brdf_LUT_res", &brdf_LUT_res, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic) || recreate_brdf;
 			
 			recreate_env_map = ImGui::SliderInt("env_res", &env_res, 1, 2048, "%d", ImGuiSliderFlags_Logarithmic) || recreate_env_map;
@@ -206,7 +211,9 @@ struct PBR_Render {
 
 		int res = env_res;
 		
+		// rasterized because this turns out to be faster than compute (prob. better cache coherence)
 		{
+			//OGL_TRACE("draw skybox");
 			glBindVertexArray(state.dummy_vao);
 		
 			PipelineState s;
@@ -228,9 +235,12 @@ struct PBR_Render {
 
 			glDrawArrays(GL_TRIANGLES, 0, 3);
 		}
+		
+		glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT); // Is this needed for previous raster calls?
 
+		// compute based mipmap gen because glGenerateMipmap is slow, and raster version is slightly slower
 		{
-			OGL_TRACE("gen mips");
+			//OGL_TRACE("gen mips");
 			glUseProgram(shad_compute_gen_mips->prog);
 			state.bind_textures(shad_compute_gen_mips, {
 				{ "base_env_map", base_env_map },
@@ -250,10 +260,10 @@ struct PBR_Render {
 			}
 		}
 		
+		// compute based image copy because other copy methods were slow
 		res = env_res;
 		{
-			OGL_TRACE("copy mip0");
-
+			//OGL_TRACE("copy mip0");
 			glUseProgram(shad_compute_copy->prog);
 			state.bind_textures(shad_compute_copy, {});
 			shad_compute_copy->set_uniform("resolution", int2(res));
@@ -264,8 +274,9 @@ struct PBR_Render {
 			dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
 		}
 		
+		// 
 		{
-			OGL_TRACE("convolve");
+			//OGL_TRACE("convolve");
 			glUseProgram(shad_compute_convolve->prog);
 			state.bind_textures(shad_compute_convolve, {
 				{ "base_env_map", base_env_map },
@@ -284,6 +295,11 @@ struct PBR_Render {
 
 				glBindImageTexture(0, pbr_env_convolved, mip, GL_FALSE, 0, GL_WRITE_ONLY, env_map_format);
 
+				// run batches on X, pixels on Y, faces on Z
+				// Batches split samples of the same pixels into different threads
+				// This decreases thread run duration but increases thread count,
+				//  which is good because lowest mip levels have too few pixels to fill all gpu cores (entire gpu works instead of few cores taking very long to finish while others idle)
+				// also has the effect that more samples are evaluated in parrallel, which may cache slightly better for tightly grouped samples (possibly)
 				constexpr int BATCH_SIZE = 32;
 				dispatch_compute(int3(BATCH_SIZE,res*res,6), int3(BATCH_SIZE,4,1));
 			}
@@ -292,8 +308,8 @@ struct PBR_Render {
 		glBindImageTexture(0, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
 		glBindImageTexture(1, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
 
-		// TODO: Is this correct?
-		glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+		//glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+		issue_barrier = true;
 
 		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -301,6 +317,11 @@ struct PBR_Render {
 		glBindVertexArray(0);
 	}
 
+	void env_map_barrier () {
+		if (issue_barrier)
+			glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+		issue_barrier = false;
+	}
 	void update (StateManager& state, Textures& texs) {
 		if (recreate_brdf) {
 			create_brdf_lut(state);
@@ -310,9 +331,9 @@ struct PBR_Render {
 			create_env_map();
 			recreate_env_map = false;
 		}
-		if (redraw_env_map) {
+		if (!freeze_redrawing || redraw_env_map) {
 			draw_env_map(state, texs);
-			//redraw_env_map = false; // always redraw
+			redraw_env_map = false; // always redraw
 		}
 	}
 
@@ -766,7 +787,7 @@ struct ClippingRenderer {
 			if (shadow_pass) {
 				s.depth_clamp = true;
 			}
-			state.set(s);
+			state.set_no_override(s);
 
 			if (instance_count > 0) {
 				glBindVertexArray(vbo.vao);
@@ -854,7 +875,7 @@ struct DefferedPointLightRenderer {
 			s.blend_func.sfactor = GL_ONE;
 			s.blend_func.equation = GL_FUNC_ADD;
 
-			state.set(s);
+			state.set_no_override(s);
 
 			glUseProgram(shad->prog);
 			
@@ -988,6 +1009,7 @@ struct RenderPasses {
 			TextureBinds tex;
 			tex += gbuf.textures();
 			pbr.prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
+			pbr.env_map_barrier();
 
 			tex += { "clouds",   *texs.clouds,    texs.sampler_normal };
 			tex += { "night_sky", texs.night_sky, texs.sampler_cubemap };
@@ -1013,7 +1035,7 @@ struct RenderPasses {
 		OGL_TRACE("lighting_fbo gen mipmaps");
 
 		glBindTexture(GL_TEXTURE_2D, lighting_fbo.col);
-		glGenerateMipmap(GL_TEXTURE_2D);
+		glGenerateMipmap(GL_TEXTURE_2D); // TODO: don't do this, just do a single tap bilinear when <=2x renderscale, optionally 
 		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 

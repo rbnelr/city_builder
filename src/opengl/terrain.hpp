@@ -11,15 +11,13 @@ struct TerrainRenderer {
 	Shader* shad_terrain = g_shaders.compile("terrain");
 	
 	bool draw_terrain = true;
-	//bool draw_water = true;
 
 	bool dbg_lod = false;
 		
 	float lod_offset = 16;
 	float lod_fac    = 64;
 
-	int terrain_base_lod = -2;
-	int water_base_lod = -1;
+	int terrain_base_lod = 0;
 
 	int max_lod = 10;
 
@@ -29,13 +27,11 @@ struct TerrainRenderer {
 			ImGui::Checkbox("dbg_lod", &dbg_lod);
 
 			ImGui::Checkbox("draw_terrain", &draw_terrain);
-			//ImGui::Checkbox("draw_water", &draw_water);
 
 			ImGui::DragFloat("lod_offset", &lod_offset, 1, 0, 4096);
 			ImGui::DragFloat("lod_fac", &lod_fac, 1, 0, 4096);
 
 			ImGui::SliderInt("terrain_base_lod", &terrain_base_lod, -6, 6);
-			ImGui::SliderInt("water_base_lod", &water_base_lod, -6, 6);
 
 			ImGui::SliderInt("max_lod", &max_lod, -6, 15);
 
@@ -264,36 +260,6 @@ struct TerrainRenderer {
 			glDrawElementsInstanced(GL_TRIANGLES, chunk_indices, GL_UNSIGNED_SHORT, (void*)0, (GLsizei)instances.size());
 		}
 	}
-	//void render_ocean (Game& g, Renderer& r) {
-	//	ZoneScoped;
-	//
-	//	if (draw_water && shad_water->prog) {
-	//
-	//		OGL_TRACE("render_water");
-	//			
-	//		PipelineState s;
-	//		s.depth_test = true;
-	//		s.blend_enable = true;
-	//		r.state.set(s);
-	//
-	//		glUseProgram(shad_water->prog);
-	//
-	//		r.state.bind_textures(shad_water, {
-	//			{ "opaque_fbo", {GL_TEXTURE_2D, r.passes.fbo_opaque_copy.col}, r.passes.fbo_sampler_bilin },
-	//
-	//			{ "clouds", r.clouds, r.sampler_normal },
-	//		});
-	//			
-	//		r.ocean.set_uniforms(shad_water);
-	//		shad_water->set_uniform("inv_max_size", 1.0f / float2((float)MAP_SZ));
-	//
-	//		glBindVertexArray(terrain_chunk.vao);
-	//		
-	//		lodded_chunks(g, shad_water, water_base_lod, dbg_lod, [this] () {
-	//			glDrawElements(GL_TRIANGLES, chunk_indices, GL_UNSIGNED_SHORT, (void*)0);
-	//		});
-	//	}
-	//}
 };
 
 } // namespace ogl

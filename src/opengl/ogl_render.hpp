@@ -133,7 +133,7 @@ public:
 
 				state.set_default();
 
-				glEnable(GL_LINE_SMOOTH);
+				//glEnable(GL_LINE_SMOOTH); // This is extremely slow
 				glLineWidth(gl_dbgdraw.line_width);
 			}
 

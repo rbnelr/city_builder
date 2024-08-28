@@ -90,9 +90,6 @@
     <Filter Include="engine">
       <UniqueIdentifier>{7af76505-7851-4a92-aa64-1b42bdcee51b}</UniqueIdentifier>
     </Filter>
-    <Filter Include="shaders">
-      <UniqueIdentifier>{0d98b327-4239-45f9-a848-26998f2e90ca}</UniqueIdentifier>
-    </Filter>
     <Filter Include="engine\imgui">
       <UniqueIdentifier>{0f78420a-e47d-45c6-9da4-3dc297f3e333}</UniqueIdentifier>
     </Filter>
@@ -256,25 +253,5 @@
     <ClInclude Include="..\src\opengl\ogl_common.hpp">
       <Filter>opengl</Filter>
     </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\shaders\common.glsl">
-      <Filter>shaders</Filter>
-    </None>
-    <None Include="..\shaders\dbg_lines.glsl">
-      <Filter>shaders</Filter>
-    </None>
-    <None Include="..\shaders\dbg_tris.glsl">
-      <Filter>shaders</Filter>
-    </None>
-    <None Include="..\shaders\ocean.glsl">
-      <Filter>shaders</Filter>
-    </None>
-    <None Include="..\shaders\skybox.glsl">
-      <Filter>shaders</Filter>
-    </None>
-    <None Include="..\shaders\terrain.glsl">
-      <Filter>shaders</Filter>
-    </None>
   </ItemGroup>
 </Project>

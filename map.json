@@ -1,9 +1,9 @@
 {
 	"time": {
 		"target_gamespeed": 2.0,
-		"time_of_day": 0.9315802454948425,
+		"time_of_day": 0.26499998569488525,
 		"day_duration": 1438.0,
-		"pause_day": false,
+		"pause_day": true,
 		"time_of_year": 0.23199999332427979,
 		"year_duration": 1032.0,
 		"pause_year": true,
@@ -33,7 +33,7 @@
 			400.8718566894531,
 			0.0
 		],
-		"zoom_target": -4.75,
+		"zoom_target": -6.0,
 		"rot_aer": [
 			-1.3953970670700073,
 			-0.3330126404762268,

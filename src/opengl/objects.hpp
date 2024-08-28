@@ -176,7 +176,7 @@ struct AssetMeshes {
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_MESH_INFO, 0);
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_LOD_INFO, 0);
 
-		glMemoryBarrier(GL_COMMAND_BARRIER_BIT);
+		glMemoryBarrier(GL_COMMAND_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
 		return instance_count; // resulting commands count
 	}

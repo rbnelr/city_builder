@@ -91,8 +91,6 @@ public:
 		ZoneScoped;
 		
 		auto sky_config = app.time.calc_sky_config(view);
-
-		View3D real_view = app.view_dbg_cam ? app.dbg_get_main_view() : view;
 		
 		lighting.update(app, exposure, sky_config);
 		
@@ -159,17 +157,24 @@ public:
 
 			common_ubo.set_view(view);
 		};
+		
 
-		View3D& terrain_lodcull_view = terrain_render.dbg_lod ? real_view : view;
+		// Lod & Cull with real camera if in dbg camera and dbg_lodcull > 0
+		View3D real_view = app.dbg_lodcull > 0 && app.view_dbg_cam ? app.dbg_get_main_view() : view;
+		View3D shadowmap_casc_cull;
 
 		if (passes.shadowmap) {
 			ZoneScopedN("shadow_pass");
 			OGL_TRACE("shadow_pass");
 
-			passes.shadowmap->draw_cascades(view, sky_config, state, [&] (View3D& shadow_view, GLuint depth_tex) {
+			int counter = 0;
+			passes.shadowmap->draw_cascades(real_view, sky_config, state, [&] (View3D& shadow_view, GLuint depth_tex) {
 				common_ubo.set_view(shadow_view);
 				
-				terrain_render.render_terrain(state, app.heightmap, textures, terrain_lodcull_view, true);
+				if (++counter + 1 == app.dbg_lodcull)
+					shadowmap_casc_cull = shadow_view;
+
+				terrain_render.render_terrain(state, app.heightmap, textures, real_view, shadow_view, true);
 				clip_render.render(state, depth_tex, true);
 		
 				network_render.render(state, textures, true);
@@ -185,18 +190,20 @@ public:
 			OGL_TRACE("geometry_pass");
 			
 			passes.begin_geometry_pass(state);
+			
+			// visualize shadowmap culling with app.dbg_lodcull > 1
+			View3D& cull_view = app.dbg_lodcull > 1 ? shadowmap_casc_cull : real_view;
+			if (app.dbg_lodcull > 0) {
+				dbgdraw_frustrum(cull_view.clip2world, lrgba(0,1,0,1));
+			}
 
-			terrain_render.render_terrain(state, app.heightmap, textures, terrain_lodcull_view);
+			terrain_render.render_terrain(state, app.heightmap, textures, real_view, cull_view);
 			clip_render.render(state, passes.gbuf.depth);
 
 			network_render.render(state, textures);
 			decal_render.render(state, passes.gbuf, textures);
 		
 			entity_render.draw_all(state);
-
-			// TODO: draw during lighting pass?
-			//  how to draw it without depth buffer? -> could use gbuf_normal == vec3(0) as draw condition?
-			//skybox.render_skybox_last(state, textures);
 		}
 
 		{

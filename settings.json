@@ -397,12 +397,24 @@
 			}
 		}
 	},
-	"input": {
-		"mouselook_sens": 1.0,
-		"mouselook_sens_x_scale": 1.0
-	},
 	"options": {
 		"speed_unit": "KPH"
+	},
+	"cam_binds": {
+		"rotate": 3,
+		"rotate_sensitivity": 0.002094395225867629,
+		"move_left": 65,
+		"move_right": 68,
+		"move_back": 83,
+		"move_forw": 87,
+		"move_down": 81,
+		"move_up": 69,
+		"rot_left": 0,
+		"rot_right": 0,
+		"zoom_in": 334,
+		"zoom_out": 333,
+		"change_fov": 70,
+		"modifier": 340
 	},
 	"test": {
 		"bez": {

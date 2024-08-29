@@ -253,5 +253,6 @@
     <ClInclude Include="..\src\opengl\ogl_common.hpp">
       <Filter>opengl</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\math_util.hpp" />
   </ItemGroup>
 </Project>

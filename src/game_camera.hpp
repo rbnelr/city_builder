@@ -151,40 +151,9 @@ struct GameCamera {
 	}
 	
 	void dbgdraw (View3D& cam_view, lrgba const& col) {
-		float2 F = cam_view.frust_near_size*0.5f;
-		float N = cam_view.clip_near;
-
-		float3 p = cam_view.cam_pos;
-		float3 n0 = (float3x4)cam_view.cam2world * float3(-F.x,-F.y,-N);
-		float3 n1 = (float3x4)cam_view.cam2world * float3(+F.x,-F.y,-N);
-		float3 n2 = (float3x4)cam_view.cam2world * float3(+F.x,+F.y,-N);
-		float3 n3 = (float3x4)cam_view.cam2world * float3(-F.x,+F.y,-N);
-		float3 f0 = normalize(n0 - p) * 1000 + p;
-		float3 f1 = normalize(n1 - p) * 1000 + p;
-		float3 f2 = normalize(n2 - p) * 1000 + p;
-		float3 f3 = normalize(n3 - p) * 1000 + p;
-		
-		float3 nc = (float3x4)cam_view.cam2world * float3(0, F.y + F.x*2.0f,-N);
-		// close rect
-		g_dbgdraw.line(n0, n1, col);
-		g_dbgdraw.line(n1, n2, col);
-		g_dbgdraw.line(n2, n3, col);
-		g_dbgdraw.line(n3, n0, col);
-		// little hat
-		g_dbgdraw.line(n2, nc, col);
-		g_dbgdraw.line(nc, n3, col);
-		// lines into "infinity"
-		g_dbgdraw.line(n0, f0, col);
-		g_dbgdraw.line(n1, f1, col);
-		g_dbgdraw.line(n2, f2, col);
-		g_dbgdraw.line(n3, f3, col);
-		// "infinity" far rect
-		g_dbgdraw.line(f0, f1, col * lrgba(1,1,1,0.25f));
-		g_dbgdraw.line(f1, f2, col * lrgba(1,1,1,0.25f));
-		g_dbgdraw.line(f2, f3, col * lrgba(1,1,1,0.25f));
-		g_dbgdraw.line(f3, f0, col * lrgba(1,1,1,0.25f));
+		dbgdraw_frustrum(cam_view.clip2world, col);
 		// orbit 
-		g_dbgdraw.line(orbit_pos, p, col * 0.5f);
+		g_dbgdraw.line(orbit_pos, cam_view.cam_pos, col * 0.5f);
 		g_dbgdraw.wire_circle(orbit_pos, 5, col * 0.5f);
 	}
 };

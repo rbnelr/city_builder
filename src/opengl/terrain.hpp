@@ -69,23 +69,29 @@ struct TerrainRenderer {
 	
 	int drawn_chunks = 0;
 
+	// lod with camera position but cull with shadow views during shadow pass
 	template <typename FUNC>
 	void lodded_chunks (StateManager& state, Heightmap const& heightmap, Textures const& texs,
-			View3D const& view, int base_lod, bool dbg, FUNC draw_chunk) {
+			View3D const& lodding_view, View3D const& culling_view, int base_lod, bool dbg, FUNC draw_chunk) {
 		ZoneScoped;
 
-		float2 lod_center = (float2)view.cam_pos;
+		float2 lod_center = (float2)lodding_view.cam_pos;
 		// TODO: adjust for terrain height? -> abs distance to full heightmap range might be reasonable
 		// -> finding correct "distance" to heightmap terrain is somewhat impossible
 		//    there could always be cases where a chunk has too high of a LOD compared to the distance the surface
 		//    actually ends up being to the camera due to the heightmap
-		float lod_center_z = view.cam_pos.z;
+		float lod_center_z = lodding_view.cam_pos.z;
 
 		int2 prev_bound0 = 0;
 		int2 prev_bound1 = 0;
 
 		int2 half_map_sz = heightmap.outer.map_size/2;
+
+		auto frust = clac_view_frustrum(culling_view);
 		
+		float min_z = heightmap.height_min;
+		float max_z = heightmap.height_min + heightmap.height_range;
+
 		// iterate lods
 		for (int lod=base_lod; lod<=max_lod; lod++) {
 			ZoneScopedN("lod");
@@ -138,13 +144,23 @@ struct TerrainRenderer {
 				if (  x >= prev_bound0.x && x < prev_bound1.x &&
 					  y >= prev_bound0.y && y < prev_bound1.y )
 					continue;
-					
-				if (dbg)
-					g_dbgdraw.wire_quad(float3((float2)int2(x,y), 0), (float2)(float)sz, g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))]);
-				
-				draw_chunk(bound0, bound1, quad_size, int2(x,y));
 
-				drawn_chunks++;
+				float2 pos = (float2)int2(x,y);
+				
+				auto aabb = AABB3(float3(pos, min_z), float3(pos + (float)sz, max_z));
+				bool culled = frustrum_cull_aabb(frust, aabb);
+				//culled = false;
+
+				if (dbg) {
+					lrgba col = g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))];
+					if (culled) col *= 0.25f;
+					g_dbgdraw.wire_quad(float3(pos,0), (float2)(float)sz, col);
+				}
+
+				if (!culled) {
+					draw_chunk(bound0, bound1, quad_size, int2(x,y));
+					drawn_chunks++;
+				}
 			}
 
 			prev_bound0 = bound0;
@@ -208,8 +224,11 @@ struct TerrainRenderer {
 		chunk_vertices = vert_count;
 		chunk_indices  = idx_count;
 	}
+	
 	// view is not the actual rendering projection (eg for shadow pass, use camera view for lod/cull, not current shadow view)
-	void render_terrain (StateManager& state, Heightmap const& heightmap, Textures const& texs, View3D const& view_for_lodcull, bool shadow_pass=false) {
+	void render_terrain (StateManager& state, Heightmap const& heightmap, Textures const& texs,
+			View3D const& lodding_view, View3D const& culling_view,
+			bool shadow_pass=false) {
 		ZoneScoped;
 		OGL_TRACE("render_terrain");
 
@@ -219,14 +238,13 @@ struct TerrainRenderer {
 			
 			std::vector<TerrainChunkInstance> instances;
 
-			lodded_chunks(state, heightmap, texs, view_for_lodcull, terrain_base_lod, dbg_lod,
+			lodded_chunks(state, heightmap, texs, lodding_view, culling_view, terrain_base_lod, dbg_lod && !shadow_pass,
 			[&] (int2 bound0, int2 bound1, float quad_size, int2 offset) {
 				instances.push_back({
 					float3( (float2)offset, quad_size ),
 					float4( (float)bound0.x, (float)bound0.y, (float)bound1.x, (float)bound1.y )
 				});
 			});
-
 
 			PipelineState s;
 			if (!shadow_pass) {

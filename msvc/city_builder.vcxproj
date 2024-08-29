@@ -261,6 +261,7 @@
     <ClInclude Include="..\src\game_time.hpp" />
     <ClInclude Include="..\src\heightmap.hpp" />
     <ClInclude Include="..\src\interaction.hpp" />
+    <ClInclude Include="..\src\math_util.hpp" />
     <ClInclude Include="..\src\network.hpp" />
     <ClInclude Include="..\src\engine\camera.hpp" />
     <ClInclude Include="..\src\engine\agnostic_render.hpp" />

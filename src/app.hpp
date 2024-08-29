@@ -623,8 +623,10 @@ public:
 		cam_binds.rotate = MOUSE_BUTTON_MIDDLE;
 		// CTRL/SPACE are nice, but SPACE is standard for pause
 		// TODO: maybe actually move up and down with Q/E ?
-		cam_binds.move_down = KEY_END;
-		cam_binds.move_up   = KEY_HOME;
+		cam_binds.move_down = KEY_Q;
+		cam_binds.move_up   = KEY_E;
+		cam_binds.rot_left  = KEY_NULL;
+		cam_binds.rot_right = KEY_NULL;
 	}
 	virtual ~App () {}
 	
@@ -685,6 +687,7 @@ public:
 
 		ImGui::Checkbox("Debug View [O]", &view_dbg_cam);
 		ImGui::Checkbox("Control Main Camera in Debug View [P]", &remote_control_cam);
+		ImGui::InputInt("Debug Lod/Cull Mode", &dbg_lodcull);
 		
 		ImGui::Separator();
 
@@ -731,6 +734,7 @@ public:
 	bool view_dbg_cam_prev = false;
 	bool remote_control_cam = false;
 	bool dbg_cam_cursor_was_enabled;
+	int dbg_lodcull = 0;
 
 	Heightmap heightmap;
 	Entities entities;
@@ -787,8 +791,8 @@ public:
 			real_view = main_cam.clac_view(res);
 			view = dbg_cam.clac_view(res);
 
-			if (view_dbg_cam)
-				main_cam.dbgdraw(real_view, lrgba(1,1,0,1));
+			//if (view_dbg_cam)
+				//main_cam.dbgdraw(real_view, lrgba(1,1,0,1));
 		}
 
 		return view;

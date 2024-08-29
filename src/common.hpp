@@ -34,6 +34,13 @@
 
 #endif
 
+// TODO: will probably need to be adjusted for different backends
+#if OGL_USE_REVERSE_DEPTH
+namespace ogl {
+	extern bool reverse_depth;
+}
+#endif
+
 /*
 	NOTE:
 	Not using PCH here due to excessive size of MSVC ipch files
@@ -118,6 +125,7 @@ template <typename... Ts>
 	throw std::runtime_error(prints(format, args...));
 }
 
+#include "math_util.hpp"
 #include "util.hpp"
 
 inline void imgui_style () {

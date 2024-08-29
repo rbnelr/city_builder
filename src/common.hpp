@@ -80,7 +80,6 @@
 #include "engine/kisslib/serialization.hpp"
 using namespace kiss;
 
-#include "camera.hpp"
 #include "engine/agnostic_render.hpp"
 
 #include "engine/ankerl/unordered_dense.h"

@@ -223,8 +223,7 @@ struct glDebugDraw {
 			}
 
 			{
-				//glMemoryBarrier(GL_ALL_BARRIER_BITS); // TODO: Is a barrier needed here?
-				glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT|GL_COMMAND_BARRIER_BIT|GL_ATOMIC_COUNTER_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
+				glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT|GL_COMMAND_BARRIER_BIT);
 				
 				glBindVertexArray(indirect_lines_vao);
 				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect_vbo);

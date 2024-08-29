@@ -3,58 +3,6 @@
 #include "network.hpp"
 #include "entities.hpp"
 
-typedef NullableVariant<Person*, network::Node*> sel_ptr;
-
-struct CameraTrack {
-	// this implementation is dodgy
-
-	bool track = false;
-	bool track_rot = false;
-
-	sel_ptr cur_tracking = nullptr;
-
-	float3 offset=0;
-	float rot_offset=0;
-
-	void imgui () {
-		ImGui::Checkbox("Track Selection", &track);
-		ImGui::SameLine();
-		ImGui::Checkbox("Track Rotation", &track_rot);
-	}
-
-	void update (sel_ptr selection, float3* cam_pos, float* cam_rot) {
-		auto* sel = selection.get<Person*>();
-
-		if (track && sel && sel->vehicle) {
-			float3 pos;
-			float ang;
-			sel->vehicle->calc_pos(&pos, &ang);
-			
-			if (cur_tracking != selection) {
-				// re-center camera if new selection or selection changed
-				*cam_pos = 0;
-				*cam_rot -= ang;
-			}
-
-			offset = pos;
-			if (track_rot)
-				rot_offset = ang;
-
-			cur_tracking = selection;
-		}
-		else {
-			if (cur_tracking) {
-				*cam_pos += offset;
-				*cam_rot += rot_offset;
-				offset = 0;
-				rot_offset = 0;
-			}
-
-			cur_tracking = nullptr;
-		}
-	}
-};
-
 // TODO: rework this!, probably mirror how heightmap with its tools works
 struct Interaction {
 	enum Mode {

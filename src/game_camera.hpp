@@ -1,6 +1,7 @@
 #pragma once
 #include "common.hpp"
 #include "engine/camera.hpp"
+#include "entities.hpp"
 
 struct GameCamera {
 	friend SERIALIZE_TO_JSON(GameCamera) {
@@ -32,28 +33,7 @@ struct GameCamera {
 	float fast_multiplier = 4;
 
 	float cur_speed = 0;
-
-	struct Binds {
-		Button rotate      = MOUSE_BUTTON_MIDDLE;
-		
-		Button move_left   = KEY_A;
-		Button move_right  = KEY_D;
-		Button move_back   = KEY_S;
-		Button move_forw   = KEY_W;
-		Button move_up     = KEY_HOME;
-		Button move_down   = KEY_END;
-
-		Button rot_left    = KEY_Q;
-		Button rot_right   = KEY_E;
-
-		Button zoom_in     = KEY_KP_ADD;
-		Button zoom_out    = KEY_KP_SUBTRACT;
-
-		float sensitivity = deg(120) / 1000;
-	};
 	
-	Binds binds;
-
 	void imgui (const char* label="GameCamera") {
 		if (!ImGui::TreeNode(label)) return;
 
@@ -92,57 +72,12 @@ struct GameCamera {
 	float calc_orbit_distance () {
 		return powf(2.0f, -zoom);
 	}
+	
+	void update (Input& I, float2 const& viewport_size, CameraBinds const& binds) {
 
-	//// pre transform matrix to allow camera to move relative to objects
-	//float3x4 tracking_space = float3x4::identity();
-	//float3x4 tracking_space_inv = float3x4::identity();
-	//
-	//void tracking_space (float3x4 const& tracking_space, float3x4 const& tracking_space_inv) {
-	//	this->tracking_space     = tracking_space;
-	//	this->tracking_space_inv = tracking_space_inv;
-	//}
-	//void begin_tracking () {
-	//
-	//}
-	//void update_tracking (bool track, begin_or_stop_tracking
-	//		float3x4 const& tracking_space,
-	//		float3x4 const& tracking_space_inv) {
-	//	this->tracking_space     = tracking_space;
-	//	this->tracking_space_inv = tracking_space_inv;
-	//}
+		bool scroll_fov = I.buttons[binds.change_fov].is_down;
 
-	View3D update (Input& I, float2 const& viewport_size, float3 offset=0, float rot_offset=0) {
-
-		bool scroll_fps = I.buttons[KEY_F].is_down;
-
-		//// look
-		{
-			float& azimuth   = rot_aer.x;
-			float& elevation = rot_aer.y;
-			//float& roll      = rot_aer.z;
-
-			// Mouselook
-			auto raw_mouselook = I.mouse_delta;
-
-			float2 delta = 0;
-			if (I.buttons[binds.rotate].is_down)
-				delta = raw_mouselook * binds.sensitivity;
-
-			azimuth   -= delta.x;
-			elevation += delta.y;
-
-			// rotate with keys
-			float rot_dir = 0;
-			if (I.buttons[KEY_Q].is_down) rot_dir += 1;
-			if (I.buttons[KEY_E].is_down) rot_dir -= 1;
-			
-			float rot_speed = deg(120);
-			
-			azimuth += rot_dir * rot_speed * I.real_dt;
-
-			azimuth = wrap(azimuth, deg(-180), deg(180));
-			elevation = clamp(elevation, deg(-90), deg(85));
-		}
+		rotate_with_mouselook(I, vfov, binds, &rot_aer);
 		
 		float distance;
 		{ //// zoom
@@ -155,7 +90,7 @@ struct GameCamera {
 
 			// mousewheel zoom
 			zoom_delta += (float)I.mouse_wheel_delta * zoom_speed;
-			if (!scroll_fps)
+			if (!scroll_fov)
 				zoom_target += zoom_delta;
 
 			zoom = smooth_var(I.real_dt, zoom,    zoom_target,    zoom_smooth_fac, 1);
@@ -164,29 +99,21 @@ struct GameCamera {
 		}
 
 		{ //// movement
-			float3 move_dir = 0;
-			if (I.buttons[binds.move_left ].is_down) move_dir.x -= 1;
-			if (I.buttons[binds.move_right].is_down) move_dir.x += 1;
-			if (I.buttons[binds.move_forw ].is_down) move_dir.z -= 1;
-			if (I.buttons[binds.move_back ].is_down) move_dir.z += 1;
-			if (I.buttons[binds.move_down ].is_down) move_dir.y -= 1;
-			if (I.buttons[binds.move_up   ].is_down) move_dir.y += 1;
-
-			move_dir = normalizesafe(move_dir);
+			float3 move_dir = binds.get_local_move_dir(I);
 			float move_speed = length(move_dir); // could be analog with gamepad
 
 			if (move_speed == 0.0f)
 				cur_speed = base_speed; // no movement resets speed
 
-			if (I.buttons[KEY_LEFT_SHIFT].is_down) {
+			if (I.buttons[binds.modifier].is_down) {
 				move_speed *= fast_multiplier;
 
-				cur_speed += base_speed * speedup_factor * I.unscaled_dt;
+				cur_speed += base_speed * speedup_factor * I.real_dt;
 			}
 
 			cur_speed = clamp(cur_speed, base_speed, max_speed);
 
-			float3 delta_cam = cur_speed * distance * move_dir * I.unscaled_dt;
+			float3 delta_cam = cur_speed * distance * move_dir * I.real_dt;
 
 			float2 delta2 = rotate2(rot_aer.x) * float2(delta_cam.x, -delta_cam.z);
 			orbit_pos.x += delta2.x;
@@ -195,19 +122,18 @@ struct GameCamera {
 		}
 
 		{ //// speed or fov change with mousewheel
-			if (scroll_fps) {
+			if (scroll_fov) {
 				float delta_log = -0.1f * I.mouse_wheel_delta;
+				// TODO: might want to smooth fov change too?
 				vfov = clamp(powf(2.0f, log2f(vfov) + delta_log), deg(1.0f/10), deg(170));
 			}
 		}
-
-		return clac_view(viewport_size, offset, rot_offset);
 	}
 
-	View3D clac_view (float2 const& viewport_size, float3 offset=0, float rot_offset=0) {
+	View3D clac_view (float2 const& viewport_size) {
 
 		float3x3 cam2world_rot, world2cam_rot;
-		azimuthal_mount(rot_aer + float3(rot_offset,0,0), &world2cam_rot, &cam2world_rot);
+		azimuthal_mount(rot_aer, &world2cam_rot, &cam2world_rot);
 
 		float aspect = viewport_size.x / viewport_size.y;
 		
@@ -218,13 +144,103 @@ struct GameCamera {
 			collided_pos.z = max(collided_pos.z, 0.01f);
 		}
 
-		collided_pos += offset;
-
-		//float3x4 world2cam = float3x4(world2cam_rot) * translate(-collided_pos) * tracking_space_inv;
-		//float3x4 cam2world = tracking_space * translate(collided_pos) * float3x4(cam2world_rot);
 		float3x4 world2cam = float3x4(world2cam_rot) * translate(-collided_pos);
 		float3x4 cam2world = translate(collided_pos) * float3x4(cam2world_rot);
 
 		return persp_view(vfov, aspect, clip_near, clip_far, world2cam, cam2world, viewport_size);
+	}
+	
+	void dbgdraw (View3D& cam_view, lrgba const& col) {
+		float2 F = cam_view.frust_near_size*0.5f;
+		float N = cam_view.clip_near;
+
+		float3 p = cam_view.cam_pos;
+		float3 n0 = (float3x4)cam_view.cam2world * float3(-F.x,-F.y,-N);
+		float3 n1 = (float3x4)cam_view.cam2world * float3(+F.x,-F.y,-N);
+		float3 n2 = (float3x4)cam_view.cam2world * float3(+F.x,+F.y,-N);
+		float3 n3 = (float3x4)cam_view.cam2world * float3(-F.x,+F.y,-N);
+		float3 f0 = normalize(n0 - p) * 1000 + p;
+		float3 f1 = normalize(n1 - p) * 1000 + p;
+		float3 f2 = normalize(n2 - p) * 1000 + p;
+		float3 f3 = normalize(n3 - p) * 1000 + p;
+		
+		float3 nc = (float3x4)cam_view.cam2world * float3(0, F.y + F.x*2.0f,-N);
+		// close rect
+		g_dbgdraw.line(n0, n1, col);
+		g_dbgdraw.line(n1, n2, col);
+		g_dbgdraw.line(n2, n3, col);
+		g_dbgdraw.line(n3, n0, col);
+		// little hat
+		g_dbgdraw.line(n2, nc, col);
+		g_dbgdraw.line(nc, n3, col);
+		// lines into "infinity"
+		g_dbgdraw.line(n0, f0, col);
+		g_dbgdraw.line(n1, f1, col);
+		g_dbgdraw.line(n2, f2, col);
+		g_dbgdraw.line(n3, f3, col);
+		// "infinity" far rect
+		g_dbgdraw.line(f0, f1, col * lrgba(1,1,1,0.25f));
+		g_dbgdraw.line(f1, f2, col * lrgba(1,1,1,0.25f));
+		g_dbgdraw.line(f2, f3, col * lrgba(1,1,1,0.25f));
+		g_dbgdraw.line(f3, f0, col * lrgba(1,1,1,0.25f));
+		// orbit 
+		g_dbgdraw.line(orbit_pos, p, col * 0.5f);
+		g_dbgdraw.wire_circle(orbit_pos, 5, col * 0.5f);
+	}
+};
+
+struct CameraTrack {
+	bool track = false;
+	bool track_rot = false;
+
+	sel_ptr cur_tracking = nullptr;
+
+	float3 prev_pos;
+	float  prev_rot;
+
+	float3 pos_target;
+
+	float smoothing_duration = 1;
+	float smoothing_t = 0;
+
+	void imgui () {
+		ImGui::Checkbox("Track Selection", &track);
+		ImGui::SameLine();
+		ImGui::Checkbox("Track Rotation", &track_rot);
+	}
+
+	void update (GameCamera& cam, sel_ptr selection, float dt) {
+		auto* sel = selection.get<Person*>();
+
+		if (track && sel && sel->vehicle) { // If tracking and object selected
+			// get object pos and rotation
+			float3 pos;
+			float rot;
+			sel->vehicle->calc_pos(&pos, &rot);
+			
+			if (cur_tracking != selection) {
+				// re-center camera if new selection or selection changed
+				pos_target = pos; // jump to tracking target
+				smoothing_t = 0;
+			}
+			else {
+				pos_target += pos - prev_pos;
+				if (track_rot)
+					cam.rot_aer.x += rot - prev_rot;
+			}
+
+			// smoothly lerp from free camera to tracking target for smoothing_duration seconds
+			// NOTE: camera movement overridden entirely if CameraTrack::update is called after camera::update
+			cam.orbit_pos = lerp(cam.orbit_pos, pos_target, smoothing_t);
+			smoothing_t = min(smoothing_t + dt / smoothing_duration, 1.0f);
+
+			prev_pos = pos;
+			prev_rot = rot;
+
+			cur_tracking = selection;
+		}
+		else {
+			cur_tracking = nullptr;
+		}
 	}
 };

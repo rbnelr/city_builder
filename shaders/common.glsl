@@ -85,7 +85,6 @@ struct Lighting {
 	vec2  clouds_vel;    // current cloud velocity in m/s
 };
 
-// layout(std140, binding = 0) only in #version 420
 layout(std140, binding = 0) uniform Common {
 	View3D view;
 	Lighting lighting;
@@ -97,7 +96,7 @@ struct BindlessTextureEntry {
 	float uv_scale;
 	float _pad;
 };
-layout(std430, binding = 0) buffer BindlessTextures {
+layout(std430, binding = 0) restrict readonly buffer BindlessTextures { // TODO: why not use a uniform? because size restrictions?
 	BindlessTextureEntry lut[];
 } bindless_LUT;
 

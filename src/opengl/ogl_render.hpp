@@ -91,6 +91,8 @@ public:
 		ZoneScoped;
 		
 		auto sky_config = app.time.calc_sky_config(view);
+
+		View3D real_view = app.view_dbg_cam ? app.dbg_get_main_view() : view;
 		
 		lighting.update(app, exposure, sky_config);
 		
@@ -158,15 +160,16 @@ public:
 			common_ubo.set_view(view);
 		};
 
+		View3D& terrain_lodcull_view = terrain_render.dbg_lod ? real_view : view;
+
 		if (passes.shadowmap) {
 			ZoneScopedN("shadow_pass");
 			OGL_TRACE("shadow_pass");
 
-			//passes.shadowmap.draw_cascades(view, sky_config, state, [&] (View3D& view, Fbo& depth_fbo, int2 res, GLenum depth_format) {
-			passes.shadowmap->draw_cascades(view, sky_config, state, [&] (View3D& view, GLuint depth_tex) {
-				common_ubo.set_view(view);
+			passes.shadowmap->draw_cascades(view, sky_config, state, [&] (View3D& shadow_view, GLuint depth_tex) {
+				common_ubo.set_view(shadow_view);
 				
-				terrain_render.render_terrain(state, app.heightmap, textures, view, true);
+				terrain_render.render_terrain(state, app.heightmap, textures, terrain_lodcull_view, true);
 				clip_render.render(state, depth_tex, true);
 		
 				network_render.render(state, textures, true);
@@ -183,7 +186,7 @@ public:
 			
 			passes.begin_geometry_pass(state);
 
-			terrain_render.render_terrain(state, app.heightmap, textures, view);
+			terrain_render.render_terrain(state, app.heightmap, textures, terrain_lodcull_view);
 			clip_render.render(state, passes.gbuf.depth);
 
 			network_render.render(state, textures);

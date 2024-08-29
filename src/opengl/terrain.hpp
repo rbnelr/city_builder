@@ -70,8 +70,8 @@ struct TerrainRenderer {
 	int drawn_chunks = 0;
 
 	template <typename FUNC>
-	void lodded_chunks (StateManager& state, Heightmap& heightmap, Textures& texs,
-			View3D& view, int base_lod, bool dbg, FUNC draw_chunk) {
+	void lodded_chunks (StateManager& state, Heightmap const& heightmap, Textures const& texs,
+			View3D const& view, int base_lod, bool dbg, FUNC draw_chunk) {
 		ZoneScoped;
 
 		float2 lod_center = (float2)view.cam_pos;
@@ -208,7 +208,8 @@ struct TerrainRenderer {
 		chunk_vertices = vert_count;
 		chunk_indices  = idx_count;
 	}
-	void render_terrain (StateManager& state, Heightmap& heightmap, Textures& texs, View3D& view, bool shadow_pass=false) {
+	// view is not the actual rendering projection (eg for shadow pass, use camera view for lod/cull, not current shadow view)
+	void render_terrain (StateManager& state, Heightmap const& heightmap, Textures const& texs, View3D const& view_for_lodcull, bool shadow_pass=false) {
 		ZoneScoped;
 		OGL_TRACE("render_terrain");
 
@@ -218,7 +219,7 @@ struct TerrainRenderer {
 			
 			std::vector<TerrainChunkInstance> instances;
 
-			lodded_chunks(state, heightmap, texs, view, terrain_base_lod, dbg_lod,
+			lodded_chunks(state, heightmap, texs, view_for_lodcull, terrain_base_lod, dbg_lod,
 			[&] (int2 bound0, int2 bound1, float quad_size, int2 offset) {
 				instances.push_back({
 					float3( (float2)offset, quad_size ),

@@ -189,7 +189,7 @@ struct Test {
 		draw_car(view, car_center, car_rot, car_steer);
 
 		float c = car_steer;
-		float d = speed * I.dt; // distance step (distance driven along arc)
+		float d = speed * I.real_dt; // distance step (distance driven along arc)
 
 		float ang = c * d; // angle step (how much car turns)
 
@@ -617,17 +617,25 @@ struct Savefiles {
 class App : public Engine {
 public:
 
-	App (): Engine{"City Builder"} {}
+	App (): Engine{"City Builder"} {
+		cam_binds = {};
+		// RMB is taken for building and terraforming etc.
+		cam_binds.rotate = MOUSE_BUTTON_MIDDLE;
+		// CTRL/SPACE are nice, but SPACE is standard for pause
+		// TODO: maybe actually move up and down with Q/E ?
+		cam_binds.move_down = KEY_END;
+		cam_binds.move_up   = KEY_HOME;
+	}
 	virtual ~App () {}
 	
 	void load_app_settings () {
 		Savefiles::load(Savefiles::app_settings_json, [&] (json const& j) { auto& t = *this;
-			SERIALIZE_FROM_JSON_EXPAND(assets, input, options, test, test_map_builder)
+			SERIALIZE_FROM_JSON_EXPAND(assets, options, cam_binds, test, test_map_builder)
 		});
 	}
 	void save_app_settings () {
 		Savefiles::save(Savefiles::app_settings_json, [&] (json& j) { auto& t = *this;
-			SERIALIZE_TO_JSON_EXPAND(assets, input, options, test, test_map_builder)
+			SERIALIZE_TO_JSON_EXPAND(assets, options, cam_binds, test, test_map_builder)
 		});
 	}
 	
@@ -649,12 +657,12 @@ public:
 	// TODO: refactor this stuff into a map object that you can actually from different files/folders to switch between
 	void load_map () {
 		Savefiles::load("map.json", [&] (json const& j) { auto& t = *this;
-			SERIALIZE_FROM_JSON_EXPAND(time, heightmap, cam, network)
+			SERIALIZE_FROM_JSON_EXPAND(time, heightmap, main_cam, network)
 		});
 	}
 	void save_map () {
 		Savefiles::save("map.json", [&] (json& j) { auto& t = *this;
-			SERIALIZE_TO_JSON_EXPAND(time, heightmap, cam, network)
+			SERIALIZE_TO_JSON_EXPAND(time, heightmap, main_cam, network)
 		});
 	}
 
@@ -672,11 +680,11 @@ public:
 	virtual void imgui () {
 		ZoneScoped;
 		
-		cam.imgui("cam");
+		main_cam.imgui("main_cam");
 		dbg_cam.imgui("dbg_cam");
 
-		ImGui::Checkbox("View Debug Cam", &view_dbg_cam);
-		ImGui::Checkbox("Remote Control Cam", &remote_control_cam);
+		ImGui::Checkbox("Debug View [O]", &view_dbg_cam);
+		ImGui::Checkbox("Control Main Camera in Debug View [P]", &remote_control_cam);
 		
 		ImGui::Separator();
 
@@ -711,14 +719,17 @@ public:
 
 	std::unique_ptr<Renderer> renderer = create_ogl_backend();
 
-	GameCamera cam = GameCamera{ float3(8,8,0) * 1024 };
-	
 	GameTime time;
 	
 	Interaction interact;
+	
+	CameraBinds cam_binds;
+	GameCamera main_cam = GameCamera{ float3(8,8,0) * 1024 };
 
 	Flycam dbg_cam = Flycam(0, 0, 100);
-	bool view_dbg_cam = false, remote_control_cam = false;
+	bool view_dbg_cam = false;
+	bool view_dbg_cam_prev = false;
+	bool remote_control_cam = false;
 	bool dbg_cam_cursor_was_enabled;
 
 	Heightmap heightmap;
@@ -726,7 +737,7 @@ public:
 	Network network;
 
 	float sim_dt () {
-		return time.pause_sim ? 0 : input.dt * time.target_gamespeed;
+		return time.pause_sim ? 0 : input.real_dt * time.target_gamespeed;
 	}
 
 	TestMapBuilder test_map_builder;
@@ -737,17 +748,19 @@ public:
 	Test test;
 
 	View3D update_camera () {
-		auto& track = interact.cam_track;
+		auto res = (float2)input.window_size;
 		
-		track.update(interact.selection, &cam.orbit_pos, &cam.rot_aer.x);
-		
-		if (input.buttons[KEY_P].went_down) {
-			view_dbg_cam = !view_dbg_cam;
+		if (input.buttons[KEY_O].went_down) view_dbg_cam = !view_dbg_cam;
+		if (input.buttons[KEY_P].went_down) remote_control_cam = !remote_control_cam;
+
+		if (view_dbg_cam != view_dbg_cam_prev) {
 			if (view_dbg_cam) {
 				// move dbg cam to position of real camera
 				// use previous frame camera (cam not updated yet) to position dbg cam
-				auto view = cam.clac_view((float2)input.window_size, track.offset, track.rot_offset);
-				dbg_cam.pos = view.cam_pos;
+				auto view = main_cam.clac_view((float2)input.window_size);
+				dbg_cam.pos     = view.cam_pos;
+				dbg_cam.rot_aer = main_cam.rot_aer;
+				dbg_cam.vfov    = main_cam.vfov;
 
 				dbg_cam_cursor_was_enabled = input.cursor_enabled;
 				input.set_cursor_mode(*this, false);
@@ -755,34 +768,34 @@ public:
 			else {
 				input.set_cursor_mode(*this, dbg_cam_cursor_was_enabled);
 			}
+			view_dbg_cam_prev = view_dbg_cam;
 		}
 		
 		//
+		interact.cam_track.update(main_cam, interact.selection, input.real_dt);
 
 		View3D view;
 		if (!view_dbg_cam) {
-			view = cam.update(input, (float2)input.window_size, track.offset, track.rot_offset);
-		}
-		else if (remote_control_cam) {
-			View3D real_view = cam.update(input, (float2)input.window_size, track.offset, track.rot_offset);
-			view = dbg_cam.clac_view((float2)input.window_size);
-
-			if (view_dbg_cam)
-				g_dbgdraw.camera(real_view, lrgba(1,1,0,1));
+			main_cam.update(input, res, cam_binds);
+			view = main_cam.clac_view(res);
 		}
 		else {
-			View3D real_view = cam.clac_view((float2)input.window_size, track.offset, track.rot_offset);
-			view = dbg_cam.update(input, (float2)input.window_size);
+			View3D real_view;
+			if (remote_control_cam) main_cam.update(input, res, cam_binds);
+			else                    dbg_cam .update(input, res, cam_binds);
+
+			real_view = main_cam.clac_view(res);
+			view = dbg_cam.clac_view(res);
 
 			if (view_dbg_cam)
-				g_dbgdraw.camera(real_view, lrgba(1,1,0,1));
+				main_cam.dbgdraw(real_view, lrgba(1,1,0,1));
 		}
 
 		return view;
 	}
 
 	View3D dbg_get_main_view () {
-		return cam.clac_view((float2)input.window_size, interact.cam_track.offset, interact.cam_track.rot_offset);
+		return main_cam.clac_view((float2)input.window_size);
 	}
 
 	View3D update () {

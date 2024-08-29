@@ -88,3 +88,5 @@ struct Entities {
 	// building and streets
 	bool buildings_changed = true;
 };
+
+typedef NullableVariant<Person*, network::Node*> sel_ptr;

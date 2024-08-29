@@ -98,7 +98,7 @@ struct HeightmapTextures {
 		outer.update(heightmap.outer);
 	}
 		
-	TextureBinds textures () {
+	TextureBinds textures () const {
 		return {{
 			{"heightmap_inner", inner.tex},
 			{"heightmap_outer", outer.tex},

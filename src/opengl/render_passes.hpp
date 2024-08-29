@@ -235,15 +235,15 @@ struct PBR_Render {
 
 			glDrawArrays(GL_TRIANGLES, 0, 3);
 		}
-		
-		glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT); // Is this needed for previous raster calls?
+
+		// NO BARRIER needed due to raster draw -> texture read
 
 		// compute based mipmap gen because glGenerateMipmap is slow, and raster version is slightly slower
 		{
 			//OGL_TRACE("gen mips");
 			glUseProgram(shad_compute_gen_mips->prog);
 			state.bind_textures(shad_compute_gen_mips, {
-				{ "base_env_map", base_env_map },
+				{ "base_env_map", base_env_map }, // only mip0 will be read
 			});
 
 			for (int mip=1; mip<env_mips; ++mip) {
@@ -260,6 +260,7 @@ struct PBR_Render {
 			}
 		}
 		
+		// copy env map to convolved env map (because roughness convolved 0 is equivalent to a env map copy)
 		// compute based image copy because other copy methods were slow
 		res = env_res;
 		{
@@ -274,7 +275,7 @@ struct PBR_Render {
 			dispatch_compute(int3(res,res,6), COMPUTE_CONVOLVE_WG);
 		}
 		
-		// 
+		// convolve mip1+ all independently (no barriers needed)
 		{
 			//OGL_TRACE("convolve");
 			glUseProgram(shad_compute_convolve->prog);
@@ -305,9 +306,12 @@ struct PBR_Render {
 			}
 		}
 		
+		// Unbind
 		glBindImageTexture(0, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
 		glBindImageTexture(1, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
 
+		// Defer barrier to later when results are actually needed (might allow driver to overlap compute shader slightly)
+		// Unfortunately the rest of the code might itself issue barriers
 		//glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 		issue_barrier = true;
 

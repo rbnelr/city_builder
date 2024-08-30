@@ -4,6 +4,7 @@
 
 #ifdef _FRAGMENT
 	uniform sampler2D fbo_col;
+	uniform sampler2D bloom;
 	
 	// https://64.github.io/tonemapping/
 	float luminance (vec3 v) {
@@ -60,6 +61,19 @@
 	}
 	
 	out vec4 frag_col;
+	
+	void debug_window (sampler2D tex, float lod) {
+		vec2 tex_size = vec2(textureSize(tex, 0));
+		float tex_aspect = tex_size.x / tex_size.y;
+		
+		vec2 dbg_sz = vec2(0.4);
+		dbg_sz.x *= tex_aspect / view.aspect_ratio;
+		vec2 dbg_uv = (v.uv - (vec2(1.0) - dbg_sz)) / dbg_sz;
+		if (dbg_uv.x > 0.0 && dbg_uv.y > 0.0) {
+			frag_col = vec4(textureLod(tex, dbg_uv, lod).rgb, 1.0);
+		}
+	}
+	
 	void main () {
 		vec3 col = texture(fbo_col, v.uv).rgb;
 		// already exposure corrected
@@ -67,5 +81,7 @@
 		col = tonemap_ACESFilmic(col);
 		
 		frag_col = vec4(col, 1.0);
+		
+		debug_window(bloom, 0.0);
 	}
 #endif

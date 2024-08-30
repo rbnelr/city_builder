@@ -168,7 +168,7 @@ public:
 			OGL_TRACE("shadow_pass");
 
 			int counter = 0;
-			passes.shadowmap->draw_cascades(real_view, sky_config, state, [&] (View3D& shadow_view, GLuint depth_tex) {
+			passes.shadowmap->draw_cascades(real_view, sky_config, state, [&] (View3D& shadow_view, TextureView& depth_tex) {
 				common_ubo.set_view(shadow_view);
 				
 				if (++counter + 1 == app.dbg_lodcull)
@@ -207,14 +207,10 @@ public:
 		}
 
 		{
-			ZoneScopedN("lighting_pass");
-			OGL_TRACE("lighting_pass");
+			ZoneScopedN("deferred_lighting");
+			OGL_TRACE("deferred_lighting");
 			
-			passes.begin_lighting_pass();
-
-			passes.fullscreen_lighting_pass(state, textures, entity_render.light_renderer);
-
-			passes.end_lighting_pass();
+			passes.deferred_lighting_pass(state, textures, entity_render.light_renderer);
 		}
 		
 		update_view_resolution(app.input.window_size);

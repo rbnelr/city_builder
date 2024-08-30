@@ -233,6 +233,10 @@ struct EntityRenderer {
 		if (IDX == 0) instance_count = (uint32_t)data.size();
 		else assert(instance_count == (uint32_t)data.size());
 	}
+	template <int IDX>
+	void invalidate_instances () {
+		glInvalidateBufferData(std::get<IDX>(vbos).vbo);
+	}
 
 	void setup_vao () {
 		vao = {"entities.vao"};
@@ -297,6 +301,8 @@ struct EntityRenderer {
 		}
 
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_INSTANCES, 0);
+
+		glInvalidateBufferData(MDI_vbo);
 
 		//ImGui::Text("drawn vertices: %.3fM (indices: %.3fM)", drawn_vertices / 1000000.0f, drawn_indices / 1000000.0f); // TODO: ????? How to get this info?
 	}
@@ -379,6 +385,8 @@ struct EntityRenderers {
 		lamps          .draw(state, shadow_pass);
 		traffic_signals.draw(state, shadow_pass);
 		vehicles       .draw(state, shadow_pass);
+
+		vehicles.invalidate_instances<0>();
 	}
 
 	struct StaticInstances {

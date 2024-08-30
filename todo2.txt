@@ -2,6 +2,9 @@ Tomorrows Agenda (It was today's...):
 Can you finish it?                                 3. Lane and traffic light stuff
 Wow Ethan, great moves. Keep it up, proud of you.  4. Actual city building? Literally just road placing and building for now!
 
+a little bit of optimization maybe?
+ added terrain culling, could extend to chunked (or individual) entity culling now
+ but terrain needs chunk z bounds to cull a little better (and try to fix lower lod to accsess mips to reduce cache misses)
 
 ===================== Actual Progress ==========================================
 

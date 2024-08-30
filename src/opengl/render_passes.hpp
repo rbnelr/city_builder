@@ -1,6 +1,7 @@
 #pragma once
 #include "common.hpp"
 #include "ogl_common.hpp"
+#include "post_passes.hpp"
 
 namespace ogl {
 
@@ -72,12 +73,20 @@ struct Gbuffer {
 
 	TextureBinds textures () {
 		return TextureBinds{{
-			{ "gbuf_depth", { GL_TEXTURE_2D, depth }, sampler },
-			{ "gbuf_col",   { GL_TEXTURE_2D, col   }, sampler },
-			{ "gbuf_emiss", { GL_TEXTURE_2D, emiss }, sampler },
-			{ "gbuf_norm",  { GL_TEXTURE_2D, norm  }, sampler },
-			{ "gbuf_pbr",   { GL_TEXTURE_2D, pbr   }, sampler },
+			{ "gbuf_depth", depth, sampler },
+			{ "gbuf_col",   col  , sampler },
+			{ "gbuf_emiss", emiss, sampler },
+			{ "gbuf_norm",  norm , sampler },
+			{ "gbuf_pbr",   pbr  , sampler },
 		}};
+	}
+
+	void invalidate () {
+		glInvalidateTexImage(depth, 0);
+		glInvalidateTexImage(col, 0);
+		glInvalidateTexImage(emiss, 0);
+		glInvalidateTexImage(norm, 0);
+		glInvalidateTexImage(pbr, 0);
 	}
 };
 
@@ -103,6 +112,8 @@ struct PBR_Render {
 	bool recreate_brdf = true;
 	
 	TextureCubemap base_env_map, pbr_env_convolved;
+	Fbo draw_env_fbo;
+
 	int env_res = 384;
 	int env_mips = 8; // env_res=384 -> 3x3
 	std::vector<int> sampler_per_res = std::vector<int>({ // num_samples for each resolution
@@ -120,6 +131,12 @@ struct PBR_Render {
 	bool redraw_env_map = true;
 	bool freeze_redrawing = false;
 	bool issue_barrier = false;
+
+	static void invalidate_cubemap (TextureCubemap const& tex, int mips) {
+		for (int mip=0; mip<mips; ++mip) {
+			glInvalidateTexImage(tex, mip);
+		}
+	}
 
 	void imgui () {
 		if (ImGui::TreeNode("PBR")) {
@@ -162,7 +179,9 @@ struct PBR_Render {
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
 		{
-			auto fbo = make_and_bind_temp_fbo(GL_TEXTURE_2D, brdf_LUT, 0);
+			auto fbo = single_attach_fbo("tmp", brdf_LUT, 0);
+			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
 			// clear for good measure
 			glClearColor(0,0,0,0);
 			glClear(GL_COLOR_BUFFER_BIT);
@@ -204,6 +223,8 @@ struct PBR_Render {
 	void create_env_map () {
 		base_env_map = create_cubemap(env_res, calc_mipmaps(env_res, env_res), "PBR.base_env_map");
 		pbr_env_convolved = create_cubemap(env_res, env_mips, "PBR.pbr_env_convolved");
+
+		draw_env_fbo = layered_fbo("tmp", base_env_map, 0);;
 	}
 	void draw_env_map (StateManager& state, Textures& texs) {
 		ZoneScoped;
@@ -230,10 +251,12 @@ struct PBR_Render {
 				{ "moon_nrm",  *texs.moon_nrm,  texs.sampler_normal },
 			});
 
-			auto fbo = make_and_bind_temp_fbo_layered(base_env_map, 0);
+			glBindFramebuffer(GL_FRAMEBUFFER, draw_env_fbo);
 			glViewport(0, 0, res, res);
 
 			glDrawArrays(GL_TRIANGLES, 0, 3);
+
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		}
 
 		// NO BARRIER needed due to raster draw -> texture read
@@ -309,6 +332,9 @@ struct PBR_Render {
 		// Unbind
 		glBindImageTexture(0, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
 		glBindImageTexture(1, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+		
+		// Does this help anything?
+		invalidate_cubemap(base_env_map, env_mips);
 
 		// Defer barrier to later when results are actually needed (might allow driver to overlap compute shader slightly)
 		// Unfortunately the rest of the code might itself issue barriers
@@ -319,6 +345,11 @@ struct PBR_Render {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 		glBindVertexArray(0);
+	}
+	void invalidate_env_map () {
+		if (!freeze_redrawing) {
+			invalidate_cubemap(pbr_env_convolved, env_mips);
+		}
 	}
 
 	void env_map_barrier () {
@@ -663,7 +694,7 @@ struct DecalRenderer {
 			glUseProgram(shad->prog);
 
 			state.bind_textures(shad, {
-				{ "gbuf_depth", { GL_TEXTURE_2D, gbuf.depth }, gbuf.sampler }, // allowed to read depth because we are not writing to it
+				{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
 
 				{ "cracks", *texs.cracks, texs.sampler_normal },
 			});
@@ -895,52 +926,6 @@ struct DefferedPointLightRenderer {
 	}
 };
 
-
-class LightingFbo {
-	MOVE_ONLY_CLASS(LightingFbo); // No move implemented for now
-public:
-	// Need to include gbuf depth buffer in lighting fbo because point light require depth testing (but not depth writing)
-	// at the same time we can't apply defferred point lights to the gbuf itself, since albedo need to stay around, so we need this seperate render target
-	// attaching the existing depth to a second FBO should be the correct solution
-
-	static void swap (LightingFbo& l, LightingFbo& r) {
-		std::swap(l.fbo, r.fbo);
-		std::swap(l.col, r.col);
-	}
-
-	Fbo fbo = {};
-	Render_Texture col = {};
-
-	LightingFbo () {}
-	LightingFbo (std::string_view label, int2 size, GLenum color_format, Render_Texture& depth, bool mips=false) {
-		GLint levels = mips ? calc_mipmaps(size.x, size.y) : 1;
-
-		std::string lbl = (std::string)label;
-
-		col = Render_Texture(lbl+".col", size, color_format, levels);
-
-		{
-			fbo = Fbo(lbl+".fbo");
-			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, col, 0);
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
-
-			GLuint bufs[] = { GL_COLOR_ATTACHMENT0 };
-			glDrawBuffers(ARRLEN(bufs), bufs);
-		
-			GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-			if (status != GL_FRAMEBUFFER_COMPLETE) {
-				fatal_error("glCheckFramebufferStatus: %x\n", status);
-			}
-		}
-
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
-
-};
-
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
 	SERIALIZE(RenderPasses, renderscale, shadowmap_opt)
@@ -952,15 +937,18 @@ struct RenderPasses {
 	Sampler& get_renderscale_sampler () {
 		return renderscale.nearest ? renderscale_sampler_nearest : renderscale_sampler;
 	}
-
-	Gbuffer gbuf;
-	LightingFbo lighting_fbo;
-	PBR_Render pbr;
-	Shader* shad_fullscreen_lighting = g_shaders.compile("fullscreen_lighting");
-	Shader* shad_postprocess         = g_shaders.compile("postprocess");
 	
 	DirectionalCascadedShadowmap::Options shadowmap_opt;
 	std::unique_ptr<DirectionalCascadedShadowmap> shadowmap;
+
+	Gbuffer gbuf;
+	PBR_Render pbr;
+	
+	LightingFbo light_fbo;
+	Shader* shad_main_light = g_shaders.compile("fullscreen_lighting");
+	Shader* shad_post       = g_shaders.compile("postprocess");
+
+	BloomRenderer bloom;
 	
 	void imgui () {
 		renderscale.imgui();
@@ -979,7 +967,8 @@ struct RenderPasses {
 
 		if (renderscale.update(window_size)) {
 			gbuf.resize(renderscale.size);
-			lighting_fbo = LightingFbo("lighting_fbo", renderscale.size, GL_RGB16F, gbuf.depth, true);
+			light_fbo = LightingFbo("lighting_fbo", renderscale.size, gbuf.depth, true);
+			bloom.resize(renderscale.size);
 		}
 	}
 
@@ -995,24 +984,22 @@ struct RenderPasses {
 		//glClear(GL_DEPTH_BUFFER_BIT);
 	}
 	
-	void begin_lighting_pass () {
-		glBindFramebuffer(GL_FRAMEBUFFER, lighting_fbo.fbo);
+	void deferred_lighting_pass (StateManager& state, Textures& texs, DefferedPointLightRenderer& light_renderer) {
+		if (shad_main_light->set_macro("SHADOWMAP", shadowmap != nullptr))
+			shad_main_light->recompile();
+		
+		glBindFramebuffer(GL_FRAMEBUFFER, light_fbo.fbo);
 		glViewport(0, 0, renderscale.size.x, renderscale.size.y);
-	}
 
-	void fullscreen_lighting_pass (StateManager& state, Textures& texs, DefferedPointLightRenderer& light_renderer) {
-		if (shad_fullscreen_lighting && shad_fullscreen_lighting->set_macro("SHADOWMAP", shadowmap != nullptr))
-			shad_fullscreen_lighting->recompile();
-
-		if (shad_fullscreen_lighting->prog) {
+		{
 			ZoneScoped;
 			OGL_TRACE("fullscreen_lighting");
 
-			glUseProgram(shad_fullscreen_lighting->prog);
+			glUseProgram(shad_main_light->prog);
 
 			TextureBinds tex;
 			tex += gbuf.textures();
-			pbr.prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
+			pbr.prepare_uniforms_and_textures(shad_main_light, tex);
 			pbr.env_map_barrier();
 
 			tex += { "clouds",   *texs.clouds,    texs.sampler_normal };
@@ -1021,43 +1008,49 @@ struct RenderPasses {
 			tex += { "moon_nrm", *texs.moon_nrm,  texs.sampler_normal };
 			tex += { "grid_tex", *texs.grid,      texs.sampler_normal };
 
-			if (shadowmap) shadowmap->prepare_uniforms_and_textures(shad_fullscreen_lighting, tex);
+			if (shadowmap) shadowmap->prepare_uniforms_and_textures(shad_main_light, tex);
 			
 			static float visualize_env_lod = 0;
 			ImGui::SliderFloat("visualize_env_lod", &visualize_env_lod, 0, 20);
 
-			shad_fullscreen_lighting->set_uniform("visualize_env_lod", visualize_env_lod);
+			shad_main_light->set_uniform("visualize_env_lod", visualize_env_lod);
 
-			state.bind_textures(shad_fullscreen_lighting, tex);
+			state.bind_textures(shad_main_light, tex);
 			draw_fullscreen_triangle(state);
 		}
 		
 		light_renderer.draw(state, gbuf, pbr);
-	}
-	void end_lighting_pass () {
-		ZoneScoped;
-		OGL_TRACE("lighting_fbo gen mipmaps");
+		
+		{
+			gbuf.invalidate();
+			pbr.invalidate_env_map();
 
-		glBindTexture(GL_TEXTURE_2D, lighting_fbo.col);
-		glGenerateMipmap(GL_TEXTURE_2D); // TODO: don't do this, just do a single tap bilinear when <=2x renderscale, optionally 
-		glBindTexture(GL_TEXTURE_2D, 0);
+			glBindTexture(GL_TEXTURE_2D, light_fbo.col);
+			glGenerateMipmap(GL_TEXTURE_2D); // TODO: don't do this, just do a single tap bilinear when <=2x renderscale!
+			glBindTexture(GL_TEXTURE_2D, 0);
+		}
 	}
 
 	void postprocess (StateManager& state, int2 window_size) {
-		ZoneScoped;
-		OGL_TRACE("postprocess");
-
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glViewport(0, 0, window_size.x, window_size.y);
+		bloom.render(state, light_fbo);
 		
-		if (shad_postprocess->prog) {
-			glUseProgram(shad_postprocess->prog);
+		{
+			ZoneScoped;
+			OGL_TRACE("postprocess");
 
-			state.bind_textures(shad_postprocess, {
-				{ "lighting_fbo", { GL_TEXTURE_2D, lighting_fbo.col }, get_renderscale_sampler() }
+			glUseProgram(shad_post->prog);
+			
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			glViewport(0, 0, window_size.x, window_size.y);
+			
+			state.bind_textures(shad_post, {
+				{ "lighting_fbo", light_fbo.col, get_renderscale_sampler() },
+				{ "bloom", bloom.downsample },
 			});
 			draw_fullscreen_triangle(state);
 		}
+
+		light_fbo.invalidate();
 	}
 };
 

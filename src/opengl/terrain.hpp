@@ -277,6 +277,8 @@ struct TerrainRenderer {
 			vbo.stream_instances(instances);
 			glBindVertexArray(vbo.vao);
 			glDrawElementsInstanced(GL_TRIANGLES, chunk_indices, GL_UNSIGNED_SHORT, (void*)0, (GLsizei)instances.size());
+
+			vbo.invalidate_instances();
 		}
 	}
 };

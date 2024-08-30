@@ -954,6 +954,7 @@ struct RenderPasses {
 		renderscale.imgui();
 		shadowmap_opt.imgui(shadowmap.get());
 		pbr.imgui();
+		bloom.imgui();
 	}
 	
 	void update (StateManager& state, Textures& texs, int2 window_size) {
@@ -1045,7 +1046,7 @@ struct RenderPasses {
 			
 			state.bind_textures(shad_post, {
 				{ "lighting_fbo", light_fbo.col, get_renderscale_sampler() },
-				{ "bloom", bloom.downsample },
+				{ "bloom", bloom.downsample, bloom.sampler },
 			});
 			draw_fullscreen_triangle(state);
 		}

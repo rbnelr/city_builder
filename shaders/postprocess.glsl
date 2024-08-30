@@ -82,6 +82,6 @@
 		
 		frag_col = vec4(col, 1.0);
 		
-		debug_window(bloom, 0.0);
+		debug_window(bloom, 4.0);
 	}
 #endif

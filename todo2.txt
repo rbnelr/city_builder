@@ -1,10 +1,7 @@
-Tomorrows Agenda (It was today's...):
-Can you finish it?                                 3. Lane and traffic light stuff
-Wow Ethan, great moves. Keep it up, proud of you.  4. Actual city building? Literally just road placing and building for now!
-
-a little bit of optimization maybe?
- added terrain culling, could extend to chunked (or individual) entity culling now
- but terrain needs chunk z bounds to cull a little better (and try to fix lower lod to accsess mips to reduce cache misses)
+Tomorrows Agenda:
+1. Other traffic light modes
+3. Lane and traffic light visualization
+4. Actual city building? Literally just road placing and building for now!
 
 ===================== Actual Progress ==========================================
 
@@ -38,10 +35,6 @@ Traffic lights
  -> maybe 
   
 -> Use new debug overlay to highlight cars via moving (curved?) boxed by drawing them as polygons based on the allocated lane beziers (instead of ugly circles)
-
-*Fix rendering code with new traffic light glow params
-* -> need to rethink how drawing many small props etc with unique params by type works
- -> kinda did that? (Consider it done once blinkers are in)
  
 *Add blinker and brake light state to cars!
  -> Maybe even add point lights?

@@ -85,6 +85,11 @@ struct Lighting {
 	vec2  clouds_vel;    // current cloud velocity in m/s
 };
 
+float emiss_normal_scale (float norm_cam_z) {
+	float x = smoothstep(0.0, 1.0, max(norm_cam_z, 0.0));
+	return x * x;
+}
+
 layout(std140, binding = 0) uniform Common {
 	View3D view;
 	Lighting lighting;

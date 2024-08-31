@@ -764,7 +764,7 @@ struct TrafficLightBehavior {
 	//};
 	//Mode mode;
 
-	float phase_go_duration; // how long we have green or yellow
+	float phase_go_duration; // how long we have green/yellow
 	float phase_idle_duration; // how long to hold red before next phase starts
 
 	int decode_phase (TrafficLight& state, float* green_remain) {

@@ -35,16 +35,16 @@ vec3 draw_sun (vec3 sun_color, float sun_stren, vec3 dir_world) {
 
 	float deg = acos(dot(dir_world, dir2sun()));
 	
-	const float sun_ang_size_half = 0.53*4.0 * (PI/180.0) * 0.5; // 0.53 degrees in real life!
+	const float sun_ang_size_half = 0.53*2.0 * (PI/180.0) * 0.5; // 0.53 degrees in real life!
 	const float sun_falloff = sun_ang_size_half * 0.5;
 	float c = 1.0 - clamp(map(deg, sun_ang_size_half, sun_ang_size_half + sun_falloff), 0.0, 1.0);
 	c = c*c;
 
-	return sun_color * 1000.0 * c; // sun light in 0-100 range
+	return sun_color * 8000.0 * c; // sun light in 0-100 range
 }
 
 vec3 draw_moon (vec3 col, float sun_stren, vec3 dir_world) {
-	const float moon_ang_size = 0.53*4.0 * (PI/180.0);
+	const float moon_ang_size = 0.53*2.0 * (PI/180.0);
 	const float moon_half_flat_size = tan(moon_ang_size*0.5)*2.0;
 	
 	vec3 dir = mat3(lighting.world2moon) * dir_world;

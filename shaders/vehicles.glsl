@@ -7,6 +7,7 @@ VS2FS Vertex {
 	vec3 model_pos;
 	vec3 world_pos;
 	vec3 world_normal;
+	vec3 cam_normal;
 	vec2 uv;
 	
 	flat vec3 tint_col;
@@ -36,6 +37,7 @@ void main () {
 	v.model_pos    = mesh_pos;
 	v.world_pos    = (bone_transform * vec4(mesh_pos, 1.0)).xyz + inst_pos;
 	v.world_normal = mat3(bone_transform) * mesh_normal;
+	v.cam_normal   = mat3(view.world2cam) * mat3(bone_transform) * mesh_normal;
 	
 	v.uv           = mesh_uv;
 	v.tint_col     = inst_tint;
@@ -53,10 +55,10 @@ void main () {
 	vec3 vehicle_emiss (vec3 glow_tex) {
 		vec3 emiss = vec3(0.0);
 		
-		const vec3 front_lights_col = vec3(0.8, 0.8, 0.4) * 2.0;
-		const vec3 rear_lights_col  = vec3(0.8, 0.02, 0.01) * 1.0;
+		const vec3 front_lights_col = vec3(0.8, 0.8, 0.4) * 1.0;
+		const vec3 rear_lights_col  = vec3(0.8, 0.02, 0.01) * 0.5;
 		const vec3 brake_col        = vec3(0.8, 0.02, 0.01) * 1.0;
-		const vec3 blinker_col      = vec3(0.8, 0.2, 0.01) * 2.0;
+		const vec3 blinker_col      = vec3(0.8, 0.2, 0.01) * 1.0;
 		
 		vec3 lights_col = v.model_pos.x > 0.0 ? front_lights_col : rear_lights_col;
 		emiss += v.glow.r * glow_tex.r * lights_col;
@@ -66,7 +68,7 @@ void main () {
 		float blinker_on = v.model_pos.y > 0.0 ? v.glow.z : v.glow.w;
 		emiss += blinker_on * glow_tex.b * blinker_col;
 		
-		return emiss * 3.0;
+		return emiss;// * emiss_normal_scale(v.cam_normal.z);
 	}
 	
 	GBUF_OUT

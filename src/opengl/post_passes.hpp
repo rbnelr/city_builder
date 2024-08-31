@@ -325,6 +325,8 @@ struct ExposureControl {
 	void auto_exposure_readback (Render_Texture& tex, int2 full_res, float dt) {
 		ZoneScoped;
 
+		return;
+
 		lrgb avg_exposed_rgb;
 		if (backreader.readback(tex, full_res, &avg_exposed_rgb)) {
 			float luma = lrgb_luminance(avg_exposed_rgb);

@@ -454,7 +454,7 @@
 		"speed": 2.0
 	},
 	"test_map_builder": {
-		"_grid_n": 30,
-		"_persons_n": 1500
+		"_grid_n": 20,
+		"_persons_n": 800
 	}
 }

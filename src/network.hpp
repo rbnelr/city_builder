@@ -731,43 +731,29 @@ inline float get_cur_speed_limit (ActiveVehicle* vehicle) {
 }
 
 ////
-struct TrafficLightBehavior;
-TrafficLightBehavior* default_TrafficLightBehavior (Node* node);
-
-// One common state shared between all TrafficLightBehaviors, this is simpler than trying to allocate the correct state depending on behavoir
-struct TrafficLight {
-	//Node* node; // shouldn't need this ptr if we always update through node iteration
-	TrafficLightBehavior* behavior;
-
+struct TrafficLightState {
 	// could be a flat seconds, which loop after all cycles
 	// or could map as cycle.progess (floori(timer) numer is cycle, fract(timer) is % progress)
 	float timer = 0;
-
-	TrafficLight (Node* node) {
-		behavior = default_TrafficLightBehavior(node);
-	}
 };
-
 enum class TrafficSignalState {
 	//OFF = 0,
 	RED = 0,
 	YELLOW,
 	GREEN,
 };
+
 // Allow shared bahavoirs (saves memory while allowing for different behaviors to be selected)
 // TODO: By making this another type of asset, we should be able to vary easily allows custom behavoirs to be added and managed!
-struct TrafficLightBehavior {
+class BaseTrafficLightBehavior {
+protected:
+	
 	static constexpr float yellow_time = 2.0f; // 1sec, TODO: make customizable or have it depend on duration of cycle?
 
-	//enum Mode {
-	//	SEGMENT_EXCLUSIVE,
-	//};
-	//Mode mode;
+	float phase_go_duration = 10; // how long we have green/yellow
+	float phase_idle_duration = 2; // how long to hold red before next phase starts
 
-	float phase_go_duration; // how long we have green/yellow
-	float phase_idle_duration; // how long to hold red before next phase starts
-
-	int decode_phase (TrafficLight& state, float* green_remain) {
+	int decode_phase (TrafficLightState& state, float* green_remain) {
 		int green_seg = floori(state.timer);
 		float t = state.timer - (float)green_seg;
 
@@ -775,25 +761,16 @@ struct TrafficLightBehavior {
 		*green_remain = phase_go_duration - elapsed;
 		return green_seg;
 	}
-
-	void update (Node* node, float dt) {
-		TrafficLight& state = *node->traffic_light;
-
-		float num_seg = (float)node->segments.size();
-
+	void update_timer (TrafficLightState& state, int phases, float dt) {
 		state.timer += dt / (phase_go_duration + phase_idle_duration);
-		if (state.timer >= num_seg) {
-			state.timer = fmodf(state.timer, num_seg);
-		}
+		state.timer = fmodf(state.timer, (float)phases);
 	}
+public:
+	virtual void update (Node* node, float dt) = 0;
+	virtual TrafficSignalState get_signal (Node* node, int seg_i, SegLane& lane) = 0;
 	
-	TrafficSignalState get_signal (Node* node, int seg_i, SegLane& lane) {
-		TrafficLight& state = *node->traffic_light;
-		
-		float green_remain;
-		int green_seg = decode_phase(state, &green_remain);
-
-		if (green_seg == seg_i) {
+	TrafficSignalState signal (bool lane_green, float green_remain) {
+		if (lane_green) {
 			if (green_remain >= yellow_time)
 				return TrafficSignalState::GREEN;
 			if (green_remain >= 0.0f)
@@ -801,9 +778,6 @@ struct TrafficLightBehavior {
 			// else green_remain < 0 -> phase_idle_duration, so everything red
 		}
 		return TrafficSignalState::RED;
-	}
-
-	void set_color (lrgb* R, lrgb* Y, lrgb* G, TrafficSignalState signal) {
 	}
 
 	// In order of segments, then in order of incoming lanes
@@ -824,10 +798,44 @@ struct TrafficLightBehavior {
 			}
 		}
 	}
+
+	BaseTrafficLightBehavior () {}
+	virtual ~BaseTrafficLightBehavior () {}
 };
 
-inline TrafficLightBehavior traffic_light_basic = { 10.0f, 2.0f };
-inline TrafficLightBehavior* default_TrafficLightBehavior (Node* node) {
+inline BaseTrafficLightBehavior* default_TrafficLightBehavior (Node* node);
+
+// One common state shared between all TrafficLightBehaviors, this is simpler than trying to allocate the correct state depending on behavoir
+struct TrafficLight {
+	//Node* node; // shouldn't need this ptr if we always update through node iteration
+	BaseTrafficLightBehavior* behavior;
+	TrafficLightState state;
+
+	TrafficLight (Node* node) {
+		behavior = default_TrafficLightBehavior(node);
+	}
+};
+
+
+class TrafficLightExclusiveSegments : public BaseTrafficLightBehavior {
+public:
+	virtual void update (Node* node, float dt) {
+		update_timer(node->traffic_light->state, (int)node->segments.size(), dt);
+	}
+
+	virtual TrafficSignalState get_signal (Node* node, int seg_i, SegLane& lane) {
+		float green_remain;
+		int green_seg = decode_phase(node->traffic_light->state, &green_remain);
+		return signal(green_seg == seg_i, green_remain);
+	}
+	
+	TrafficLightExclusiveSegments () {}
+	virtual ~TrafficLightExclusiveSegments () {}
+};
+
+inline TrafficLightExclusiveSegments traffic_light_basic = {};
+
+inline BaseTrafficLightBehavior* default_TrafficLightBehavior (Node* node) {
 	return &traffic_light_basic;
 }
 

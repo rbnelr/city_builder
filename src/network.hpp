@@ -804,13 +804,6 @@ struct TrafficLightBehavior {
 	}
 
 	void set_color (lrgb* R, lrgb* Y, lrgb* G, TrafficSignalState signal) {
-		constexpr lrgb red    = lrgb(1,0,0); // TODO: make customizable
-		constexpr lrgb yellow = lrgb(1,1,0);
-		constexpr lrgb green  = lrgb(0,1,0);
-
-		*R = signal == TrafficSignalState::RED ? red : lrgb(0);
-		*Y = signal == TrafficSignalState::YELLOW ? yellow : lrgb(0);
-		*G = signal == TrafficSignalState::GREEN ? green : lrgb(0);
 	}
 
 	// In order of segments, then in order of incoming lanes
@@ -822,8 +815,12 @@ struct TrafficLightBehavior {
 			for (auto in_lane : seg->in_lanes(node)) {
 				auto state = get_signal(node, seg_i, in_lane);
 
+				auto* asset = in_lane.seg->asset->traffic_light_prop.get();
+
 				auto* colors = push_back(signal_colors, 1);
-				set_color(&colors->colors[0], &colors->colors[1], &colors->colors[2], state);
+				colors->colors[0] = state == TrafficSignalState::RED    ? asset->colors[0] : lrgb(0);
+				colors->colors[1] = state == TrafficSignalState::YELLOW ? asset->colors[1] : lrgb(0);
+				colors->colors[2] = state == TrafficSignalState::GREEN  ? asset->colors[2] : lrgb(0);
 			}
 		}
 	}

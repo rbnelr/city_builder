@@ -8,6 +8,7 @@ VS2FS Vertex {
 	vec3 normal;
 	vec3 tint;
 } v;
+
 VS2FS vec3 wireframe_barycentric;
 
 #ifdef _VERTEX

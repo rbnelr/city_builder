@@ -14,12 +14,12 @@ struct LOD_Func {
 	float fac  = 0.45f;
 
 	void imgui () {
-		if (ImGui::TreeNode("LOD")) {
+		if (imgui_Header("LOD")) {
 
 			ImGui::DragFloat("bias", &bias, 0.1f);
 			ImGui::DragFloat("fac", &fac, 0.1f, 0.0f);
 			
-			ImGui::TreePop();
+			ImGui::PopID();
 		}
 	}
 
@@ -230,13 +230,19 @@ struct PropAsset : public Asset {
 	}
 };
 struct TrafficLightAsset : public Asset {
-	SERIALIZE(TrafficLightAsset, mast_prop, signal_prop, mast_base, mast_dir)
+	SERIALIZE(TrafficLightAsset, mast_prop, signal_prop, mast_base, mast_dir, colors)
 
 	AssetPtr<PropAsset> mast_prop = dummy_asset<PropAsset>();
 	AssetPtr<PropAsset> signal_prop = dummy_asset<PropAsset>();
 
 	float3 mast_base = float3(0,0,4);
 	float3 mast_dir = float3(-1,0,0);
+	
+	lrgb colors[3] = {
+		lrgb(1.0f,0.1f,0.1f),
+		lrgb(1.0f,1.0f,0.1f),
+		lrgb(0.1f,1.0f,0.1f),
+	};
 
 	float3 get_signal_pos (float x) {
 		x -= mast_base.x;
@@ -248,6 +254,10 @@ struct TrafficLightAsset : public Asset {
 		bool changed = ImGui::DragFloat3("mast_base", &mast_base.x, 0.1f);
 		changed = ImGui::DragFloat3("mast_dir", &mast_dir.x, 0.1f) || changed;
 		mast_dir = normalizesafe(mast_dir);
+
+		imgui_ColorEdit("Signal Red Color",    &colors[0]);
+		imgui_ColorEdit("Signal Yellow Color", &colors[1]);
+		imgui_ColorEdit("Signal Green Color",  &colors[2]);
 		return changed;
 	}
 

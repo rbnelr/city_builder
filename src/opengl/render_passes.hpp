@@ -139,7 +139,7 @@ struct PBR_Render {
 	}
 
 	void imgui () {
-		if (ImGui::TreeNode("PBR")) {
+		if (imgui_Header("PBR")) {
 			ImGui::Checkbox("freeze_redrawing", &freeze_redrawing);
 
 			recreate_brdf = ImGui::SliderInt("brdf_LUT_res", &brdf_LUT_res, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic) || recreate_brdf;
@@ -158,7 +158,7 @@ struct PBR_Render {
 				return ImGui::DragInt("##sampler_per_res", &sampler_per_res[i], 0.1f, 1,4*1024, "%d", ImGuiSliderFlags_Logarithmic);
 			}, true, false, false);
 
-			ImGui::TreePop();
+			ImGui::PopID();
 		}
 	}
 
@@ -468,7 +468,7 @@ struct DirectionalCascadedShadowmap {
 		float bias_max_world = 10.0f;
 		
 		void imgui (DirectionalCascadedShadowmap* shadowmap) {
-			if (!ImGui::TreeNode("DirectionalShadowmap")) return;
+			if (!imgui_Header("DirectionalShadowmap")) return;
 			
 			ImGui::Checkbox("enabled", &enabled);
 
@@ -486,7 +486,7 @@ struct DirectionalCascadedShadowmap {
 			ImGui::DragFloat("bias_fac", &bias_fac_world, 0.1f);
 			ImGui::DragFloat("bias_max", &bias_max_world, 0.1f);
 
-			ImGui::TreePop();
+			ImGui::PopID();
 
 			if (shadowmap) shadowmap->tex_changed = shadowmap->tex_changed || changed;
 		}
@@ -928,7 +928,7 @@ struct DefferedPointLightRenderer {
 
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
-	SERIALIZE(RenderPasses, renderscale, shadowmap_opt)
+	SERIALIZE(RenderPasses, renderscale, shadowmap_opt, bloom)
 
 	render::RenderScale renderscale;
 	Sampler renderscale_sampler         = make_sampler("renderscale_sampler", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
@@ -969,8 +969,10 @@ struct RenderPasses {
 		if (renderscale.update(window_size)) {
 			gbuf.resize(renderscale.size);
 			light_fbo = LightingFbo("lighting_fbo", renderscale.size, gbuf.depth, true);
-			bloom.resize(renderscale.size);
+			bloom.need_resize = true;
 		}
+		if (bloom.need_resize)
+			bloom.resize(renderscale.size);
 	}
 
 	void begin_geometry_pass (StateManager& state) {
@@ -1046,8 +1048,13 @@ struct RenderPasses {
 			
 			state.bind_textures(shad_post, {
 				{ "lighting_fbo", light_fbo.col, get_renderscale_sampler() },
-				{ "bloom", bloom.downsample, bloom.sampler },
+				{ "bloom1", bloom.downsample, bloom.sampler },
+				{ "bloom2", bloom.upsample, bloom.sampler },
 			});
+			shad_post->set_uniform("_visualize_mip", (float)bloom._visualize_mip);
+
+			shad_post->set_uniform("bloom_fac", bloom._enable ? bloom.bloom_fac : 0.0f);
+
 			draw_fullscreen_triangle(state);
 		}
 

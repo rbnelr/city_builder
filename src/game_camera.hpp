@@ -22,6 +22,7 @@ struct GameCamera {
 	float  zoom_smooth_fac = 16; // 0 to disable
 	float  zoom_speed = 0.25f;
 
+	float default_vfov = deg(50);
 	float vfov = deg(50);
 
 	float clip_near = 1.0f/4;
@@ -48,8 +49,11 @@ struct GameCamera {
 		float3 rot_deg = to_degrees(rot_aer);
 		if (ImGui::DragFloat3("rot_aer", &rot_deg.x, 0.3f))
 			rot_aer = to_radians(rot_deg);
-
-		ImGui::SliderAngle("vfov", &vfov, 0,180);
+		
+		ImGui::SliderAngle("default FOV", &default_vfov, 0,180);
+		ImGui::SliderAngle("FOV (vertical)", &vfov, 0,180);
+		if (ImGui::Button("reset vfov"))
+			vfov = default_vfov;
 
 		ImGui::Text("cur_speed: %.3f", cur_speed);
 
@@ -126,6 +130,9 @@ struct GameCamera {
 				float delta_log = -0.1f * I.mouse_wheel_delta;
 				// TODO: might want to smooth fov change too?
 				vfov = clamp(powf(2.0f, log2f(vfov) + delta_log), deg(1.0f/10), deg(170));
+
+				if (I.buttons[binds.modifier].is_down && delta_log != 0)
+					vfov = default_vfov;
 			}
 		}
 	}

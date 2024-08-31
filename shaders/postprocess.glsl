@@ -4,7 +4,6 @@
 
 #ifdef _FRAGMENT
 	uniform sampler2D fbo_col;
-	uniform sampler2D bloom;
 	
 	// https://64.github.io/tonemapping/
 	float luminance (vec3 v) {
@@ -74,14 +73,25 @@
 		}
 	}
 	
+	uniform sampler2D bloom1;
+	uniform sampler2D bloom2;
+	uniform float _visualize_mip = 0;
+	
+	uniform float bloom_fac = 0.01;
+	
 	void main () {
-		vec3 col = texture(fbo_col, v.uv).rgb;
+		vec3 col = textureLod(fbo_col, v.uv, 0.0).rgb;
+		vec3 bloom = textureLod(bloom2, v.uv, 0.0).rgb;
 		// already exposure corrected
+		
+		// lerp is more energy conserving than adding, but gets tonemapped immediately anyway, could experiment with this
+		//col = mix(col, bloom, bloom_fac);
+		col += bloom * bloom_fac;
 		
 		col = tonemap_ACESFilmic(col);
 		
 		frag_col = vec4(col, 1.0);
 		
-		debug_window(bloom, 4.0);
+		//debug_window(bloom1, _visualize_mip);
 	}
 #endif

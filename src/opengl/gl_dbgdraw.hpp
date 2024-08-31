@@ -179,7 +179,7 @@ struct glDebugDraw {
 	}
 
 	void imgui (TextRenderer& text) {
-		if (ImGui::TreeNode("Debug Draw")) {
+		if (imgui_Header("Debug Draw")) {
 
 			ImGui::Checkbox("wireframe", &wireframe);
 			ImGui::SameLine();
@@ -196,7 +196,7 @@ struct glDebugDraw {
 
 			text.imgui();
 
-			ImGui::TreePop();
+			ImGui::PopID();
 		}
 	}
 

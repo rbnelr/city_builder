@@ -42,13 +42,13 @@ layout(location = 11) in vec3 inst_traffic_col3;
 	}
 
 	vec3 get_emissive () {
-		return is_lamp_on() ? vec3(0.99,0.98,0.94)*0.1 : vec3(0,0,0); // TODO: allow different lamp colors
+		return is_lamp_on() ? vec3(0.99,0.98,0.94)*0.3 : vec3(0,0,0); // TODO: allow different lamp colors
 	}
 #elif TRAFFIC_SIGNALS
 	vec3 get_emissive () {
-		if      (mesh_vtxGrpID == 1) return inst_traffic_col1 * 0.85;
-		else if (mesh_vtxGrpID == 2) return inst_traffic_col2 * 0.85;
-		else                         return inst_traffic_col3 * 0.85;
+		if      (mesh_vtxGrpID == 1) return inst_traffic_col1 * 2.0;
+		else if (mesh_vtxGrpID == 2) return inst_traffic_col2 * 2.0;
+		else                         return inst_traffic_col3 * 2.0;
 	}
 #else
 	vec3 get_emissive () {

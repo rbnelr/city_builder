@@ -78,6 +78,7 @@ struct GameTime {
 	void update (Input& input) {
 		if (input.buttons[KEY_SPACE].went_down)
 			pause_sim = !pause_sim;
+		control_speed.update(input, &target_gamespeed);
 
 		float eff_speed = pause_sim ? 0.0f : target_gamespeed;
 		float eff_dt = eff_speed * input.real_dt;
@@ -115,6 +116,47 @@ struct GameTime {
 		return prints("%02d:%02d", (int)hour, (int)minute);
 	}
 
+	struct ControlSpeed {
+		std::vector<float> speeds = {
+			1,2,4,10,50
+		};
+		std::vector<std::string> speeds_btn = {
+			"1",">",">>",">>>",">>>>"
+		};
+
+		int cur_mode (float speed) {
+			int i = 0;
+			for (float s : speeds) {
+				if (s >= speed) break;
+				i++;
+			}
+			return i;
+		}
+
+		bool imgui (float* speed) {
+			bool changed = false;
+			int sel = cur_mode(*speed);
+			for (int i=0; i<(int)speeds.size(); ++i) {
+				if (i != 0) ImGui::SameLine();
+				bool selected = i == sel;
+				if (selected) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+				if (ImGui::Button(speeds_btn[i].c_str())) {
+					*speed = speeds[i];
+					changed = true;
+				}
+				if (selected) ImGui::PopStyleColor();
+			}
+			return changed;
+		}
+
+		void update (Input& I, float* speed) {
+			for (int i=0; i<min((int)speeds.size(), 9); i++) {
+				if (I.buttons[KEY_1+i].went_down) *speed = speeds[i];
+			}
+		}
+	};
+	ControlSpeed control_speed;
+
 	void imgui () {
 		if (!imgui_Header("GameTime", true)) return;
 
@@ -126,13 +168,10 @@ struct GameTime {
 			
 		ImGui::Text("Simulation Speed");
 		ImGui::SliderFloat("Target##target_gamespeed", &target_gamespeed, 0,100, "%.1fx", ImGuiSliderFlags_Logarithmic);
-			
+		
 		ImGui::Checkbox("Pause [Space]", &pause_sim);
-		ImGui::SameLine(0, 20); if (ImGui::Button("1"))    target_gamespeed = 1;
-		ImGui::SameLine();      if (ImGui::Button(">"))    target_gamespeed = 2;
-		ImGui::SameLine();      if (ImGui::Button(">>"))   target_gamespeed = 4;
-		ImGui::SameLine();      if (ImGui::Button(">>>"))  target_gamespeed = 10;
-		ImGui::SameLine();      if (ImGui::Button(">>>>")) target_gamespeed = 50;
+		ImGui::SameLine(0, 20);
+		control_speed.imgui(&target_gamespeed);
 		
 		ImGui::Separator();
 

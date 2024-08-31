@@ -16,7 +16,7 @@ vec3 nightSky_light (vec3 dir_world) {
 
 // sun gets darker towards horizon and to 0 at night
 float sun_strength () {
-	float a = map(dir2sun().z, 0.5, -0.2);
+	float a = map(dir2sun().z, 0.5, -0.1);
 	return smoothstep(1.0, 0.0, a);
 }
 // removes some color of sun depending on distance to horizon
@@ -40,7 +40,7 @@ vec3 draw_sun (vec3 sun_color, float sun_stren, vec3 dir_world) {
 	float c = 1.0 - clamp(map(deg, sun_ang_size_half, sun_ang_size_half + sun_falloff), 0.0, 1.0);
 	c = c*c;
 
-	return sun_color * 8000.0 * c; // sun light in 0-100 range
+	return sun_color * 10000.0 * c; // sun light in 0-100 range
 }
 
 vec3 draw_moon (vec3 col, float sun_stren, vec3 dir_world) {
@@ -79,7 +79,7 @@ vec3 draw_clouds (vec3 col, float sun_stren, vec3 view_point, vec3 dir_world) {
 		uv.y = 1.0 - uv.y; // all textures are flipped!
 		vec4 c = texture(clouds, uv);
 		
-		col = mix(col.rgb, c.rgb * sun_stren * 1.5, vec3(c.a * 0.98));
+		col = mix(col.rgb, c.rgb * sun_stren * 1.5, vec3(c.a * 0.9));
 	}
 	return col;
 }

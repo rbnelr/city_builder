@@ -51,6 +51,9 @@
 	void main () {
 		vec3 dir_world = normalize(gs_dir_world);
 		vec3 ref_point = view.cam_pos;
-		frag_col = procedural_sky(ref_point, dir_world) * lighting.exposure;
+		
+		vec3 col = procedural_sky(ref_point, dir_world) * lighting.exposure;
+		col = min(col, 2.0); // limit brightness because undersampling with bright sun causes instability, not sure if this breaks physical accuracy enough to matter
+		frag_col = col;
 	}
 #endif

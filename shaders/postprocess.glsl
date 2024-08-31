@@ -80,7 +80,7 @@
 	uniform float bloom_fac = 0.01;
 	
 	void main () {
-		vec3 col = textureLod(fbo_col, v.uv, 0.0).rgb;
+		vec3 col = texture(fbo_col, v.uv).rgb; // downsample with mipmaps, does this make sense for supersampling >2x?
 		vec3 bloom = textureLod(bloom2, v.uv, 0.0).rgb;
 		// already exposure corrected
 		

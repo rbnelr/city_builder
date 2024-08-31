@@ -8,6 +8,10 @@ inline float angle2d (float2 dir) {
 	return length_sqr(dir) > 0 ? atan2f(dir.y, dir.x) : 0;
 }
 
+inline float lrgb_luminance (lrgb const& col) {
+	return dot(col, lrgb(0.2126f, 0.7152f, 0.0722f));
+}
+
 #if 0
 inline float line_line_dist_sqr (float2 a, float2 b, float2 c, float2 d, float* out_u, float* out_v) {
 	constexpr float eps = 0.0001f;

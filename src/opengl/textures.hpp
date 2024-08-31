@@ -23,7 +23,7 @@ struct HeightmapTextures {
 		Texture2D tex;
 		int2 size = -1;
 
-		GLuint pbo = 0;
+		UploadPbo pbo;
 
 		void recreate (int2 size) {
 			tex = {label};
@@ -39,13 +39,7 @@ struct HeightmapTextures {
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			glGenBuffers(1, &pbo);
-			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-			OGL_DBG_LABEL(GL_BUFFER, pbo, kiss::concat(label, ".pbo"));
-			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-		}
-		~Zone () {
-			if (pbo) glDeleteBuffers(1, &pbo);
+			pbo = UploadPbo{kiss::concat(label, ".pbo")};
 		}
 		
 		void update (Heightmap::HeightmapZone& heightmap) {
@@ -80,10 +74,10 @@ struct HeightmapTextures {
 			glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 
 			glTexSubImage2D(GL_TEXTURE_2D, 0, rect.lo.x, rect.lo.y, rect_size.x, rect_size.y, GL_RED, GL_UNSIGNED_SHORT, nullptr);
-
+			
 			glBindTexture(GL_TEXTURE_2D, 0);
 			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-			glInvalidateBufferData(GL_PIXEL_UNPACK_BUFFER);
+			glInvalidateBufferData(pbo);
 
 			heightmap.reset_invalidate();
 		}

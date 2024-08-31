@@ -1,9 +1,9 @@
 {
 	"time": {
 		"target_gamespeed": 2.0,
-		"time_of_day": 0.4430103600025177,
+		"time_of_day": 0.3686617314815521,
 		"day_duration": 432.0,
-		"pause_day": false,
+		"pause_day": true,
 		"time_of_year": 0.3540000021457672,
 		"year_duration": 1032.0,
 		"pause_year": true,

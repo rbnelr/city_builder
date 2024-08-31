@@ -17,17 +17,6 @@ static constexpr int SSBO_BINDING_ENTITY_MDI       = 3;
 static constexpr int SSBO_BINDING_ENTITY_MESH_INFO = 4;
 static constexpr int SSBO_BINDING_ENTITY_LOD_INFO  = 5;
 
-struct Exposure {
-	SERIALIZE(Exposure, exposure)
-	float exposure = 1.0f;
-	
-	void imgui () {
-		ImGui::Text("For how many Lux is the camera exposure set?");
-		// Note: slider is backwards because lux is the useful unit, but 'more' exposure means exposing for less lux
-		ImGui::SliderFloat("exposure", &exposure, 100000.0f, 0.0001f, "%12.4f", ImGuiSliderFlags_Logarithmic);
-	}
-};
-
 struct Lighting {
 	SERIALIZE(Lighting, sun_col, sky_col, fog_col, fog_base, fog_falloff)
 	
@@ -63,9 +52,9 @@ struct Lighting {
 	// 15m/s is realistic but seems very slow visually
 	float2 clouds_vel = rotate2(deg(30)) * float2(100.0);	// current cloud velocity in m/s
 
-	void update (App& app, Exposure& expo, GameTime::SkyConfig& sky) {
-		exposure     = 1.0f / (expo.exposure / 1000.0f );
-		inv_exposure =         expo.exposure / 1000.0f;
+	void update (App& app, float expo, GameTime::SkyConfig& sky) {
+		exposure     = expo;
+		inv_exposure = 1.0f / expo;
 
 		time_of_day = app.time.time_of_day;
 

@@ -928,7 +928,9 @@ struct DefferedPointLightRenderer {
 
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
-	SERIALIZE(RenderPasses, renderscale, shadowmap_opt, bloom)
+	SERIALIZE(RenderPasses, exposure, renderscale, shadowmap_opt, bloom)
+	
+	ExposureControl exposure;
 
 	render::RenderScale renderscale;
 	Sampler renderscale_sampler         = make_sampler("renderscale_sampler", FILTER_MIPMAPPED, GL_CLAMP_TO_EDGE);
@@ -1029,12 +1031,12 @@ struct RenderPasses {
 			pbr.invalidate_env_map();
 
 			glBindTexture(GL_TEXTURE_2D, light_fbo.col);
-			glGenerateMipmap(GL_TEXTURE_2D); // TODO: don't do this, just do a single tap bilinear when <=2x renderscale!
+			glGenerateMipmap(GL_TEXTURE_2D); // glGenerateMipmap never shows up in profiler, does this even cost any time?
 			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 	}
 
-	void postprocess (StateManager& state, int2 window_size) {
+	void postprocess (StateManager& state, int2 window_size, float dt) {
 		bloom.render(state, light_fbo);
 		
 		{
@@ -1057,8 +1059,11 @@ struct RenderPasses {
 
 			draw_fullscreen_triangle(state);
 		}
+		
+		exposure.auto_exposure_readback(light_fbo.col, renderscale.size, dt);
 
 		light_fbo.invalidate();
+		bloom.invalidate();
 	}
 };
 

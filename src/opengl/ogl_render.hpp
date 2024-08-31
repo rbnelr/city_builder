@@ -9,7 +9,7 @@
 namespace ogl {
 
 class OglRenderer : public Renderer {
-	SERIALIZE(OglRenderer, exposure, lighting, passes, entity_render)
+	SERIALIZE(OglRenderer, lighting, passes, entity_render)
 public:
 	
 	virtual void to_json (nlohmann::ordered_json& j) {
@@ -23,7 +23,7 @@ public:
 		//if (imgui_Header("Renderer", true)) {
 		if (ImGui::Begin("Renderer")) {
 
-			exposure.imgui();
+			passes.exposure.imgui();
 			
 			passes.imgui();
 			entity_render.light_renderer.imgui();
@@ -47,8 +47,6 @@ public:
 
 	glDebugDraw gl_dbgdraw;
 	
-	Exposure exposure;
-
 	CommonUniforms common_ubo;
 	
 	RenderPasses passes;
@@ -92,7 +90,7 @@ public:
 		
 		auto sky_config = app.time.calc_sky_config(view);
 		
-		lighting.update(app, exposure, sky_config);
+		lighting.update(app, passes.exposure.exposure_mult(), sky_config);
 		
 	#if RENDERER_DEBUG_LABELS
 		// Dummy call because first gl event in nsight is always bugged, and by doing this the next OGL_TRACE() actually works
@@ -215,7 +213,7 @@ public:
 		
 		update_view_resolution(app.input.window_size);
 
-		passes.postprocess(state, app.input.window_size);
+		passes.postprocess(state, app.input.window_size, app.input.real_dt);
 
 		gl_dbgdraw.render(state, g_dbgdraw);
 

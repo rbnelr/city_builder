@@ -15,13 +15,14 @@ inline float3 rotate90_right (float3 v) {
 	return float3(v.y, -v.x, v.z);
 }
 
+/* Probably never needed
 template <typename VEC=float3>
-struct Bezier3 {
-	SERIALIZE(Bezier3, a, b, c)
+struct Bezier_3 {
+	SERIALIZE(Bezier_3, a, b, c)
 
 	VEC a, b, c;
 
-	operator Bezier3<float2> () {
+	operator Bezier_3<float2> () {
 		return { (float2)a, (float2)b, (float2)c };
 	}
 
@@ -118,15 +119,15 @@ struct Bezier3 {
 			points[i] = pos;
 		}
 	}
-};
+};*/
 
 template <typename VEC=float3>
-struct Bezier4 {
-	SERIALIZE(Bezier4, a, b, c, d)
+struct Bezier {
+	SERIALIZE(Bezier, a, b, c, d)
 
 	VEC a, b, c, d;
 
-	operator Bezier4<float2> () {
+	operator Bezier<float2> () {
 		return { (float2)a, (float2)b, (float2)c, (float2)d };
 	}
 
@@ -220,6 +221,8 @@ struct Bezier4 {
 		}
 	}
 };
+typedef Bezier<float2> Bezier2;
+typedef Bezier<float3> Bezier3;
 
 template <typename T>
 inline void _dbg_draw_bez (T const& bez, int res, lrgba col, float t0=0, float t1=1) {

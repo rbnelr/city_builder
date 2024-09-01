@@ -248,6 +248,31 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		return stay_lane;
 	};
 
+	auto building_enter_bezier = [&] (SegLane& lane, Building* build, float* out_t) {
+		auto l = lane.clac_lane_info();
+		float len = distance(l.a, l.b);
+		float t = max(0.5f - 5 / len, 0.0f);
+
+		float3 a = lerp(l.a, l.b, t);
+		float3 b = lerp(l.a, l.b, 0.5f);
+		float3 c = build->pos;
+
+		*out_t = t;
+		return Bezier3(a, b, b, c);
+	};
+	auto building_exit_bezier = [&] (SegLane& lane, Building* build, float* out_t) {
+		auto l = lane.clac_lane_info();
+		float len = distance(l.a, l.b);
+		float t = min(0.5f + 5 / len, 1.0f);
+
+		float3 a = build->pos;
+		float3 b = lerp(l.a, l.b, 0.5f);
+		float3 c = lerp(l.a, l.b, t);
+
+		*out_t = t;
+		return Bezier3(a, b, b, c);
+	};
+
 	if (idx == 0) {
 		Segment* start_seg = vehicle->path[0];
 		Node* next_node = num_seg > 1 ? find_node(start_seg, vehicle->path[1]) : nullptr;
@@ -259,18 +284,17 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		
 		auto s_lane = s.next_lane.clac_lane_info();
 
-		float3 building = vehicle->start->pos;
-		float3 lane_middle = (s_lane.a + s_lane.b) * 0.5f;
+		float len = distance(s_lane.a, s_lane.b);
+		float3 p0     = vehicle->start->pos;
+		float3 middle = lerp(s_lane.a, s_lane.b, 0.5f);
+		float3 p3     = lerp(s_lane.a, s_lane.b, min(0.5f + 5*1.0f/len, 1.0f));
 
 		//float3 s1 = lerp(s0, s3);
 		//float3 s2 = (s_lane.a + s_lane.b) * 0.5f;
 
 		s.state = PathState::EXIT_BUILDING;
-		s.next_start_t = 0.5f;
-
 		s.next_vehicles = &s.next_lane.vehicles().list;
-
-		s.bezier = { building, (building+lane_middle)*0.5f, (building+lane_middle)*0.5f, lane_middle };
+		s.bezier = building_exit_bezier(s.next_lane, vehicle->start, &s.next_start_t);
 	}
 	else if (idx == num_moves-1) {
 		assert(prev_state);
@@ -278,13 +302,9 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		s.cur_lane = {};
 		s.next_lane = {};
 
-		auto e_lane = prev_lane.clac_lane_info();
-		float3 e0 = (e_lane.a + e_lane.b) * 0.5f;
-		float3 e1 = vehicle->end->pos;
-
 		s.state = PathState::ENTER_BUILDING;
-
-		s.bezier = { e0, (e0+e1)*0.5f, (e0+e1)*0.5f, e1 };
+		float t;
+		s.bezier = building_enter_bezier(prev_lane, vehicle->end, &t);
 	}
 	else {
 		Node* cur_node;
@@ -331,10 +351,11 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 			s.cur_vehicles  = &s.cur_lane.vehicles().list;
 			s.next_vehicles = cur_node ? &cur_node->vehicles.free : nullptr;
 			
-			// handle enter building
-			if (!cur_node)
-				s.end_t = 0.5f;
-		
+			// handle enter building lane end_t
+			if (!cur_node) {
+				building_enter_bezier(prev_state->cur_lane, vehicle->end, &s.end_t);
+			}
+
 			s.bezier = { l.a, lerp(l.a, l.b, 0.3333f), lerp(l.a, l.b, 0.6667f), l.b }; // 3d 2d?
 		}
 		else {
@@ -359,7 +380,7 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 			s.cur_vehicles  = &cur_node->vehicles.free;
 			s.next_vehicles = &s.next_lane.vehicles().list;
 		
-			s.bezier = calc_curve4(l, l2);
+			s.bezier = calc_curve(l, l2);
 		}
 	}
 
@@ -872,10 +893,10 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 
 void cache_conn (CachedConnection& conn, ActiveVehicle* vehicle) {
 	conn.conn = { vehicle->state.cur_lane, vehicle->state.next_lane };
-	auto bez = calc_curve4(conn.conn.a.clac_lane_info(), conn.conn.b.clac_lane_info());
+	auto bez = calc_curve(conn.conn.a.clac_lane_info(), conn.conn.b.clac_lane_info());
 	conn.bez_len = bez.approx_len(COLLISION_STEPS);
 				
-	auto bez2d = (Bezier4<float2>)bez;
+	auto bez2d = (Bezier2)bez;
 	bez2d.calc_points(conn.pointsL, COLLISION_STEPS+1, -LANE_COLLISION_R);
 	bez2d.calc_points(conn.pointsR, COLLISION_STEPS+1, +LANE_COLLISION_R);
 }

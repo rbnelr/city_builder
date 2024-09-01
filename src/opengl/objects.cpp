@@ -267,7 +267,7 @@ struct Mesher {
 		auto get_bez = [] (float2 a, float2 a_dir, float2 b, float2 b_dir) {
 			network::Line la = { float3(a - a_dir,0), float3(a,0) };
 			network::Line lb = { float3(b,0), float3(b - b_dir,0) };
-			return network::calc_curve4(la, lb);
+			return network::calc_curve(la, lb);
 		};
 
 		int count = (int)node->segments.size();

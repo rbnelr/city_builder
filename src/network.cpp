@@ -870,8 +870,8 @@ void update_node (App& app, Node* node, float dt) {
 	bool node_dbg = app.interact.selection.get<Node*>() == node;
 
 	if (node->traffic_light) {
-		assert(node->traffic_light->behavior);
-		node->traffic_light->behavior->update(node, dt);
+		assert(node->traffic_light);
+		node->traffic_light->update(node, dt);
 	}
 
 	auto* sel  = app.interact.selection.get<Person*>() ? app.interact.selection.get<Person*>()->vehicle.get() : nullptr;
@@ -987,8 +987,11 @@ void update_node (App& app, Node* node, float dt) {
 		if (v.vehicle->idx < v.node_idx && node->traffic_light) {
 			// still in front of intersection, respect traffic lights
 			auto in_lane = v.conn.conn.a;
-			int seg_i = find_segment(node, in_lane.seg); // TODO: Optimize!
-			auto lane_signal = node->traffic_light->behavior->get_signal(node, seg_i, in_lane);
+
+			auto cur_phase = node->traffic_light->decode_phase();
+			auto signal_slot = node->traffic_light->_find_signal_slot(node, in_lane);
+			auto lane_signal = node->traffic_light->get_signal(cur_phase, signal_slot);
+
 			if (lane_signal == TrafficSignalState::RED) {
 				// anything other than red means GO
 				float dist = -v.front_k; // end of ingoing lane

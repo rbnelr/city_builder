@@ -70,7 +70,7 @@
 				]
 			}
 		},
-		"traffic_lights": {
+		"traffic_light_props": {
 			"TrafficLight": {
 				"mast_prop": "TrafficLightPole1",
 				"signal_prop": "TrafficSignal1",
@@ -146,7 +146,7 @@
 						"prop": "Streetlight1"
 					}
 				],
-				"traffic_light_prop": "TrafficLight",
+				"traffic_light_props": "TrafficLight",
 				"traffic_light_shift": [
 					3.0999999046325684,
 					0.20000000298023224
@@ -237,7 +237,7 @@
 						"prop": "Streetlight2"
 					}
 				],
-				"traffic_light_prop": "TrafficLight",
+				"traffic_light_props": "TrafficLight",
 				"traffic_light_shift": [
 					7.599999904632568,
 					0.5
@@ -344,7 +344,7 @@
 						"prop": "Streetlight2"
 					}
 				],
-				"traffic_light_prop": "TrafficLight",
+				"traffic_light_props": "TrafficLight",
 				"traffic_light_shift": [
 					8.100000381469727,
 					0.800000011920929

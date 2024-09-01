@@ -229,8 +229,8 @@ struct PropAsset : public Asset {
 		assimp::load_basic(prints("assets/%s", mesh_filename.c_str()).c_str(), &mesh);
 	}
 };
-struct TrafficLightAsset : public Asset {
-	SERIALIZE(TrafficLightAsset, mast_prop, signal_prop, mast_base, mast_dir, colors)
+struct TrafficLightPropsAsset : public Asset {
+	SERIALIZE(TrafficLightPropsAsset, mast_prop, signal_prop, mast_base, mast_dir, colors)
 
 	AssetPtr<PropAsset> mast_prop = dummy_asset<PropAsset>();
 	AssetPtr<PropAsset> signal_prop = dummy_asset<PropAsset>();
@@ -267,7 +267,7 @@ struct TrafficLightAsset : public Asset {
 };
 
 struct NetworkAsset : public Asset {
-	SERIALIZE(NetworkAsset, road_class, width, sidewalkL, sidewalkR, lanes, line_markings, streetlights, traffic_light_prop, traffic_light_shift, sidewalkL, sidewalkR, speed_limit)
+	SERIALIZE(NetworkAsset, road_class, width, sidewalkL, sidewalkR, lanes, line_markings, streetlights, traffic_light_props, traffic_light_shift, sidewalkL, sidewalkR, speed_limit)
 
 	struct Lane {
 		SERIALIZE(Lane, shift, width, direction)
@@ -314,7 +314,7 @@ struct NetworkAsset : public Asset {
 	
 	std::vector<Streetlight> streetlights;
 	
-	AssetPtr<TrafficLightAsset> traffic_light_prop = dummy_asset<TrafficLightAsset>();
+	AssetPtr<TrafficLightPropsAsset> traffic_light_props = dummy_asset<TrafficLightPropsAsset>();
 	float2 traffic_light_shift = 0;
 
 	float speed_limit = 40 / KPH_PER_MS;
@@ -571,20 +571,20 @@ struct AssetCollection {
 //  TODO: the reload could possibly be handled better?, but probably fast enough for now, as it is mostly a dev thing
 
 struct Assets {
-	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(props, traffic_lights, networks, buildings, vehicles) }
+	friend SERIALIZE_TO_JSON(Assets) { SERIALIZE_TO_JSON_EXPAND(props, traffic_light_props, networks, buildings, vehicles) }
 	friend SERIALIZE_FROM_JSON(Assets) {
 		g_assets = &t;
-		SERIALIZE_FROM_JSON_EXPAND(props, traffic_lights, networks, buildings, vehicles)
+		SERIALIZE_FROM_JSON_EXPAND(props, traffic_light_props, networks, buildings, vehicles)
 		t.assets_reloaded = true;
 	}
 
 	bool assets_reloaded = false;
 
-	AssetCollection<PropAsset>         props;
-	AssetCollection<TrafficLightAsset> traffic_lights;
-	AssetCollection<NetworkAsset>      networks;
-	AssetCollection<BuildingAsset>     buildings;
-	AssetCollection<VehicleAsset>      vehicles;
+	AssetCollection<PropAsset>              props;
+	AssetCollection<TrafficLightPropsAsset> traffic_light_props;
+	AssetCollection<NetworkAsset>           networks;
+	AssetCollection<BuildingAsset>          buildings;
+	AssetCollection<VehicleAsset>           vehicles;
 	
 	template <typename T>
 	AssetPtr<T> query (std::string_view str);
@@ -592,16 +592,16 @@ struct Assets {
 	template<> AssetPtr<PropAsset> query<PropAsset> (std::string_view str) {
 		return props[str];
 	}
-	template<> AssetPtr<TrafficLightAsset> query<TrafficLightAsset> (std::string_view str) {
-		return traffic_lights[str];
+	template<> AssetPtr<TrafficLightPropsAsset> query<TrafficLightPropsAsset> (std::string_view str) {
+		return traffic_light_props[str];
 	}
 
 	void reload_all () {
-		for (auto& a : props         ) a->reload();
-		for (auto& a : traffic_lights) a->reload();
-		for (auto& a : networks      ) a->reload();
-		for (auto& a : buildings     ) a->reload();
-		for (auto& a : vehicles      ) a->reload();
+		for (auto& a : props              ) a->reload();
+		for (auto& a : traffic_light_props) a->reload();
+		for (auto& a : networks           ) a->reload();
+		for (auto& a : buildings          ) a->reload();
+		for (auto& a : vehicles           ) a->reload();
 		assets_reloaded = true;
 	}
 
@@ -611,10 +611,10 @@ struct Assets {
 		if (ImGui::Button("Reload All"))
 			reload_all();
 		
-		props         .imgui("props",          opt);
-		traffic_lights.imgui("traffic_lights", opt);
-		networks      .imgui("networks",       opt);
-		buildings     .imgui("buildings",      opt);
+		props              .imgui("props",               opt);
+		traffic_light_props.imgui("traffic_light_props", opt);
+		networks           .imgui("networks",            opt);
+		buildings          .imgui("buildings",           opt);
 
 		ImGui::PopID();
 	}

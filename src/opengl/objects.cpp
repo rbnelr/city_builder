@@ -99,7 +99,7 @@ struct Mesher {
 		}
 	}
 	void place_traffic_light (network::Segment& seg, network::Node* node) {
-		auto* prop = seg.asset->traffic_light_prop.get();
+		auto* props = seg.asset->traffic_light_props.get();
 
 		// TODO: don't place mask if no incoming lanes (eg. because of one way road)
 		
@@ -113,16 +113,16 @@ struct Mesher {
 		float2 shift = seg.asset->traffic_light_shift;
 		float3 pos = seg.pos_for_node(node) + right * shift.x + forw * shift.y;
 
-		static_inst.push_prop(prop->mast_prop.get(), pos, rot);
+		static_inst.push_prop(props->mast_prop.get(), pos, rot);
 
 		for (auto in_lane : seg.in_lanes(node)) {
 			auto& layout = seg.get_lane_layout(&in_lane.get());
 			float x = (seg.get_dir_to_node(node) == LaneDir::FORWARD ? +layout.shift : -layout.shift) - shift.x;
 
-			float3 local_pos = prop->get_signal_pos(x);
+			float3 local_pos = props->get_signal_pos(x);
 			float3 spos = pos + right * local_pos.x + forw * local_pos.y + up * local_pos.z;
 
-			static_inst.push_traffic_signal(prop->signal_prop.get(), spos, rot);
+			static_inst.push_traffic_signal(props->signal_prop.get(), spos, rot);
 		}
 	}
 
@@ -487,8 +487,8 @@ void OglRenderer::update_dynamic_traffic_signals (Network& net) {
 
 	for (auto& node : net.nodes) {
 		if (node->traffic_light) {
-			assert(node->traffic_light->behavior);
-			node->traffic_light->behavior->push_signal_colors(node.get(), signal_colors);
+			assert(node->traffic_light);
+			node->traffic_light->push_signal_colors(node.get(), signal_colors);
 		}
 	}
 

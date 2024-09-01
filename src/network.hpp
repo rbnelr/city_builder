@@ -319,7 +319,7 @@ struct Node {
 	
 	std::unique_ptr<TrafficLight> traffic_light = nullptr;
 
-	void set_traffic_light (bool has_traffic_light) {
+	void replace_traffic_light (bool has_traffic_light) {
 		if (!has_traffic_light) {
 			traffic_light = nullptr;
 		}
@@ -328,7 +328,7 @@ struct Node {
 		}
 	}
 	void toggle_traffic_light () {
-		set_traffic_light(traffic_light == nullptr);
+		replace_traffic_light(traffic_light == nullptr);
 	}
 
 	NodeVehicles vehicles;
@@ -604,6 +604,7 @@ struct Network {
 	void draw_debug (App& app, View3D& view);
 };
 
+// classify_turn(node, a, b) == STRAIGHT => classify_turn(node, b, a)
 inline Turns classify_turn (Node* node, Segment* in, Segment* out) {
 	auto seg_dir_to_node = [] (Node* node, Segment* seg) {
 		float2 dir = (float2)seg->clac_seg_vecs().forw; // dir: node_a -> node_b
@@ -690,6 +691,9 @@ inline void Node::update_cached () {
 	for (auto* seg : segments) {
 		_radius = max(_radius, distance(pos, seg->pos_for_node(this)));
 	}
+
+	// TODO: replace traffic light as well?
+	// lane id for phases might have been invalidated!
 }
 inline void Node::set_defaults () {
 	int node_class;
@@ -709,7 +713,7 @@ inline void Node::set_defaults () {
 			// only have traffic light if more than 2 at least medium roads intersect
 			return non_small_segs > 2;
 		};
-		set_traffic_light( want_traffic_light() );
+		replace_traffic_light( want_traffic_light() );
 	}
 
 	set_default_lane_options(*this, _fully_dedicated_turns, node_class);
@@ -731,11 +735,6 @@ inline float get_cur_speed_limit (ActiveVehicle* vehicle) {
 }
 
 ////
-struct TrafficLightState {
-	// could be a flat seconds, which loop after all cycles
-	// or could map as cycle.progess (floori(timer) numer is cycle, fract(timer) is % progress)
-	float timer = 0;
-};
 enum class TrafficSignalState {
 	//OFF = 0,
 	RED = 0,
@@ -743,37 +742,47 @@ enum class TrafficSignalState {
 	GREEN,
 };
 
-// Allow shared bahavoirs (saves memory while allowing for different behaviors to be selected)
-// TODO: By making this another type of asset, we should be able to vary easily allows custom behavoirs to be added and managed!
-class BaseTrafficLightBehavior {
-protected:
-	
+struct TrafficLight {
 	static constexpr float yellow_time = 2.0f; // 1sec, TODO: make customizable or have it depend on duration of cycle?
 
 	float phase_go_duration = 10; // how long we have green/yellow
 	float phase_idle_duration = 2; // how long to hold red before next phase starts
 
-	int decode_phase (TrafficLightState& state, float* green_remain) {
-		int green_seg = floori(state.timer);
-		float t = state.timer - (float)green_seg;
+	float timer = 0;
 
+	int num_phases = 0;
+	// bitmasks of active lanes per phase, limit lanes in node to max 64
+	std::unique_ptr<uint64_t[]> phases = nullptr;
+
+	TrafficLight (Node* node);
+
+	void update (Node* node, float dt) {
+		timer += dt / (phase_go_duration + phase_idle_duration);
+		timer = fmodf(timer, (float)num_phases);
+	}
+
+	struct CurPhase {
+		uint64_t mask;
+		float green_remain;
+	};
+	CurPhase decode_phase () {
+		CurPhase res;
+
+		int phase_i = floori(timer);
+		float t = timer - (float)phase_i;
+		
 		float elapsed = t * (phase_go_duration + phase_idle_duration);
-		*green_remain = phase_go_duration - elapsed;
-		return green_seg;
+
+		res.mask  = phases[phase_i];
+		res.green_remain = phase_go_duration - elapsed;
+		return res;
 	}
-	void update_timer (TrafficLightState& state, int phases, float dt) {
-		state.timer += dt / (phase_go_duration + phase_idle_duration);
-		state.timer = fmodf(state.timer, (float)phases);
-	}
-public:
-	virtual void update (Node* node, float dt) = 0;
-	virtual TrafficSignalState get_signal (Node* node, int seg_i, SegLane& lane) = 0;
-	
-	TrafficSignalState signal (bool lane_green, float green_remain) {
-		if (lane_green) {
-			if (green_remain >= yellow_time)
+	TrafficSignalState get_signal (CurPhase& cur_phase, int signal_slot) {
+		
+		if (cur_phase.mask & ((uint64_t)1 << signal_slot)) {
+			if (cur_phase.green_remain >= yellow_time)
 				return TrafficSignalState::GREEN;
-			if (green_remain >= 0.0f)
+			if (cur_phase.green_remain >= 0.0f)
 				return TrafficSignalState::YELLOW;
 			// else green_remain < 0 -> phase_idle_duration, so everything red
 		}
@@ -783,60 +792,113 @@ public:
 	// In order of segments, then in order of incoming lanes
 	template <typename T>
 	void push_signal_colors (Node* node, std::vector<T>& signal_colors) {
+		auto cur_phase = decode_phase();
+
+		int signal_slot = 0;
 		for (int seg_i=0; seg_i<(int)node->segments.size(); ++seg_i) {
 			auto& seg = node->segments[seg_i];
+			auto* light_asset = seg->asset->traffic_light_props.get();
 
 			for (auto in_lane : seg->in_lanes(node)) {
-				auto state = get_signal(node, seg_i, in_lane);
-
-				auto* asset = in_lane.seg->asset->traffic_light_prop.get();
+				auto state = get_signal(cur_phase, signal_slot);
 
 				auto* colors = push_back(signal_colors, 1);
-				colors->colors[0] = state == TrafficSignalState::RED    ? asset->colors[0] : lrgb(0);
-				colors->colors[1] = state == TrafficSignalState::YELLOW ? asset->colors[1] : lrgb(0);
-				colors->colors[2] = state == TrafficSignalState::GREEN  ? asset->colors[2] : lrgb(0);
+				colors->colors[0] = state == TrafficSignalState::RED    ? light_asset->colors[0] : lrgb(0);
+				colors->colors[1] = state == TrafficSignalState::YELLOW ? light_asset->colors[1] : lrgb(0);
+				colors->colors[2] = state == TrafficSignalState::GREEN  ? light_asset->colors[2] : lrgb(0);
+
+				signal_slot++;
 			}
 		}
 	}
 
-	BaseTrafficLightBehavior () {}
-	virtual ~BaseTrafficLightBehavior () {}
-};
-
-inline BaseTrafficLightBehavior* default_TrafficLightBehavior (Node* node);
-
-// One common state shared between all TrafficLightBehaviors, this is simpler than trying to allocate the correct state depending on behavoir
-struct TrafficLight {
-	//Node* node; // shouldn't need this ptr if we always update through node iteration
-	BaseTrafficLightBehavior* behavior;
-	TrafficLightState state;
-
-	TrafficLight (Node* node) {
-		behavior = default_TrafficLightBehavior(node);
+	// usages probably should be optimized!
+	static int _find_signal_slot (Node* node, SegLane& lane) {
+		int signal_slot = 0;
+		for (int seg_i=0; seg_i<(int)node->segments.size(); ++seg_i) {
+			auto& seg = node->segments[seg_i];
+			for (auto in_lane : seg->in_lanes(node)) {
+				if (lane == in_lane)
+					return signal_slot;
+				signal_slot++;
+			}
+		}
+		assert(false);
+		return 0;
 	}
 };
 
-
-class TrafficLightExclusiveSegments : public BaseTrafficLightBehavior {
-public:
-	virtual void update (Node* node, float dt) {
-		update_timer(node->traffic_light->state, (int)node->segments.size(), dt);
-	}
-
-	virtual TrafficSignalState get_signal (Node* node, int seg_i, SegLane& lane) {
-		float green_remain;
-		int green_seg = decode_phase(node->traffic_light->state, &green_remain);
-		return signal(green_seg == seg_i, green_remain);
-	}
+inline void setup_traffic_light_exclusive_segments (TrafficLight& light, Node* node) {
+	light.num_phases = (int)node->segments.size();
+	light.phases = std::make_unique<uint64_t[]>(light.num_phases);
 	
-	TrafficLightExclusiveSegments () {}
-	virtual ~TrafficLightExclusiveSegments () {}
-};
+	int signal_slot = 0;
+	for (int phase_i=0; phase_i<light.num_phases; ++phase_i) {
+		auto& seg = node->segments[phase_i];
 
-inline TrafficLightExclusiveSegments traffic_light_basic = {};
+		uint64_t mask = 0;
 
-inline BaseTrafficLightBehavior* default_TrafficLightBehavior (Node* node) {
-	return &traffic_light_basic;
+		for (auto in_lane : seg->in_lanes(node)) {
+			mask |= (uint64_t)1 << signal_slot;
+			signal_slot++;
+		}
+
+		light.phases[phase_i] = mask;
+	}
+}
+inline void setup_traffic_light_2phase (TrafficLight& light, Node* node) {
+	std::vector<uint64_t> phases;
+	phases.reserve(8);
+	auto create_phase = [&] (int active_seg1, int active_seg2) {
+		uint64_t mask = 0;
+		
+		int signal_slot = 0;
+		for (int seg_i=0; seg_i<(int)node->segments.size(); ++seg_i) {
+			auto& seg = node->segments[seg_i];
+
+			for (auto in_lane : seg->in_lanes(node)) {
+				if (seg_i == active_seg1 || seg_i == active_seg2)
+					mask |= (uint64_t)1 << signal_slot;
+				signal_slot++;
+			}
+		}
+
+		phases.push_back(mask);
+	};
+
+	std::vector<int> remain_segments;
+
+	for (int i=0; i<(int)node->segments.size(); ++i)
+		remain_segments.push_back(i);
+
+	while (!remain_segments.empty()) {
+		int seg = remain_segments[0];
+		remain_segments.erase(remain_segments.begin());
+		
+		// take_straight_seg
+		int straight_seg = -1;
+		for (int j=0; j<(int)remain_segments.size(); ++j) {
+			auto other_seg = remain_segments[j];
+
+			auto turn = classify_turn(node, node->segments[seg], node->segments[other_seg]);
+			if (turn == Turns::STRAIGHT) {
+				straight_seg = other_seg;
+				remain_segments.erase(remain_segments.begin()+j);
+				break;
+			}
+		}
+
+		create_phase(seg, straight_seg);
+	}
+
+	light.num_phases = (int)phases.size();
+	light.phases = std::make_unique<uint64_t[]>(light.num_phases);
+	memcpy(light.phases.get(), phases.data(), sizeof(phases[0])*light.num_phases);
+}
+
+inline TrafficLight::TrafficLight (Node* node) {
+	//setup_traffic_light_exclusive_segments(*this, node);
+	setup_traffic_light_2phase(*this, node);
 }
 
 } // namespace network

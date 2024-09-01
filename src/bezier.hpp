@@ -8,13 +8,29 @@ struct BezierRes {
 	float  curv;  // curvature (delta angle over dist along curve)
 };
 
+inline float2 rotate90_right (float2 v) {
+	return float2(v.y, -v.x);
+}
+inline float3 rotate90_right (float3 v) {
+	return float3(v.y, -v.x, v.z);
+}
+
 template <typename VEC=float3>
 struct Bezier3 {
 	SERIALIZE(Bezier3, a, b, c)
 
-	VEC a;
-	VEC b;
-	VEC c;
+	VEC a, b, c;
+
+	operator Bezier3<float2> () {
+		return { (float2)a, (float2)b, (float2)c };
+	}
+
+	VEC tangent0 () const {
+		return b - a;
+	}
+	VEC tangent1 () const {
+		return c - b;
+	}
 
 	BezierRes<VEC> eval (float t) const {
 		VEC c0 = a;           // a
@@ -55,7 +71,6 @@ struct Bezier3 {
 		VEC deriv = c2*(t*2) + c1;        // f'(t)
 		VEC accel = c2*2;                 // f''(t)
 
-		
 		// angle of movement can be gotten via:
 		// ang = atan2(deriv.y, deriv.x)
 
@@ -79,55 +94,29 @@ struct Bezier3 {
 		return { value, deriv, curv };
 	}
 
-	// Optimization if compier is not smart enough to optimize loop invariant
-	struct Coefficients {
-		VEC c0;
-		VEC c1;
-		VEC c2;
-	};
-	Coefficients get_coeff () {
-		Coefficients co; 
-		co.c0 = a;           // a
-		co.c1 = 2 * (b - a); // (-2a +2b)t
-		co.c2 = a - 2*b + c; // (a -2b +c)t^2
-		return co;
-	}
-	VEC eval_value (Coefficients const& co, float t) {
-		float t2 = t*t;
-		return co.c2*t2 + co.c1*t + co.c0;
-	}
-	
-	// it's faster for check_conflict because compiler is dum dum
-	// COLLISION_STEPS is small and constant, so loop is unrollen and ca, cb, cc become constants, which compiler does not catch
-	VEC eval_value_fast_for_const_t (float t) const {
-		float t2 = t*t;
-		
-		float _2t1 = 2.0f*t;
-		float _2t2 = 2.0f*t2;
-		
-		float ca = 1.0f -_2t1   +t2;
-		float cb =       _2t1 -_2t2;
-		float cc =               t2;
-		
-		VEC v;
-		v.x = ca*a.x + cb*b.x + cc*c.x;
-		v.y = ca*a.y + cb*b.y + cc*c.y;
-		return v;
-	}
-
 	float approx_len (int steps) {
-		auto co = get_coeff();
 		VEC prev = a;
 
 		float len = 0;
 		for (int i=0; i<steps; ++i) {
 			float t = (float)(i+1) * (1.0f / steps);
-			VEC pos = eval_value(co, t);
+			VEC pos = eval(t).pos;
 			len += length(pos - prev);
 			prev = pos;
 		}
 
 		return len;
+	}
+	
+	void calc_points (VEC* points, int count, float shift, float t0=0, float t1=1) {
+		for (int i=0; i<count; ++i) {
+			float t = lerp(t0, t1, (float)i / (float)max(count-1,1));
+
+			auto val = eval(t);
+			VEC pos = val.pos + rotate90_right(normalizesafe(val.vel)) * shift;
+			
+			points[i] = pos;
+		}
 	}
 };
 
@@ -135,12 +124,35 @@ template <typename VEC=float3>
 struct Bezier4 {
 	SERIALIZE(Bezier4, a, b, c, d)
 
-	VEC a;
-	VEC b;
-	VEC c;
-	VEC d;
+	VEC a, b, c, d;
 
+	operator Bezier4<float2> () {
+		return { (float2)a, (float2)b, (float2)c, (float2)d };
+	}
+
+	VEC tangent0 () const {
+		return b - a;
+	}
+	VEC tangent1 () const {
+		return d - c;
+	}
+	
 	BezierRes<VEC> eval (float t) const {
+		VEC c0 = a;                   // a
+		VEC c1 = 3 * (b - a);         // (-3a +3b)t
+		VEC c2 = 3 * (a + c) - 6*b;   // (3a -6b +3c)t^2
+		VEC c3 = 3 * (b - c) - a + d; // (-a +3b -3c +d)t^3
+
+		float t2 = t*t;
+		float t3 = t2*t;
+		
+		VEC value = c3*t3     + c2*t2    + c1*t + c0; // f(t)
+		VEC deriv = c3*(t2*3) + c2*(t*2) + c1;        // f'(t)
+		
+		return { value, deriv };
+	}
+
+	BezierRes<VEC> eval_with_curv (float t) const {
 		//VEC ab = lerp(a, b, t);
 		//VEC bc = lerp(b, c, t);
 		//VEC cd = lerp(c, d, t);
@@ -182,6 +194,31 @@ struct Bezier4 {
 		
 		return { value, deriv, curv };
 	}
+
+	float approx_len (int steps) {
+		VEC prev = a;
+
+		float len = 0;
+		for (int i=0; i<steps; ++i) {
+			float t = (float)(i+1) * (1.0f / steps);
+			VEC pos = eval(t).pos;
+			len += length(pos - prev);
+			prev = pos;
+		}
+
+		return len;
+	}
+	
+	void calc_points (VEC* points, int count, float shift, float t0=0, float t1=1) {
+		for (int i=0; i<count; ++i) {
+			float t = lerp(t0, t1, (float)i / (float)max(count-1,1));
+
+			auto val = eval(t);
+			VEC pos = val.pos + rotate90_right(normalizesafe(val.vel)) * shift;
+			
+			points[i] = pos;
+		}
+	}
 };
 
 template <typename T>
@@ -201,10 +238,4 @@ inline void _dbg_draw_bez (T const& bez, int res, lrgba col, float t0=0, float t
 
 		prev = val.pos;
 	}
-}
-inline void dbg_draw_bez (Bezier3<float3> const& bez, int res, lrgba col, float t0=0, float t1=1) {
-	_dbg_draw_bez(bez, res, col, t0, t1);
-}
-inline void dbg_draw_bez (Bezier3<float4> const& bez, int res, lrgba col, float t0=0, float t1=1) {
-	_dbg_draw_bez(bez, res, col, t0, t1);
 }

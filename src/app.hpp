@@ -723,6 +723,8 @@ public:
 	std::unique_ptr<Renderer> renderer = create_ogl_backend();
 
 	GameTime time;
+
+	OverlayDraw overlay;
 	
 	Interaction interact;
 	

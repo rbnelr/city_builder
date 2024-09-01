@@ -107,55 +107,6 @@ inline Dirs relative2dir (float3 forward) {
 	return d;
 }
 
-inline bool line_line_intersect (float2 const& a, float2 const& b, float2 const& c, float2 const& d, float2* out_point) {
-	// https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
-	float numer = (a.x-c.x)*(c.y-d.y) - (a.y-c.y)*(c.x-d.x);
-	float denom = (a.x-b.x)*(c.y-d.y) - (a.y-b.y)*(c.x-d.x);
-	if (denom == 0)
-		return false; // parallel, either overlapping (numer == 0) or not
-	float u = numer / denom;
-	*out_point = a + u*(b-a);
-	return true; // always intersect for now
-}
-
-inline _FORCEINLINE bool line_line_seg_intersect (float2 const& a, float2 const& ab, float2 const& c, float2 const& cd, float* out_u, float* out_v) {
-	float2 ac = c - a;
-
-	float denom = ab.x*cd.y - ab.y*cd.x;
-	if (denom == 0)
-		return false; // parallel, either overlapping (numer == 0) or not
-	
-	float numer_ab = ac.x*cd.y - ac.y*cd.x;
-	float numer_cd = ac.x*ab.y - ac.y*ab.x;
-	float u = numer_ab / denom;
-	float v = numer_cd / denom;
-	if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f)
-		return false;
-
-	*out_u = u;
-	*out_v = v;
-	return true;
-}
-
-inline bool intersect_circle_ray (float3 pos, float r, Ray const& ray, float* hit_dist) {
-	float t = 0;
-	if (ray.dir.z == 0) {
-		if (ray.pos.z != pos.z) return false; // miss
-	}
-	else {
-		t = (pos.z - ray.pos.z) * (1.0f / ray.dir.z);
-	}
-
-	float x = ray.pos.x + ray.dir.x * t - pos.x;
-	float y = ray.pos.y + ray.dir.y * t - pos.y;
-
-	float dist_sqr = x*x + y*y;
-	if (dist_sqr > r*r) return false;
-	
-	*hit_dist = sqrt(dist_sqr);
-	return true;
-}
-
 template <typename... TYPES>
 class NullableVariant {
 	typedef std::monostate null_t;
@@ -457,4 +408,13 @@ struct MinHeapFunc {
 
 		bubble_up(items.data(), (int)items.size(), idx);
 	}
+};
+
+struct OverlayDraw {
+	
+	//template <typename FUNC>
+	//void push_polygon (lrgba col, FUNC add_point) {
+	//
+	//	while ()
+	//}
 };

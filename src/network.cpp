@@ -258,15 +258,19 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		s.next_lane = start_seg->lanes_in_dir(seg_dir).outer(); // start on outermost lane
 		
 		auto s_lane = s.next_lane.clac_lane_info();
-		float3 s0 = vehicle->start->pos;
-		float3 s1 = (s_lane.a + s_lane.b) * 0.5f;
+
+		float3 building = vehicle->start->pos;
+		float3 lane_middle = (s_lane.a + s_lane.b) * 0.5f;
+
+		//float3 s1 = lerp(s0, s3);
+		//float3 s2 = (s_lane.a + s_lane.b) * 0.5f;
 
 		s.state = PathState::EXIT_BUILDING;
 		s.next_start_t = 0.5f;
 
 		s.next_vehicles = &s.next_lane.vehicles().list;
 
-		s.bezier = { s0, (s0+s1)*0.5f, s1 };
+		s.bezier = { building, (building+lane_middle)*0.5f, (building+lane_middle)*0.5f, lane_middle };
 	}
 	else if (idx == num_moves-1) {
 		assert(prev_state);
@@ -280,7 +284,7 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 
 		s.state = PathState::ENTER_BUILDING;
 
-		s.bezier = { e0, (e0+e1)*0.5f, e1 };
+		s.bezier = { e0, (e0+e1)*0.5f, (e0+e1)*0.5f, e1 };
 	}
 	else {
 		Node* cur_node;
@@ -331,7 +335,7 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 			if (!cur_node)
 				s.end_t = 0.5f;
 		
-			s.bezier = { l.a, (l.a+l.b)*0.5f, l.b }; // 3d 2d?
+			s.bezier = { l.a, lerp(l.a, l.b, 0.3333f), lerp(l.a, l.b, 0.6667f), l.b }; // 3d 2d?
 		}
 		else {
 			s.cur_lane = prev_state->cur_lane;
@@ -355,7 +359,7 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 			s.cur_vehicles  = &cur_node->vehicles.free;
 			s.next_vehicles = &s.next_lane.vehicles().list;
 		
-			s.bezier = calc_curve(l, l2);
+			s.bezier = calc_curve4(l, l2);
 		}
 	}
 
@@ -460,7 +464,7 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		float start_t = person->vehicle->bez_t;
 
 		for (int i=person->vehicle->idx; ; ++i) {
-			dbg_draw_bez(s.bezier, 5, lrgba(1,1,0,1), start_t, s.end_t); 
+			_dbg_draw_bez(s.bezier, 5, lrgba(1,1,0,1), start_t, s.end_t); 
 
 			start_t = s.next_start_t;
 			if (s.state == PathState::ENTER_BUILDING) break;
@@ -491,6 +495,16 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		g_dbgdraw.line(pos, (float3)(mat * float4(.1f,0,0,1)), lrgba(1,0,0,1));
 		g_dbgdraw.line(pos, (float3)(mat * float4(0,.1f,0,1)), lrgba(0,1,0,1));
 		g_dbgdraw.line(pos, (float3)(mat * float4(0,0,.1f,1)), lrgba(0,0,1,1));
+	}
+
+	//app.overlay.push_polygon(lrgba(person->col, 0.8f), [&] () {
+	//
+	//});
+	{
+		auto col = lrgba(person->col, 0.8f);
+
+		auto& bez = person->vehicle->state.bezier;
+		//_dbg_draw_bez_lane(bez, 10, lrgba(1,1,0,1), LANE_COLLISION_R*2-0.1f); 
 	}
 }
 
@@ -526,16 +540,6 @@ void _FORCEINLINE dbg_brake_for_blocked_lane_end (App& app, NodeVehicle& v, floa
 	}
 }
 
-auto _gen_points (float2* points, Connection const& conn, float shift) {
-	auto bez = calc_curve(conn.a.clac_lane_info(shift), conn.b.clac_lane_info(shift));
-	//auto co = bez.get_coeff();
-
-	points[0] = bez.a;
-	for (int i=0; i<COLLISION_STEPS; ++i) {
-		float t = (float)(i+1) / COLLISION_STEPS;
-		points[i+1] = bez.eval_value_fast_for_const_t(t);
-	}
-}
 Conflict check_conflict (CachedConnection const& a, CachedConnection const& b) {
 	assert(a.conn != b.conn);
 	
@@ -866,6 +870,16 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 	return do_swap;
 }
 
+void cache_conn (CachedConnection& conn, ActiveVehicle* vehicle) {
+	conn.conn = { vehicle->state.cur_lane, vehicle->state.next_lane };
+	auto bez = calc_curve4(conn.conn.a.clac_lane_info(), conn.conn.b.clac_lane_info());
+	conn.bez_len = bez.approx_len(COLLISION_STEPS);
+				
+	auto bez2d = (Bezier4<float2>)bez;
+	bez2d.calc_points(conn.pointsL, COLLISION_STEPS+1, -LANE_COLLISION_R);
+	bez2d.calc_points(conn.pointsR, COLLISION_STEPS+1, +LANE_COLLISION_R);
+}
+
 void update_node (App& app, Node* node, float dt) {
 	bool node_dbg = app.interact.selection.get<Node*>() == node;
 
@@ -915,13 +929,7 @@ void update_node (App& app, Node* node, float dt) {
 				vehicle.vehicle = v;
 				vehicle.node_idx = v->idx+1;
 				vehicle.wait_time = 0;
-
-				vehicle.conn.conn = { v->state.cur_lane, v->state.next_lane };
-				auto bez = calc_curve(vehicle.conn.conn.a.clac_lane_info(), vehicle.conn.conn.b.clac_lane_info());
-				vehicle.conn.bez_len = bez.approx_len(COLLISION_STEPS);
-			
-				_gen_points(vehicle.conn.pointsL, vehicle.conn.conn, -LANE_COLLISION_R);
-				_gen_points(vehicle.conn.pointsR, vehicle.conn.conn, +LANE_COLLISION_R);
+				cache_conn(vehicle.conn, v);
 
 				node->vehicles.test.add(vehicle);
 			}

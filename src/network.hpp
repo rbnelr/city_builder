@@ -43,14 +43,34 @@ ENUM_BITFLAG_OPERATORS_TYPE(Turns, uint8_t)
 struct Line {
 	float3 a, b;
 };
-inline Bezier3<> calc_curve (Line const& l0, Line const& l1) {
-	// Do this in 2d
+//inline Bezier3<> calc_curve3 (Line const& l0, Line const& l1) {
+//	// Do this in 2d
+//	float2 point;
+//	if (!line_line_intersect((float2)l0.a, (float2)l0.b, (float2)l1.a, (float2)l1.b, &point))
+//		point = (l0.b+l1.a)*0.5f;
+//		//point = (l0.b+l1.a)*0.5f + 0.5f * distance(l0.a, l1.b) * normalizesafe(l0.b - l0.a);
+//					
+//	return { l0.b, float3(point, l0.a.z), l1.a };
+//}
+inline Bezier4<> calc_curve4 (Line const& l0, Line const& l1) {
+	float3 tang0, tang1;
 	float2 point;
-	if (!line_line_intersect((float2)l0.a, (float2)l0.b, (float2)l1.a, (float2)l1.b, &point))
-		point = (l0.b+l1.a)*0.5f;
-		//point = (l0.b+l1.a)*0.5f + 0.5f * distance(l0.a, l1.b) * normalizesafe(l0.b - l0.a);
-					
-	return { l0.b, float3(point, l0.a.z), l1.a };
+	if (line_line_intersect((float2)l0.a, (float2)l0.b, (float2)l1.a, (float2)l1.b, &point)) {
+		tang0 = float3(point, l0.b.z);
+		tang1 = float3(point, l1.a.z);
+	}
+	else {
+		float dist = distance(l0.b, l1.a) * 0.5f;
+		tang0 = l0.b + normalizesafe(l0.b - l0.a) * dist;
+		tang1 = l1.a - normalizesafe(l1.b - l1.a) * dist;
+	}
+
+	Bezier4<> bez;
+	bez.a = l0.b;
+	bez.b = lerp(l0.b, tang0, 0.6667f);
+	bez.c = lerp(l1.a, tang1, 0.6667f);
+	bez.d = l1.a;
+	return bez;
 }
 
 // TODO: overhaul this! We need to track lanes per segment so we can actually just turn this into a pointer
@@ -170,7 +190,7 @@ struct PathState {
 	State state; // type of motion
 	float end_t = 1.0f;
 	float next_start_t = 0.0f;
-	Bezier3<> bezier;
+	Bezier4<> bezier;
 
 	VehicleList<ActiveVehicle*>* cur_vehicles = nullptr;
 	VehicleList<ActiveVehicle*>* next_vehicles = nullptr;

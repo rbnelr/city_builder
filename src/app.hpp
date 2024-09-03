@@ -824,7 +824,7 @@ public:
 		//cone_test(view);
 		
 	//// Visually relevant
-		time.visualize_planet(view);
+		//time.visualize_planet(view);
 		time.calc_sky_config(view);
 
 		network.draw_debug(*this, view);

@@ -525,7 +525,16 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		auto col = lrgba(person->col, 0.8f);
 
 		auto& bez = person->vehicle->state.bezier;
-		//_dbg_draw_bez_lane(bez, 10, lrgba(1,1,0,1), LANE_COLLISION_R*2-0.1f); 
+
+		float3 L[10];
+		float3 R[10];
+		bez.calc_points(L, 10, -LANE_COLLISION_R);
+		bez.calc_points(R, 10, +LANE_COLLISION_R);
+		
+		for (int i=0; i<9; ++i) {
+			g_dbgdraw.line(L[i], L[i+1], lrgba(1,0,0,1));
+			g_dbgdraw.line(R[i], R[i+1], lrgba(1,0,0,1));
+		}
 	}
 }
 

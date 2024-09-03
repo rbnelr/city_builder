@@ -412,9 +412,51 @@ struct MinHeapFunc {
 
 struct OverlayDraw {
 	
-	//template <typename FUNC>
-	//void push_polygon (lrgba col, FUNC add_point) {
-	//
-	//	while ()
-	//}
+	struct Vertex {
+		float3 pos;
+		float4 col;
+
+		VERTEX_CONFIG(
+			ATTRIB(FLT,3, Vertex, pos),
+			ATTRIB(FLT,4, Vertex, col),
+		)
+	};
+	std::vector<Vertex> vertices;
+	std::vector<uint16_t> indices;
+
+	void begin () {
+		vertices.clear();
+		indices.clear();
+	}
+
+	void draw_bezier_path (Bezier3& bez, float width, lrgba col) {
+		int res = 16;
+
+		float shiftL = width * -0.5f;
+		float shiftR = width * 0.5f;
+
+		auto* verts = kiss::push_back(vertices, res*2);
+		auto* indxs = kiss::push_back(indices, (res-1)*6);
+
+		for (int i=0; i<res; ++i) {
+			float t = lerp(0, 1, (float)i / (float)max(res-1,1));
+
+			auto val = bez.eval(t);
+			float3 right = rotate90_right(normalizesafe(val.vel));
+			float3 L = val.pos + right* shiftL;
+			float3 R = val.pos + right* shiftR;
+
+			verts[i*2+0] = { L, col };
+			verts[i*2+1] = { R, col };
+		}
+
+		for (int i=0; i<res-1; ++i) {
+			indxs[i*6+0] = 1 + (i+0)*2;
+			indxs[i*6+1] = 1 + (i+1)*2;
+			indxs[i*6+2] = 0 + (i+0)*2;
+			indxs[i*6+3] = 0 + (i+0)*2;
+			indxs[i*6+4] = 1 + (i+1)*2;
+			indxs[i*6+5] = 0 + (i+1)*2;
+		}
+	}
 };

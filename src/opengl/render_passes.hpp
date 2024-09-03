@@ -926,6 +926,48 @@ struct DefferedPointLightRenderer {
 	}
 };
 
+struct OverlayRender {
+	Shader* shad  = g_shaders.compile("overlay");
+
+	VertexBufferI vbo = vertex_bufferI<OverlayDraw::Vertex>("OverlayRender.vbo");
+
+	void render (StateManager& state, Gbuffer& gbuf, App& app) {
+		ZoneScoped;
+		OGL_TRACE("OverlayRender");
+
+		if (shad->prog) {
+			glUseProgram(shad->prog);
+
+			state.bind_textures(shad, {
+				{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
+			});
+
+			PipelineState s;
+			// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
+			// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
+			// (The shader still manually intersect the volume to correctly exclude pixels)
+			//s.depth_test = true;
+			//s.depth_func = DEPTH_BEHIND;
+			//s.depth_write = false; // depth write off!
+			//s.cull_face = true;
+			//s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
+			//s.blend_enable = true; // default blend mode (standard alpha)
+			
+			state.set(s);
+
+			vbo.stream(app.overlay.vertices, app.overlay.indices);
+
+			if (app.overlay.indices.size() > 0) {
+				glBindVertexArray(vbo.vao);
+				glDrawElements(GL_TRIANGLES, (GLsizei)app.overlay.indices.size(), GL_UNSIGNED_SHORT, (void*)0);
+			}
+		}
+
+		glBindVertexArray(0);
+	}
+};
+
+
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {
 	SERIALIZE(RenderPasses, exposure, renderscale, shadowmap_opt, bloom)

@@ -62,6 +62,8 @@ public:
 
 	EntityRenderers entity_render;
 
+	OverlayRender overlay_render;
+
 	//SkyboxRenderer skybox;
 	
 	LOD_Func lod;
@@ -202,6 +204,8 @@ public:
 			decal_render.render(state, passes.gbuf, textures);
 		
 			entity_render.draw_all(state);
+
+			overlay_render.render(state, passes.gbuf, app);
 		}
 
 		{

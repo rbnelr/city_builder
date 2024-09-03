@@ -585,35 +585,6 @@ struct TestMapBuilder {
 	}
 };
 
-struct Savefiles {
-	static constexpr const char* app_settings_json = "settings.json";
-	static constexpr const char* graphics_settings_json = "graphics_settings.json";
-	
-	template <typename FUNC>
-	static inline void load (const char* filepath, FUNC from_json) {
-		ZoneScoped;
-		try {
-			json json;
-			if (load_json(filepath, &json)) {
-				from_json(json);
-			}
-		} catch (std::exception& ex) {
-			log_error("Error when deserializing something: %s", ex.what());
-		}
-	}
-	template <typename FUNC>
-	static inline void save (const char* filepath, FUNC to_json) {
-		ZoneScoped;
-		try {
-			json json;
-			to_json(json);
-			save_json(filepath, json);
-		} catch (std::exception& ex) {
-			log_error("Error when serializing something: %s", ex.what());
-		}
-	}
-};
-
 class App : public Engine {
 public:
 
@@ -630,53 +601,83 @@ public:
 	}
 	virtual ~App () {}
 	
-	void load_app_settings () {
-		Savefiles::load(Savefiles::app_settings_json, [&] (json const& j) { auto& t = *this;
+	struct Savefiles {
+		static constexpr const char* app_settings_json = "settings.json";
+		static constexpr const char* graphics_settings_json = "graphics_settings.json";
+
+		template <typename FUNC>
+		static inline void load (const char* filepath, FUNC from_json) {
+			ZoneScoped;
+			try {
+				json json;
+				if (load_json(filepath, &json)) {
+					from_json(json);
+				}
+			} catch (std::exception& ex) {
+				log_error("Error when deserializing something: %s", ex.what());
+			}
+		}
+		template <typename FUNC>
+		static inline void save (const char* filepath, FUNC to_json) {
+			ZoneScoped;
+			try {
+				json json;
+				to_json(json);
+				save_json(filepath, json);
+			} catch (std::exception& ex) {
+				log_error("Error when serializing something: %s", ex.what());
+			}
+		}
+
+		void load_app_settings (App& app) {
+			Savefiles::load(Savefiles::app_settings_json, [&] (json const& j) { auto& t = app;
 			SERIALIZE_FROM_JSON_EXPAND(assets, options, cam_binds, test, test_map_builder)
-		});
-	}
-	void save_app_settings () {
-		Savefiles::save(Savefiles::app_settings_json, [&] (json& j) { auto& t = *this;
+							});
+		}
+		void save_app_settings (App& app) {
+			Savefiles::save(Savefiles::app_settings_json, [&] (json& j) { auto& t = app;
 			SERIALIZE_TO_JSON_EXPAND(assets, options, cam_binds, test, test_map_builder)
-		});
-	}
-	
-	void load_graphics_settings () {
-		Savefiles::load(Savefiles::graphics_settings_json, [&] (json const& j) {
-			nlohmann::try_get_to(j, "vsync", vsync);
-			renderer->from_json(j);
+							});
+		}
 
-			set_vsync(vsync); // set json-loaded vsync
-		});
-	}
-	void save_graphics_settings () {
-		Savefiles::save(Savefiles::graphics_settings_json, [&] (json& j) {
-			j["vsync"] = vsync;
-			renderer->to_json(j);
-		});
-	}
+		void load_graphics_settings (App& app) {
+			Savefiles::load(Savefiles::graphics_settings_json, [&] (json const& j) { auto& t = app;
+			nlohmann::try_get_to(j, "vsync", t.vsync);
+			t.renderer->from_json(j);
 
-	// TODO: refactor this stuff into a map object that you can actually from different files/folders to switch between
-	void load_map () {
-		Savefiles::load("map.json", [&] (json const& j) { auto& t = *this;
+			t.set_vsync(t.vsync); // set json-loaded vsync
+							});
+		}
+		void save_graphics_settings (App& app) {
+			Savefiles::save(Savefiles::graphics_settings_json, [&] (json& j) { auto& t = app;
+			j["vsync"] = t.vsync;
+			t.renderer->to_json(j);
+							});
+		}
+
+		// TODO: refactor this stuff into a map object that you can actually from different files/folders to switch between
+		void load_map (App& app) {
+			Savefiles::load("map.json", [&] (json const& j) { auto& t = app;
 			SERIALIZE_FROM_JSON_EXPAND(time, heightmap, main_cam, network)
-		});
-	}
-	void save_map () {
-		Savefiles::save("map.json", [&] (json& j) { auto& t = *this;
+							});
+		}
+		void save_map (App& app) {
+			Savefiles::save("map.json", [&] (json& j) { auto& t = app;
 			SERIALIZE_TO_JSON_EXPAND(time, heightmap, main_cam, network)
-		});
-	}
+							});
+		}
+	};
+	Savefiles save;
 
 	virtual void json_load () {
-		load_app_settings();
-		load_graphics_settings();
-		load_map();
+		save.load_app_settings(*this);
+		save.load_graphics_settings(*this);
+		save.load_map(*this);
 	}
 	virtual void json_save () {
-		save_app_settings();
-		save_graphics_settings();
-		save_map();
+		save.save_app_settings(*this);
+		save.save_graphics_settings(*this);
+		save.save_map(*this);
 	}
 
 	virtual void imgui () {
@@ -807,6 +808,7 @@ public:
 	View3D update () {
 		ZoneScoped;
 		
+		overlay.begin();
 		time.update(input);
 
 		test_map_builder.update(assets, entities, network, interact, sim_rand);

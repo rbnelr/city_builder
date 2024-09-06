@@ -29,6 +29,106 @@ public:
 
 std::unique_ptr<Renderer> create_ogl_backend ();
 
+struct Test2 {
+	SERIALIZE(Test2, a,b,c,d)
+
+	float3 a = float3(0,0,0);
+	float3 b = float3(1,0.2f,0)*10;
+	float3 c = float3(+0.3f,1.2f,0)*10;
+	float3 d  =float3(1,1.4f,0)*10;
+	
+	void update (Input& I, View3D& view, float sel_r=0.5f) {
+		draggable(I, view, &a, sel_r);
+		draggable(I, view, &b, sel_r);
+		draggable(I, view, &c, sel_r);
+		draggable(I, view, &d, sel_r);
+
+		g_dbgdraw.arrow(a, b-a, 0.1f, lrgba(1,0,0,1));
+		g_dbgdraw.arrow(a, c-a, 0.1f, lrgba(0,1,0,1));
+		g_dbgdraw.line(c, d, lrgba(1,1,0,1));
+		g_dbgdraw.line(b, d, lrgba(1,1,0,1));
+
+		for (int y=0; y<10; ++y)
+		for (int x=0; x<10; ++x) {
+			float u = (x+0.5f) / 10;
+			float v = (y+0.5f) / 10;
+
+			float3 res = lerp( lerp(a, b, u), lerp(c, d, u), v );
+
+			//g_dbgdraw.point(float3((float2)res,0), 0.1f, lrgba(0,0,1,1));
+		}
+		
+		float2 ab = (float2)b - (float2)a;
+		float2 ac = (float2)c - (float2)a;
+		float2 ad = (float2)d - (float2)a;
+
+		float2 H = ad - ab - ac;
+
+		for (int y=-100; y<100; ++y)
+		for (int x=-100; x<100; ++x) {
+			float X = (x+0.5f) / 10;
+			float Y = (y+0.5f) / 10;
+
+			float2 O = float2(X,Y) - (float2)a;
+
+			float u, v;
+			{
+				float a = ab.y*H.x - ab.x*H.y;
+				float b = H.y*O.x - H.x*O.y + ab.y*ac.x - ab.x*ac.y;
+				float c = O.x*ac.y - O.y*ac.x;
+				if (a == 0.0f) { // b*u + c = 0
+					u = -c / b;
+					
+					// No idea why this condition works, but doing this causes just the front side to be displayed!
+					if (c <= 0.0f || b >= 0.0f)
+						continue;
+				}
+				else { // a*u^2 + b*u + c = 0
+					float p = -0.5f * b / a;
+					float q = c / a;
+
+					float sqr = p*p - q;
+					if (sqr < 0.0f)
+						continue;
+					sqr = sqrt(sqr);
+					// No idea why this condition works, but doing this causes just the front side to be displayed!
+					u = a > 0.0f ? p - sqr : p + sqr;
+				}
+				if (u <= 0.0f || u >= 1.0f)
+					continue;
+			}
+			{
+				// The fact that the conditions are flipped tells me a/b/c are probably flipped (the divisions cancel out the sign, but the condition flips)
+				// Seems like deriving and then trial&erroring the conditions caused the formula to be reversed with respect to all the substractions?
+				float a = ac.y*H.x - ac.x*H.y;
+				float b = H.y*O.x - H.x*O.y + ac.y*ab.x - ac.x*ab.y;
+				float c = O.x*ab.y - O.y*ab.x;
+
+				if (a == 0.0f) {
+					v = -c / b;
+					
+					if (c >= 0.0f || b <= 0.0f)
+						continue;
+				}
+				else {
+					float p = -0.5f * b / a;
+					float q = c / a;
+			
+					float sqr = p*p - q;
+					if (sqr < 0.0f)
+						continue;
+					sqr = sqrt(sqr);
+
+					v = a < 0.0f ? p - sqr : p + sqr;
+				}
+				if (v <= 0.0f || v >= 1.0f)
+					continue;
+			}
+			
+			g_dbgdraw.point(float3(X,Y,0), 0.025f, lrgba(u,v,0,1));
+		}
+	}
+};
 struct Test {
 	SERIALIZE(Test, bez, speed)
 
@@ -752,7 +852,7 @@ public:
 	// rand set by TestMapBuilder to get consistent paths for testing
 	Random sim_rand;
 
-	Test test;
+	Test2 test;
 
 	View3D update_camera () {
 		auto res = (float2)input.window_size;
@@ -818,7 +918,7 @@ public:
 	////
 		View3D view = update_camera();
 		
-		//test.update(input, view);
+		test.update(input, view);
 
 		// select after updating positions
 		interact.update(heightmap, entities, network, view, input);

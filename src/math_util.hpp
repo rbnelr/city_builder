@@ -147,19 +147,22 @@ inline bool intersect_ray_zplane (Ray const& ray, float plane_z, float* hit_t) {
 	*hit_t = t;
 	return true;
 }
-inline bool intersect_ray_zcircle (Ray const& ray, float3 center, float r, float* hit_t=nullptr, float2* hit_point=nullptr) {
+
+inline int intersect_ray_zcircle (Ray const& ray, float3 center, float r, float* hit_t=nullptr, float2* hit_point=nullptr) {
 	float t;
 	if (!intersect_ray_zplane(ray, center.z, &t))
-		return false;
-
+		return -1;
+	
 	float2 xy = (float2)ray.pos + (float2)ray.dir * t;
-	float dist_sqr = length_sqr(xy - (float2)center);
-	if (dist_sqr > r*r)
-		return false;
 
 	if (hit_t) *hit_t = t;
 	if (hit_point) *hit_point = xy;
-	return true;
+
+	float dist_sqr = length_sqr(xy - (float2)center);
+	if (dist_sqr > r*r)
+		return 0;
+
+	return 1;
 }
 
 inline bool line_line_intersect (float2 const& a, float2 const& b, float2 const& c, float2 const& d, float2* out_point) {

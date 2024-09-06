@@ -170,27 +170,39 @@ struct SelCircle {
 inline void draggable (Input& I, View3D& view, float3* pos, float r) {
 	// use ptr to identiy if and what we are dragging, to allow using this function with any number of items
 	static float3* dragging_ptr = nullptr;
-	static float2 drag_offs;
+	static float2 grab_offs;
 	
-	bool hit = false;
-	float2 hit_point;
+	bool valid = false;
+	bool hovered = false;
+	float2 cursor_pos;
 
 	Ray ray;
 	if (view.cursor_ray(I, &ray.pos, &ray.dir)) {
-		hit = intersect_ray_zcircle(ray, float3(*pos, 0), r, nullptr, &hit_point);
+		int res = intersect_ray_zcircle(ray, float3(*pos, 0), r, nullptr, &cursor_pos);
+		valid = res >= 0;
+		hovered = res > 0;
 	}
-	if (hit && (dragging_ptr == nullptr || dragging_ptr == pos)) {
+	// highlight circle unless dragging something else already
+	if (hovered && (dragging_ptr == nullptr || dragging_ptr == pos)) {
 		g_dbgdraw.wire_circle(float3(*pos, 0), r, lrgba(1,1,0,1));
 	}
 
-	if (!dragging_ptr && hit && I.buttons[MOUSE_BUTTON_LEFT].went_down) {
-		drag_offs = hit_point - (float2)*pos;
+	// start dragging with LMB on circle
+	if (hovered && dragging_ptr == nullptr && I.buttons[MOUSE_BUTTON_LEFT].went_down) {
+		grab_offs = cursor_pos - (float2)*pos;
 		dragging_ptr = pos;
 	}
 	if (dragging_ptr == pos) {
-		if (hit && I.buttons[MOUSE_BUTTON_LEFT].is_down) {
-			*pos = float3(hit_point - drag_offs, pos->z);
+		// while dragging, move object with cursor
+		if (I.buttons[MOUSE_BUTTON_LEFT].is_down) {
+			if (valid) {
+				*pos = float3(cursor_pos - grab_offs, pos->z);
+				// snapping feature for convenience
+				if (I.buttons[KEY_LEFT_CONTROL].is_down)
+					*pos = round(*pos);
+			}
 		}
+		// stop dragging when button up
 		else {
 			dragging_ptr = nullptr;
 		}
@@ -411,52 +423,73 @@ struct MinHeapFunc {
 };
 
 struct OverlayDraw {
-	
 	struct Vertex {
 		float3 pos;
+		float3 uv;
 		float4 col;
 
 		VERTEX_CONFIG(
 			ATTRIB(FLT,3, Vertex, pos),
+			ATTRIB(FLT,3, Vertex, uv),
 			ATTRIB(FLT,4, Vertex, col),
 		)
 	};
-	std::vector<Vertex> vertices;
-	std::vector<uint16_t> indices;
+
+	struct Mesh {
+		std::vector<Vertex> vertices;
+		std::vector<int> indices;
+	};
+	Mesh mesh;
 
 	void begin () {
-		vertices.clear();
-		indices.clear();
+		mesh.vertices.clear();
+		mesh.vertices.shrink_to_fit();
+		mesh.indices.clear();
+		mesh.indices.shrink_to_fit();
 	}
 
-	void draw_bezier_path (Bezier3& bez, float width, lrgba col) {
+	void draw_bezier_path (Bezier3 const& bez, float width, float height, lrgba col) {
 		int res = 16;
 
-		float shiftL = width * -0.5f;
-		float shiftR = width * 0.5f;
+		float t0 = 0, t1 = 1;
 
-		auto* verts = kiss::push_back(vertices, res*2);
-		auto* indxs = kiss::push_back(indices, (res-1)*6);
+		float w = width * 0.5f;
+		float h = height * 0.5f;
+		float3 up = float3(0,0,1);
 
-		for (int i=0; i<res; ++i) {
-			float t = lerp(0, 1, (float)i / (float)max(res-1,1));
+		auto* verts = push_back(mesh.vertices, (res+1)*4);
+		auto* indxs = push_back(mesh.indices, (res*4 + 2)*6);
+		
+		for (int i=0; i<res+1; ++i) {
+			float t = lerp(t0, t1, (float)i / (float)res);
 
 			auto val = bez.eval(t);
-			float3 right = rotate90_right(normalizesafe(val.vel));
-			float3 L = val.pos + right* shiftL;
-			float3 R = val.pos + right* shiftR;
+			float3 dir = rotate90_right(normalizesafe(val.vel));
+			float3 BL = val.pos -dir*w -up*h;
+			float3 BR = val.pos +dir*w -up*h;
+			float3 UL = val.pos -dir*w +up*h;
+			float3 UR = val.pos +dir*w +up*h;
 
-			verts[i*2+0] = { L, col };
-			verts[i*2+1] = { R, col };
+			verts[i*4 + 0] = { BL, float3(0,0,t), col };
+			verts[i*4 + 1] = { BR, float3(1,0,t), col };
+			verts[i*4 + 2] = { UR, float3(1,1,t), col };
+			verts[i*4 + 3] = { UL, float3(0,1,t), col };
+		}
+		
+		using namespace render::shapes;
+		set_quad_indices(indxs, 0, 1, 2, 3); indxs += 6;
+
+		for (int i=0; i<res; ++i) {
+			int BL = i*4 + 0;
+			int BR = i*4 + 1;
+			int UR = i*4 + 2;
+			int UL = i*4 + 3;
+			set_quad_indices(indxs, UL, UR, UR+4, UL+4); indxs += 6;
+			set_quad_indices(indxs, UR, BR, BR+4, UR+4); indxs += 6;
+			set_quad_indices(indxs, BR, BL, BL+4, BR+4); indxs += 6;
+			set_quad_indices(indxs, BL, UL, UL+4, BL+4); indxs += 6;
 		}
 
-		for (int i=0; i<res-1; ++i) {
-			indxs[i*6+0] = 1 + (i+0)*2;
-			indxs[i*6+1] = 1 + (i+1)*2;
-			indxs[i*6+2] = 0 + (i+0)*2;
-			indxs[i*6+3] = 0 + (i+0)*2;
-			indxs[i*6+4] = 1 + (i+1)*2;
-			indxs[i*6+5] = 0 + (i+1)*2;
-		}
+		set_quad_indices(indxs, res*4 + 1, res*4 + 0, res*4 + 3, res*4 + 2); indxs += 6;
 	}
 };

@@ -955,18 +955,17 @@ struct OverlayRender {
 			
 			state.set(s);
 
-			vbo.stream(app.overlay.vertices, app.overlay.indices);
+			vbo.stream(app.overlay.mesh.vertices, app.overlay.mesh.indices);
 
-			if (app.overlay.indices.size() > 0) {
+			if (app.overlay.mesh.indices.size() > 0) {
 				glBindVertexArray(vbo.vao);
-				glDrawElements(GL_TRIANGLES, (GLsizei)app.overlay.indices.size(), GL_UNSIGNED_SHORT, (void*)0);
+				glDrawElements(GL_TRIANGLES, (GLsizei)app.overlay.mesh.indices.size(), GL_UNSIGNED_INT, (void*)0);
 			}
 		}
 
 		glBindVertexArray(0);
 	}
 };
-
 
 // framebuffer for rendering at different resolution and to make sure we get float buffers
 struct RenderPasses {

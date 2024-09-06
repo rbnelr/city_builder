@@ -518,9 +518,6 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		g_dbgdraw.line(pos, (float3)(mat * float4(0,0,.1f,1)), lrgba(0,0,1,1));
 	}
 
-	//app.overlay.push_polygon(lrgba(person->col, 0.8f), [&] () {
-	//
-	//});
 	{
 		auto col = lrgba(person->col, 0.8f);
 
@@ -535,7 +532,7 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		//	g_dbgdraw.line(L[i], L[i+1], lrgba(1,0,0,1));
 		//	g_dbgdraw.line(R[i], R[i+1], lrgba(1,0,0,1));
 		//}
-		app.overlay.draw_bezier_path(bez, LANE_COLLISION_R*2, lrgba(1,0,0,1));
+		app.overlay.draw_bezier_path(bez, LANE_COLLISION_R*2, 1, lrgba(1,0,0,1));
 	}
 }
 

@@ -955,7 +955,7 @@ struct OverlayRender {
 		vbo.upload_mesh(verts, idxs);
 	}
 
-	void render (StateManager& state, Gbuffer& gbuf, App& app) {
+	void render (StateManager& state, Gbuffer& gbuf, App& app, Textures& texs) {
 		ZoneScoped;
 		OGL_TRACE("OverlayRender");
 
@@ -964,18 +964,19 @@ struct OverlayRender {
 
 			state.bind_textures(shad, {
 				{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
+				{ "road_mark", *texs.road_mark, texs.sampler_normal },
 			});
 
 			PipelineState s;
 			// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
 			// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
 			// (The shader still manually intersect the volume to correctly exclude pixels)
-			//s.depth_test = true;
-			//s.depth_func = DEPTH_BEHIND;
-			//s.depth_write = false; // depth write off!
-			//s.cull_face = true;
-			//s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
-			//s.blend_enable = true; // default blend mode (standard alpha)
+			s.depth_test = true;
+			s.depth_func = DEPTH_BEHIND;
+			s.depth_write = false; // depth write off!
+			s.cull_face = true;
+			s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
+			s.blend_enable = true; // default blend mode (standard alpha)
 			
 			state.set(s);
 

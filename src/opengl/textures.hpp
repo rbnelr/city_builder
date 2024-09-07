@@ -298,6 +298,7 @@ struct Textures {
 	Texture2D* terrain_diffuse = nullptr;
 
 	Texture2D* cracks = nullptr;
+	Texture2D* road_mark = nullptr;
 	
 	// TODO: fix this, automatically add .norm and also just encode these in the assets?
 	std::string_view asphalt        = "ground/pebbled_asphalt";
@@ -334,6 +335,7 @@ struct Textures {
 		texture<srgba8>(j, "misc/grid2.png");
 		texture<srgb8 >(j, "ground/Rock_Moss.jpg");
 		texture<srgb8 >(j, "misc/cracks.png");
+		texture<srgb8 >(j, "misc/road_mark.png");
 
 		texture<srgba8>(j, "misc/line.png"       );
 		texture<srgba8>(j, "misc/stripe.png"     );
@@ -360,6 +362,7 @@ struct Textures {
 		grid      = bindless_textures.get_gl_tex("misc/grid2", 0);
 		terrain_diffuse = bindless_textures.get_gl_tex("ground/Rock_Moss", 0);
 		cracks    = bindless_textures.get_gl_tex("misc/cracks", 0);
+		road_mark = bindless_textures.get_gl_tex("misc/road_mark", 0);
 	}
 
 	Textures () {

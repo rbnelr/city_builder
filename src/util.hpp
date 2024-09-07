@@ -167,7 +167,7 @@ struct SelCircle {
 	}
 };
 
-inline void draggable (Input& I, View3D& view, float3* pos, float r) {
+inline bool draggable (Input& I, View3D& view, float3* pos, float r) {
 	// use ptr to identiy if and what we are dragging, to allow using this function with any number of items
 	static float3* dragging_ptr = nullptr;
 	static float2 grab_offs;
@@ -182,9 +182,12 @@ inline void draggable (Input& I, View3D& view, float3* pos, float r) {
 		valid = res >= 0;
 		hovered = res > 0;
 	}
+
+	bool hovered_or_dragging = false;
 	// highlight circle unless dragging something else already
 	if (hovered && (dragging_ptr == nullptr || dragging_ptr == pos)) {
 		g_dbgdraw.wire_circle(float3(*pos, 0), r, lrgba(1,1,0,1));
+		hovered_or_dragging = true;
 	}
 
 	// start dragging with LMB on circle
@@ -207,6 +210,8 @@ inline void draggable (Input& I, View3D& view, float3* pos, float r) {
 			dragging_ptr = nullptr;
 		}
 	}
+
+	return hovered_or_dragging;
 }
 
 template <typename KEY_T, typename VAL_T, typename HASHER=std::hash<KEY_T>, typename EQUAL=std::equal_to<KEY_T>>
@@ -428,6 +433,7 @@ struct OverlayDraw {
 		float3 b;
 		float3 c;
 		float3 d;
+		float4 uv_range; // u0,v0, u1,v1
 		float2 size; // width, height
 		float4 col;
 
@@ -436,6 +442,7 @@ struct OverlayDraw {
 			ATTRIB(FLT,3, BezierInstance, b),
 			ATTRIB(FLT,3, BezierInstance, c),
 			ATTRIB(FLT,3, BezierInstance, d),
+			ATTRIB(FLT,4, BezierInstance, uv_range),
 			ATTRIB(FLT,2, BezierInstance, size),
 			ATTRIB(FLT,4, BezierInstance, col),
 		)
@@ -448,55 +455,14 @@ struct OverlayDraw {
 		beziers.shrink_to_fit();
 	}
 
-	void draw_bezier_path (Bezier3 const& bez, float width, float height, lrgba col) {
-		//int res = 16;
-		//
-		//float t0 = 0, t1 = 1;
-		//
-		//float w = width * 0.5f;
-		//float h = height * 0.5f;
-		//float3 up = float3(0,0,1);
-		//
-		//auto* verts = push_back(mesh.vertices, (res+1)*4);
-		//auto* indxs = push_back(mesh.indices, (res*4 + 2)*6);
-		//
-		//for (int i=0; i<res+1; ++i) {
-		//	float t = lerp(t0, t1, (float)i / (float)res);
-		//
-		//	auto val = bez.eval(t);
-		//	float3 dir = rotate90_right(normalizesafe(val.vel));
-		//	float3 BL = val.pos -dir*w -up*h;
-		//	float3 BR = val.pos +dir*w -up*h;
-		//	float3 UL = val.pos -dir*w +up*h;
-		//	float3 UR = val.pos +dir*w +up*h;
-		//
-		//	verts[i*4 + 0] = { BL, float3(0,0,t), col };
-		//	verts[i*4 + 1] = { BR, float3(1,0,t), col };
-		//	verts[i*4 + 2] = { UR, float3(1,1,t), col };
-		//	verts[i*4 + 3] = { UL, float3(0,1,t), col };
-		//}
-		//
-		//using namespace render::shapes;
-		//set_quad_indices(indxs, 0, 1, 2, 3); indxs += 6;
-		//
-		//for (int i=0; i<res; ++i) {
-		//	int BL = i*4 + 0;
-		//	int BR = i*4 + 1;
-		//	int UR = i*4 + 2;
-		//	int UL = i*4 + 3;
-		//	set_quad_indices(indxs, UL, UR, UR+4, UL+4); indxs += 6;
-		//	set_quad_indices(indxs, UR, BR, BR+4, UR+4); indxs += 6;
-		//	set_quad_indices(indxs, BR, BL, BL+4, BR+4); indxs += 6;
-		//	set_quad_indices(indxs, BL, UL, UL+4, BL+4); indxs += 6;
-		//}
-		//
-		//set_quad_indices(indxs, res*4 + 1, res*4 + 0, res*4 + 3, res*4 + 2); indxs += 6;
+	void draw_bezier_path (Bezier3 const& bez, float2 size, float4 uv_range, lrgba col) {
 		BezierInstance i;
 		i.a = bez.a;
 		i.b = bez.b;
 		i.c = bez.c;
 		i.d = bez.d;
-		i.size = float2(width, height);
+		i.uv_range = uv_range;
+		i.size = size;
 		i.col = col;
 		beziers.emplace_back(i);
 	}

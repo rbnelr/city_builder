@@ -485,7 +485,7 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		float start_t = person->vehicle->bez_t;
 
 		for (int i=person->vehicle->idx; ; ++i) {
-			_dbg_draw_bez(s.bezier, 5, lrgba(1,1,0,1), start_t, s.end_t); 
+			s.bezier.dbg_draw(5, lrgba(1,1,0,1), start_t, s.end_t, false); 
 
 			start_t = s.next_start_t;
 			if (s.state == PathState::ENTER_BUILDING) break;
@@ -532,7 +532,7 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		//	g_dbgdraw.line(L[i], L[i+1], lrgba(1,0,0,1));
 		//	g_dbgdraw.line(R[i], R[i+1], lrgba(1,0,0,1));
 		//}
-		app.overlay.draw_bezier_path(bez, LANE_COLLISION_R*2, 1, lrgba(1,0,0,1));
+		app.overlay.draw_bezier_path(bez, float2(LANE_COLLISION_R*2, 1), float4(0,0,1,1), lrgba(1,0,0,1));
 	}
 }
 

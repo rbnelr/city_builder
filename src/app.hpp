@@ -330,6 +330,62 @@ struct Test {
 	}
 };
 
+struct BezierBuilder {
+	SERIALIZE(BezierBuilder, beziers)
+	
+	std::vector<Bezier3> beziers;
+
+	void imgui (Input& I, View3D& view) {
+		if (!imgui_Header("BezierBuilder", true)) return;
+
+		if (ImGui::Button("+")) {
+			Ray ray;
+			if (view.cursor_ray(I, &ray.pos, &ray.dir)) {
+				float hit_t;
+				if (intersect_ray_zplane(ray, 0, &hit_t)) {
+					float3 pos = ray.pos + ray.dir * hit_t;
+					pos.z = 0;
+					beziers.push_back({pos, pos + float3(5,0,0), pos + float3(15,5,0), pos + float3(20,5,0)});
+				}
+			}
+		}
+		if (ImGui::Button("-") && !beziers.empty())
+			beziers.pop_back();
+
+		ImGui::PopID();
+	}
+	void update (Input& I, View3D& view, OverlayDraw& overlay) {
+		decltype(beziers.begin()) to_delete = beziers.end();
+
+		for (auto it = beziers.begin(); it != beziers.end(); ++it) {
+			auto& bez = *it;
+
+			bool  sel =  draggable(I, view, &bez.a, 1);
+			sel = sel || draggable(I, view, &bez.b, 1);
+			sel = sel || draggable(I, view, &bez.c, 1);
+			sel = sel || draggable(I, view, &bez.d, 1);
+
+			if (sel)
+				bez.dbg_draw(128, lrgba(1,0,0,0.25f));
+			
+			float tex_aspect = 4;
+
+			float width = 3.4f;
+			float len = bez.approx_len(16);
+			float v1 = len / (width * tex_aspect);
+			overlay.draw_bezier_path(bez, float2(width, 1), lrgba(0,0,1,v1), lrgba(1,1,0,1));
+
+
+			if (sel && I.buttons[KEY_DELETE].went_down) {
+				to_delete = it;
+			}
+		}
+
+		if (to_delete != beziers.end())
+			beziers.erase(to_delete);
+	}
+};
+
 inline bool ray_cone_intersect (Ray ray, float3 cone_pos, float3 cone_dir, float cone_ang, float2* out_t01) {
 	// based on http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
 	// vector based algebra solution derived from  dot(normalize(pos(t) - cone_pos), cone_dir)^2 == cos(cone_ang)^2
@@ -853,7 +909,7 @@ public:
 	Random sim_rand;
 
 	Test2 test;
-	Bezier3 test_bez;
+	BezierBuilder test_bez;
 
 	View3D update_camera () {
 		auto res = (float2)input.window_size;
@@ -924,18 +980,8 @@ public:
 		// select after updating positions
 		interact.update(heightmap, entities, network, view, input);
 		
-		draggable(input, view, &test_bez.a, 1);
-		draggable(input, view, &test_bez.b, 1);
-		draggable(input, view, &test_bez.c, 1);
-		draggable(input, view, &test_bez.d, 1);
-
-		g_dbgdraw.point(test_bez.a, 0.1f, lrgba(1,1,0,1));
-		g_dbgdraw.point(test_bez.b, 0.1f, lrgba(1,1,0,1));
-		g_dbgdraw.point(test_bez.c, 0.1f, lrgba(1,1,0,1));
-		g_dbgdraw.point(test_bez.d, 0.1f, lrgba(1,1,0,1));
-
-		//_dbg_draw_bez(test_bez, 16, lrgba(1,1,0,1));
-		overlay.draw_bezier_path(test_bez, 3, 1, lrgba(1,1,0,1));
+		test_bez.imgui(input, view);
+		test_bez.update(input, view, overlay);
 
 		//cone_test(view);
 		

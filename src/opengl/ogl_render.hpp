@@ -202,10 +202,10 @@ public:
 
 			network_render.render(state, textures);
 			decal_render.render(state, passes.gbuf, textures);
+
+			overlay_render.render(state, passes.gbuf, app, textures);
 		
 			entity_render.draw_all(state);
-
-			overlay_render.render(state, passes.gbuf, app);
 		}
 
 		{

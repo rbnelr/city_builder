@@ -220,25 +220,30 @@ struct Bezier {
 			points[i] = pos;
 		}
 	}
+
+	void dbg_draw (int res, lrgba col, float t0=0, float t1=1, bool draw_handles=true) {
+		if (draw_handles) {
+			g_dbgdraw.arrow(a, (b-a), 1, lrgba(1,0.25f,0.25f, col.w));
+			g_dbgdraw.arrow(d, (c-d), 1, lrgba(0.25f,1,0.25f, col.w));
+		}
+
+		auto prev = eval(t0).pos;
+		for (int i=0; i<res; ++i) {
+			float t = lerp(t0, t1, (float)(i+1) / res);
+
+			auto val = eval(t);
+			
+			if (i < res-1) {
+				g_dbgdraw.line(prev, val.pos, col);
+			}
+			else {
+				g_dbgdraw.arrow(prev, val.pos - prev, 1, col);
+			}
+
+			prev = val.pos;
+		}
+	}
 };
 typedef Bezier<float2> Bezier2;
 typedef Bezier<float3> Bezier3;
 
-template <typename T>
-inline void _dbg_draw_bez (T const& bez, int res, lrgba col, float t0=0, float t1=1) {
-	auto prev = bez.eval(t0).pos;
-	for (int i=0; i<res; ++i) {
-		float t = lerp(t0, t1, (float)(i+1) / res);
-
-		auto val = bez.eval(t);
-			
-		if (i < res-1) {
-			g_dbgdraw.line(prev, val.pos, col);
-		}
-		else {
-			g_dbgdraw.arrow(prev, val.pos - prev, 1, col);
-		}
-
-		prev = val.pos;
-	}
-}

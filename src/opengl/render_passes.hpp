@@ -100,7 +100,7 @@ struct PBR_Render {
 
 	Shader* shad_integrate_brdf = g_shaders.compile("pbr_integrate_brdf");
 	
-	Shader* shad_gen_env = g_shaders.compile_stages("pbr_env_raster", { shader::GEOMETRY_SHADER, shader::VERTEX_SHADER, shader::FRAGMENT_SHADER }, {});
+	Shader* shad_gen_env = g_shaders.compile_geometry("pbr_env_raster");
 
 	static constexpr int3 COMPUTE_CONVOLVE_WG = int3(8,8,1);
 	Shader* shad_compute_gen_mips = g_shaders.compile_compute("pbr_env_compute", {{"MODE","1"}, {"ENV_PIXEL_FORMAT",env_map_format_compute}});
@@ -927,9 +927,33 @@ struct DefferedPointLightRenderer {
 };
 
 struct OverlayRender {
-	Shader* shad  = g_shaders.compile("overlay");
+	Shader* shad  = g_shaders.compile_geometry("overlay");
 
-	VertexBufferI vbo = vertex_bufferI<OverlayDraw::Vertex>("OverlayRender.vbo");
+	int res = 16;
+	struct Vertex {
+		float t;
+		
+		VERTEX_CONFIG(
+			ATTRIB(FLT,1, Vertex, t),
+		)
+	};
+
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<Vertex, OverlayDraw::BezierInstance>("OverlayRender.vbo");
+	
+	OverlayRender () {
+		std::vector<Vertex> verts;
+		std::vector<uint16_t> idxs;
+
+		for (int i=0; i<res+1; ++i) {
+			verts.push_back({ (float)i/(float)res });
+		}
+		for (int i=0; i<res; ++i) {
+			idxs.push_back(i);
+			idxs.push_back(i+1);
+		}
+
+		vbo.upload_mesh(verts, idxs);
+	}
 
 	void render (StateManager& state, Gbuffer& gbuf, App& app) {
 		ZoneScoped;
@@ -955,11 +979,11 @@ struct OverlayRender {
 			
 			state.set(s);
 
-			vbo.stream(app.overlay.mesh.vertices, app.overlay.mesh.indices);
+			vbo.stream_instances(app.overlay.beziers);
 
-			if (app.overlay.mesh.indices.size() > 0) {
+			if (app.overlay.beziers.size() > 0) {
 				glBindVertexArray(vbo.vao);
-				glDrawElements(GL_TRIANGLES, (GLsizei)app.overlay.mesh.indices.size(), GL_UNSIGNED_INT, (void*)0);
+				glDrawElementsInstanced(GL_LINES, res*2, GL_UNSIGNED_SHORT, (void*)0, (GLsizei)app.overlay.beziers.size());
 			}
 		}
 

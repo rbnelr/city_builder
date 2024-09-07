@@ -731,40 +731,40 @@ public:
 
 		void load_app_settings (App& app) {
 			Savefiles::load(Savefiles::app_settings_json, [&] (json const& j) { auto& t = app;
-			SERIALIZE_FROM_JSON_EXPAND(assets, options, cam_binds, test, test_map_builder)
-							});
+				SERIALIZE_FROM_JSON_EXPAND(assets, options, cam_binds, test, test_map_builder, test_bez)
+			});
 		}
 		void save_app_settings (App& app) {
 			Savefiles::save(Savefiles::app_settings_json, [&] (json& j) { auto& t = app;
-			SERIALIZE_TO_JSON_EXPAND(assets, options, cam_binds, test, test_map_builder)
-							});
+				SERIALIZE_TO_JSON_EXPAND(assets, options, cam_binds, test, test_map_builder, test_bez)
+			});
 		}
 
 		void load_graphics_settings (App& app) {
 			Savefiles::load(Savefiles::graphics_settings_json, [&] (json const& j) { auto& t = app;
-			nlohmann::try_get_to(j, "vsync", t.vsync);
-			t.renderer->from_json(j);
+				nlohmann::try_get_to(j, "vsync", t.vsync);
+				t.renderer->from_json(j);
 
-			t.set_vsync(t.vsync); // set json-loaded vsync
-							});
+				t.set_vsync(t.vsync); // set json-loaded vsync
+			});
 		}
 		void save_graphics_settings (App& app) {
 			Savefiles::save(Savefiles::graphics_settings_json, [&] (json& j) { auto& t = app;
-			j["vsync"] = t.vsync;
-			t.renderer->to_json(j);
-							});
+				j["vsync"] = t.vsync;
+				t.renderer->to_json(j);
+			});
 		}
 
 		// TODO: refactor this stuff into a map object that you can actually from different files/folders to switch between
 		void load_map (App& app) {
 			Savefiles::load("map.json", [&] (json const& j) { auto& t = app;
-			SERIALIZE_FROM_JSON_EXPAND(time, heightmap, main_cam, network)
-							});
+				SERIALIZE_FROM_JSON_EXPAND(time, heightmap, main_cam, network)
+			});
 		}
 		void save_map (App& app) {
 			Savefiles::save("map.json", [&] (json& j) { auto& t = app;
-			SERIALIZE_TO_JSON_EXPAND(time, heightmap, main_cam, network)
-							});
+				SERIALIZE_TO_JSON_EXPAND(time, heightmap, main_cam, network)
+			});
 		}
 	};
 	Savefiles save;
@@ -853,6 +853,7 @@ public:
 	Random sim_rand;
 
 	Test2 test;
+	Bezier3 test_bez;
 
 	View3D update_camera () {
 		auto res = (float2)input.window_size;
@@ -922,6 +923,19 @@ public:
 
 		// select after updating positions
 		interact.update(heightmap, entities, network, view, input);
+		
+		draggable(input, view, &test_bez.a, 1);
+		draggable(input, view, &test_bez.b, 1);
+		draggable(input, view, &test_bez.c, 1);
+		draggable(input, view, &test_bez.d, 1);
+
+		g_dbgdraw.point(test_bez.a, 0.1f, lrgba(1,1,0,1));
+		g_dbgdraw.point(test_bez.b, 0.1f, lrgba(1,1,0,1));
+		g_dbgdraw.point(test_bez.c, 0.1f, lrgba(1,1,0,1));
+		g_dbgdraw.point(test_bez.d, 0.1f, lrgba(1,1,0,1));
+
+		//_dbg_draw_bez(test_bez, 16, lrgba(1,1,0,1));
+		overlay.draw_bezier_path(test_bez, 3, 1, lrgba(1,1,0,1));
 
 		//cone_test(view);
 		

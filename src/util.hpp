@@ -423,73 +423,81 @@ struct MinHeapFunc {
 };
 
 struct OverlayDraw {
-	struct Vertex {
-		float3 pos;
-		float3 uv;
+	struct BezierInstance {
+		float3 a;
+		float3 b;
+		float3 c;
+		float3 d;
+		float2 size; // width, height
 		float4 col;
 
 		VERTEX_CONFIG(
-			ATTRIB(FLT,3, Vertex, pos),
-			ATTRIB(FLT,3, Vertex, uv),
-			ATTRIB(FLT,4, Vertex, col),
+			ATTRIB(FLT,3, BezierInstance, a),
+			ATTRIB(FLT,3, BezierInstance, b),
+			ATTRIB(FLT,3, BezierInstance, c),
+			ATTRIB(FLT,3, BezierInstance, d),
+			ATTRIB(FLT,2, BezierInstance, size),
+			ATTRIB(FLT,4, BezierInstance, col),
 		)
 	};
 
-	struct Mesh {
-		std::vector<Vertex> vertices;
-		std::vector<int> indices;
-	};
-	Mesh mesh;
+	std::vector<BezierInstance> beziers;
 
 	void begin () {
-		mesh.vertices.clear();
-		mesh.vertices.shrink_to_fit();
-		mesh.indices.clear();
-		mesh.indices.shrink_to_fit();
+		beziers.clear();
+		beziers.shrink_to_fit();
 	}
 
 	void draw_bezier_path (Bezier3 const& bez, float width, float height, lrgba col) {
-		int res = 16;
-
-		float t0 = 0, t1 = 1;
-
-		float w = width * 0.5f;
-		float h = height * 0.5f;
-		float3 up = float3(0,0,1);
-
-		auto* verts = push_back(mesh.vertices, (res+1)*4);
-		auto* indxs = push_back(mesh.indices, (res*4 + 2)*6);
-		
-		for (int i=0; i<res+1; ++i) {
-			float t = lerp(t0, t1, (float)i / (float)res);
-
-			auto val = bez.eval(t);
-			float3 dir = rotate90_right(normalizesafe(val.vel));
-			float3 BL = val.pos -dir*w -up*h;
-			float3 BR = val.pos +dir*w -up*h;
-			float3 UL = val.pos -dir*w +up*h;
-			float3 UR = val.pos +dir*w +up*h;
-
-			verts[i*4 + 0] = { BL, float3(0,0,t), col };
-			verts[i*4 + 1] = { BR, float3(1,0,t), col };
-			verts[i*4 + 2] = { UR, float3(1,1,t), col };
-			verts[i*4 + 3] = { UL, float3(0,1,t), col };
-		}
-		
-		using namespace render::shapes;
-		set_quad_indices(indxs, 0, 1, 2, 3); indxs += 6;
-
-		for (int i=0; i<res; ++i) {
-			int BL = i*4 + 0;
-			int BR = i*4 + 1;
-			int UR = i*4 + 2;
-			int UL = i*4 + 3;
-			set_quad_indices(indxs, UL, UR, UR+4, UL+4); indxs += 6;
-			set_quad_indices(indxs, UR, BR, BR+4, UR+4); indxs += 6;
-			set_quad_indices(indxs, BR, BL, BL+4, BR+4); indxs += 6;
-			set_quad_indices(indxs, BL, UL, UL+4, BL+4); indxs += 6;
-		}
-
-		set_quad_indices(indxs, res*4 + 1, res*4 + 0, res*4 + 3, res*4 + 2); indxs += 6;
+		//int res = 16;
+		//
+		//float t0 = 0, t1 = 1;
+		//
+		//float w = width * 0.5f;
+		//float h = height * 0.5f;
+		//float3 up = float3(0,0,1);
+		//
+		//auto* verts = push_back(mesh.vertices, (res+1)*4);
+		//auto* indxs = push_back(mesh.indices, (res*4 + 2)*6);
+		//
+		//for (int i=0; i<res+1; ++i) {
+		//	float t = lerp(t0, t1, (float)i / (float)res);
+		//
+		//	auto val = bez.eval(t);
+		//	float3 dir = rotate90_right(normalizesafe(val.vel));
+		//	float3 BL = val.pos -dir*w -up*h;
+		//	float3 BR = val.pos +dir*w -up*h;
+		//	float3 UL = val.pos -dir*w +up*h;
+		//	float3 UR = val.pos +dir*w +up*h;
+		//
+		//	verts[i*4 + 0] = { BL, float3(0,0,t), col };
+		//	verts[i*4 + 1] = { BR, float3(1,0,t), col };
+		//	verts[i*4 + 2] = { UR, float3(1,1,t), col };
+		//	verts[i*4 + 3] = { UL, float3(0,1,t), col };
+		//}
+		//
+		//using namespace render::shapes;
+		//set_quad_indices(indxs, 0, 1, 2, 3); indxs += 6;
+		//
+		//for (int i=0; i<res; ++i) {
+		//	int BL = i*4 + 0;
+		//	int BR = i*4 + 1;
+		//	int UR = i*4 + 2;
+		//	int UL = i*4 + 3;
+		//	set_quad_indices(indxs, UL, UR, UR+4, UL+4); indxs += 6;
+		//	set_quad_indices(indxs, UR, BR, BR+4, UR+4); indxs += 6;
+		//	set_quad_indices(indxs, BR, BL, BL+4, BR+4); indxs += 6;
+		//	set_quad_indices(indxs, BL, UL, UL+4, BL+4); indxs += 6;
+		//}
+		//
+		//set_quad_indices(indxs, res*4 + 1, res*4 + 0, res*4 + 3, res*4 + 2); indxs += 6;
+		BezierInstance i;
+		i.a = bez.a;
+		i.b = bez.b;
+		i.c = bez.c;
+		i.d = bez.d;
+		i.size = float2(width, height);
+		i.col = col;
+		beziers.emplace_back(i);
 	}
 };

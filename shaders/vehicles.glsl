@@ -57,8 +57,8 @@ void main () {
 		
 		const vec3 front_lights_col = vec3(0.8, 0.8, 0.4) * 1.0;
 		const vec3 rear_lights_col  = vec3(0.8, 0.02, 0.01) * 0.5;
-		const vec3 brake_col        = vec3(0.8, 0.02, 0.01) * 1.0;
-		const vec3 blinker_col      = vec3(0.8, 0.2, 0.01) * 1.0;
+		const vec3 brake_col        = vec3(0.8, 0.02, 0.01) * 0.5;
+		const vec3 blinker_col      = vec3(0.8, 0.2, 0.01) * 1.4;
 		
 		vec3 lights_col = v.model_pos.x > 0.0 ? front_lights_col : rear_lights_col;
 		emiss += v.glow.r * glow_tex.r * lights_col;

@@ -204,7 +204,7 @@ public:
 			decal_render.render(state, passes.gbuf, textures);
 
 			overlay_render.render(state, passes.gbuf, app, textures);
-		
+
 			entity_render.draw_all(state);
 		}
 

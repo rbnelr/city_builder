@@ -221,7 +221,8 @@ bool uv_from_corners_with_height (vec3 a, vec3 b, vec3 c, vec3 d, float h, vec3 
 	};
 	in Geom g;
 	
-	uniform sampler2D road_mark;
+	uniform sampler2D road_wear;
+	uniform float fade_strength = 0.5;
 	
 	GBUF_OUT
 	void main () {
@@ -237,24 +238,24 @@ bool uv_from_corners_with_height (vec3 a, vec3 b, vec3 c, vec3 d, float h, vec3 
 		vec2 uv = vec2(local_coords.x, mix(g.bez_t01.x, g.bez_t01.y, local_coords.y));
 		// apply uv remap for this curve
 		uv = mix(g.uv_range.xy, g.uv_range.zw, uv);
+		float alpha = smoothstep(0.0, 1.0, map(abs(local_coords.z * 2.0 - 1.0), 1.0, 0.999 - fade_strength));
 		
 		// Some ad-hoc math to shade 
-		vec3 mark = texture(road_mark, uv).rgb;
+		vec3 mark = texture(road_wear, uv).rgb;
 		
 	#if 1
 		vec3  col = mix(0.04, -0.01, mark.r).xxx - mark.ggg*3.0;
-		float col_alpha = mix(mark.r, mark.b, 0.20) * 0.6;
+		float col_alpha = alpha * mix(mark.r, mark.b, 0.20) * 0.6;
 		
 		float rough = 0.7 - (mark.g * 1.0 + mark.r * 0.25);
 		float rough_alpha = mark.b * 0.7;
 	#else
 		vec3  col = mix(0.05, 0.15, mark.r).xxx - mark.ggg*3.0;
-		float col_alpha = mix(mark.r, mark.b, 0.5) * 0.4;
+		float col_alpha = alpha * mix(mark.r, mark.b, 0.5) * 0.4;
 		
 		float rough = 0.7 - (mark.g * 1.0 + mark.r * 0.25);
 		float rough_alpha = mark.b * 0.7;
 	#endif
-		
 		
 		frag_col   = vec4(col, col_alpha);  // blended additively
 		frag_emiss = vec4(0,0,0,0);

@@ -964,7 +964,7 @@ struct OverlayRender {
 
 			state.bind_textures(shad, {
 				{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
-				{ "road_mark", *texs.road_mark, texs.sampler_normal },
+				{ "road_wear", *texs.road_wear, texs.sampler_normal },
 			});
 
 			PipelineState s;
@@ -978,7 +978,7 @@ struct OverlayRender {
 			s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
 			s.blend_enable = true; // default blend mode (standard alpha)
 			
-			state.set(s);
+			state.set_no_override(s);
 
 			vbo.stream_instances(app.overlay.beziers);
 

@@ -134,9 +134,13 @@ struct Conflict {
 inline constexpr int COLLISION_STEPS = 4;
 
 struct CachedConnection {
-	Connection conn;
-	float bez_len;
+	Connection conn; // This is unnecessary, can be read from PathState
+	Bezier3 bezier;
+	float bez_len; // This is related to the NodeVehicle k values, which are going to be changed soon
 	
+	// These are only needed for dbg vis, and on conflict cache miss
+	// since computing conflicts is already expensive N(COLLISION_STEPS^2 * 4), we could just compute the points for the 2 beziers on the fly
+	// which is N(2 * (COLLISION_STEPS+1)) for the two beziers (Note: L and R can be computed at the same time)
 	float2 pointsL[COLLISION_STEPS+1];
 	float2 pointsR[COLLISION_STEPS+1];
 };
@@ -186,6 +190,7 @@ struct PathState {
 	VehicleList<ActiveVehicle*>* cur_vehicles = nullptr;
 	VehicleList<ActiveVehicle*>* next_vehicles = nullptr;
 
+	Node* cur_node = nullptr;
 	SegLane cur_lane = {}; // always valid
 	SegLane next_lane = {}; // only valid if cur_node != null
 
@@ -202,6 +207,9 @@ struct ActiveVehicle {
 	
 //// Pathfinding result based on trip
 	// all segments returned by pathfinding, without choosing lanes
+	// TODO: later this might have lane info (SegLane instead of Segment*) to allow for lane selection into the future
+	// lane info is 1byte at most, so we can afford to store -1 for unchosen and 0-254 for chosen lanes
+	// this enables tracking past lanes, which is good for tracking long vehicles that might cover more than 2 segments correctly (+ nodes inbetween)
 	std::vector<Segment*> path;
 
 //// Path following variables
@@ -257,23 +265,38 @@ struct ActiveVehicle {
 	void calc_pos (float3* pos, float* ang);
 };
 
+// TODO: Might be able to eliminate this entirely! This would probably help perf and reduce complexity
 struct NodeVehicle {
-	ActiveVehicle* vehicle;
+	ActiveVehicle* vehicle; // unnecessary
 
+	// unnecessary since it's just used to check of car on incoming outgoing lane or node
+	// use PathState::cur_lane/next_lane -> segment -> node!
 	int node_idx;
 		
 	// k == (approx) distance along node curve
 	// where before node : k negative where abs(k) is dist to node
 	// in node: k in [0, conn_len]
 	// after node: k > conn_len where k-conn_len is dist from node
+
+	// unnecessary since we want to compute these in one place for all the beziers a car touches
+	// might cache on car relative to cur_lane/next_lane
 	float front_k;
 	float rear_k;
 
+	// unnecessary, can be moved into ActiveVehicle, since these are only relevant for one node at a time
+	// exception curretly happens when car straddles node/outgoing lane, but additional loop with _yield_for_car in update_node fixes this
 	bool  blocked;
 	float wait_time;
 
+	// These are the only problem, since long vehicles might be involved in two nodes at once in terms of cars needing to yeild to conflict zones
+	// solution might be to store cached connections in node next to conflict cache and do a double lookup
+	// -> turns out the only non-trivial variable in CachedConnection are the cache points!, can also be eliminated!
 	CachedConnection conn;
 
+	// Turns out NodeVehicle is kinda not needed, we only need to track the order in the list for the prio order logic
+	// But we could use ActiveVehicle* instead of NodeVehicle there (linked lists are also possible)
+	// Even without the algorithm, we would still want a list of vehicles per intersection, for rendering purposes
+	
 	bool operator== (NodeVehicle const& other) const {
 		return vehicle == other.vehicle;
 	}
@@ -482,6 +505,18 @@ inline Line SegLane::clac_lane_info (float shift) const {
 }
 inline Lane& SegLane::get () {
 	return seg->lanes[lane];
+}
+
+// TODO: Once segments actually become beziers, this goes away!
+inline Bezier3 _lane_bezier (SegLane lane) {
+	auto info = lane.clac_lane_info();
+	
+	Bezier3 bez;
+	bez.a = info.a;
+	bez.b = lerp(info.a, info.b, 0.333333f);
+	bez.c = lerp(info.a, info.b, 0.666667f);
+	bez.d = info.b;
+	return bez;
 }
 
 inline LaneVehicles& SegLane::vehicles () const {

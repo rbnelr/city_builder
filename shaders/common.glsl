@@ -113,6 +113,16 @@ vec4 bindless_tex_scaled (int tex_id, int slot, vec2 uv) {
 	return texture(sampler2D(tex.handles[slot]), uv * tex.uv_scale);
 }
 
+// I flipped all my textures with respect to opengl convention, or else loading compressed textures is impossible
+// (what the hell, opengl??)
+// Though this just causes the data in ram, in vram and the uvs to match what dx and vk expect, so I suppose it's not that bad
+// but this does force me to wrap my head around this new convention
+// this might be appropriate in some places where uvs are manually computed
+vec2 flip_y (vec2 uv) {
+	uv.y = 1.0 - uv.y;
+	return uv;
+}
+
 
 struct CubemapFace {
 	vec3 world_dir; // direction this cubemap face is in

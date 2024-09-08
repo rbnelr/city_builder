@@ -331,6 +331,11 @@ struct Textures {
 		texture     <srgba8>(j, "skybox/clouds.png");
 		texture_norm<srgba8>(j, "skybox/moon.png");
 		cubemap     <srgba8>(j, "skybox/night_sky/%s.dds", true, &night_sky);
+		
+		texture<srgb8 >(j, "misc/patterns/solid.png", true);
+		texture<srgb8 >(j, "misc/patterns/striped.png", true);
+		texture<srgb8 >(j, "misc/patterns/thick_arrow.png");
+		texture<srgb8 >(j, "misc/patterns/thin_arrow.png");
 
 		texture<srgba8>(j, "misc/grid2.png");
 		texture<srgb8 >(j, "ground/Rock_Moss.jpg");
@@ -376,14 +381,16 @@ struct Textures {
 
 
 	template <typename T>
-	void texture (Jobs& jobs, std::string&& name, bool mips=true) {
-		bindless_textures.add_entry(TexLoader::get_basename(name));
+	void texture (Jobs& jobs, std::string&& name, bool mips=true, float uv_scale=1) {
+		int id = bindless_textures.add_entry(TexLoader::get_basename(name));
+		bindless_textures[id]->uv_scale = uv_scale;
+
 		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));
 	}
 	template <typename T>
 	void texture_norm (Jobs& jobs, std::string&& name, bool mips=true, float uv_scale=1) {
 		int id = bindless_textures.add_entry(TexLoader::get_basename(name));
-		bindless_textures.entries[id].uv_scale = uv_scale; // TODO: maybe do this differently?
+		bindless_textures[id]->uv_scale = uv_scale; // TODO: maybe do this differently?
 
 		auto norm = TexLoader::add_tex_suffix(name, ".norm");
 		jobs.push_back(std::make_unique<TexLoader::LoadTexture2D<T>>(std::move(name), mips, 0));

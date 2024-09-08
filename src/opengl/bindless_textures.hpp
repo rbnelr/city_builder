@@ -54,35 +54,47 @@ struct BindlessTextureManager {
 		float uv_scale = 1;
 	};
 
-	std::vector<TextureEntry> entries;
-	std::unordered_map<std::string, int> lookup;
-
-	void clear () {
-		lookup.clear();
-		entries.clear();
-		entries.shrink_to_fit();
-	}
+private:
+	std::vector<TextureEntry> _entries;
+	std::unordered_map<std::string, int> _lookup;
+public:
 
 	// Bindless handles have sampler objects baked into them
 	// we can't really switch filtering modes on demand, this is not really a problem because usually you want this sampler
 	Sampler default_sampler = make_sampler("sampler_normal", FILTER_MIPMAPPED, GL_REPEAT, true);
+
+	Ssbo bindless_tex_lut = {"bindless_ssbo"};
 	
+	static constexpr const char* DUMMY_NAME = "<dummy tex>";
+	void clear () {
+		_lookup.clear();
+
+		_entries.resize(1); // keep dummy tex
+		_entries.shrink_to_fit();
+
+		_lookup[DUMMY_NAME] = 0;
+	}
+
+	TextureEntry* operator[] (int idx) {
+		assert(idx >= 0 || idx < (int)_entries.size());
+		return &_entries[idx];
+	}
 	int operator[] (std::string_view name) {
-		auto it = lookup.find(std::string(name)); // alloc string because unordered_map is dumb
-		if (it == lookup.end())
+		auto it = _lookup.find(std::string(name)); // alloc string because unordered_map is dumb
+		if (it == _lookup.end())
 			return 0; // default tex
 		return it->second;
 	}
-	Texture2D* get_gl_tex (std::string_view name, int slot) {
-		auto it = lookup.find(std::string(name)); // alloc string because unordered_map is dumb
-		if (it == lookup.end()) {
-			assert(false);
-			return { 0 };
-		}
-		return &entries[it->second].slots[slot].texture;
+	TextureEntry* get (std::string_view name) {
+		int idx = operator[](name);
+		if (idx <= 0) return nullptr;
+		return &_entries[idx];
 	}
-
-	Ssbo bindless_tex_lut = {"bindless_ssbo"};
+	Texture2D* get_gl_tex (std::string_view name, int slot) {
+		auto* entry = get(name);
+		if (!entry) return nullptr;
+		return &entry->slots[slot].texture;
+	}
 
 	// TODO: add flag to allow only calling this when textures are added or removed?
 	void update_lut (int ssbo_binding_slot) {
@@ -92,9 +104,9 @@ struct BindlessTextureManager {
 			float _pad = {};
 		};
 		std::vector<Entry> data;
-		data.resize(entries.size());
+		data.resize(_entries.size());
 		for (int i=0; i<(int)data.size(); ++i) {
-			auto& tex = entries[i];
+			auto& tex = _entries[i];
 			for (int j=0; j<4; ++j)
 				data[i].handles[j] = tex.slots[j].handle;
 			data[i].uv_scale = tex.uv_scale;
@@ -109,16 +121,19 @@ struct BindlessTextureManager {
 
 	BindlessTextureManager () {
 		ZoneScoped;
+		add_dummy();
+	}
 
+	void add_dummy () {
 		// load default texture as id 0
-		int id = add_entry("<dummy tex>");
+		int id = add_entry(DUMMY_NAME);
 		assert(id == 0);
 
 		Image<srgb8> img;
 		if (!Image<srgb8>::load_from_file("assets/misc/default.png", &img)) {
 			assert(false);
 		}
-		upload_texture("<dummy tex>", 0, 0, img, default_sampler, true);
+		upload_texture(DUMMY_NAME, 0, 0, img, default_sampler, true);
 	}
 	
 	// returns id
@@ -130,9 +145,9 @@ struct BindlessTextureManager {
 			return id; // return id anyway to avoid crashes (just overwrites it)
 		}
 
-		id = (int)entries.size();
-		lookup[std::move(name)] = id;
-		entries.emplace_back();
+		id = (int)_entries.size();
+		_lookup[std::move(name)] = id;
+		_entries.emplace_back();
 		return id;
 	}
 	// TODO: Currently cannot unload a texture
@@ -151,7 +166,7 @@ struct BindlessTextureManager {
 		auto form = get_format<T>();
 		int num_mips = mips ? calc_mipmaps(img.size.x, img.size.y) : 1;
 		
-		auto& tex = entries[id].slots[slot];
+		auto& tex = _entries[id].slots[slot];
 		tex.texture = {dbg_name};
 		
 		{

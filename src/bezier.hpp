@@ -127,7 +127,7 @@ struct Bezier {
 
 	VEC a, b, c, d;
 
-	operator Bezier<float2> () {
+	operator Bezier<float2> () const {
 		return { (float2)a, (float2)b, (float2)c, (float2)d };
 	}
 
@@ -196,7 +196,7 @@ struct Bezier {
 		return { value, deriv, curv };
 	}
 
-	float approx_len (int steps) {
+	float approx_len (int steps) const {
 		VEC prev = a;
 
 		float len = 0;
@@ -210,7 +210,7 @@ struct Bezier {
 		return len;
 	}
 	
-	void calc_points (VEC* points, int count, float shift, float t0=0, float t1=1) {
+	void calc_points (VEC* points, int count, float shift, float t0=0, float t1=1) const {
 		for (int i=0; i<count; ++i) {
 			float t = lerp(t0, t1, (float)i / (float)max(count-1,1));
 
@@ -221,7 +221,7 @@ struct Bezier {
 		}
 	}
 
-	void dbg_draw (int res, lrgba col, float t0=0, float t1=1, bool draw_handles=true) {
+	void dbg_draw (int res, lrgba col, float t0=0, float t1=1, bool draw_handles=true) const {
 		if (draw_handles) {
 			g_dbgdraw.arrow(a, (b-a), 1, lrgba(1,0.25f,0.25f, col.w));
 			g_dbgdraw.arrow(d, (c-d), 1, lrgba(0.25f,1,0.25f, col.w));

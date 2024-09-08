@@ -122,6 +122,8 @@ VS2FS vec3 wireframe_barycentric;
 	uniform sampler2D terrain_diffuse;
 	uniform vec4 pbr = vec4(0.95,0.0, 0,1);
 	
+	uniform bool contour_lines = false;
+	
 	GBUF_OUT
 	void main () {
 		vec2 uv = v.pos.xy / 32.0;
@@ -129,7 +131,8 @@ VS2FS vec3 wireframe_barycentric;
 		vec3 col = v.tint * texture(terrain_diffuse, v.pos.xy / 32.0).rgb;
 	
 		//col = overlay_grid(col, v.pos);
-		//col = overlay_countour_lines(col, v.pos);
+		if (contour_lines)
+			col = overlay_countour_lines(col, v.pos);
 		
 		frag_col   = vec4(col, 1.0);
 		frag_emiss = vec4(0,0,0,1);

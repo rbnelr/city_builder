@@ -152,7 +152,6 @@ struct AssetMeshes {
 	}
 
 	int compute_indirect_cmds (Shader* shad, Vbo& MDI_vbo, uint32_t instance_count) {
-		if (!shad->prog) return 0;
 		OGL_TRACE("lod_cull compute");
 		
 		// resize/clear cmd buf
@@ -212,7 +211,7 @@ struct EntityRenderer {
 		Vbo vbo = {"entities.vbo"};
 		
 		void upload (std::vector<T> const& data, GLenum usage=GL_STATIC_DRAW) {
-			stream_buffer(GL_ARRAY_BUFFER, vbo, data, usage);
+			upload_buffer(GL_ARRAY_BUFFER, vbo, data, usage);
 		}
 
 		void setup (int& idx) {
@@ -271,7 +270,7 @@ struct EntityRenderer {
 
 		int cmds_count = meshes.compute_indirect_cmds(shad_lod_cull, MDI_vbo, instance_count);
 
-		if (shad->prog) {
+		{
 			OGL_TRACE("draw indirect");
 
 			PipelineState s;
@@ -488,32 +487,28 @@ struct NetworkRenderer {
 	void render (StateManager& state, Textures& texs, bool shadow_pass=false) {
 		OGL_TRACE("network");
 		ZoneScoped;
+		glUseProgram(shad->prog);
 
-		if (shad->prog) {
-			glUseProgram(shad->prog);
+		state.bind_textures(shad, {
 
-			state.bind_textures(shad, {
+		});
 
-			});
-
-			PipelineState s;
-			if (!shadow_pass) {
-				// default
-			}
-			else {
-				s.depth_test = true;
-				s.blend_enable = false;
-				s.depth_clamp = true;
-			}
-			state.set(s);
-
-			if (indices_count > 0) {
-				glBindVertexArray(vbo.vao);
-				glDrawElements(GL_TRIANGLES, indices_count, GL_UNSIGNED_INT, (void*)0);
-			}
+		PipelineState s;
+		if (!shadow_pass) {
+			// default
 		}
+		else {
+			s.depth_test = true;
+			s.blend_enable = false;
+			s.depth_clamp = true;
+		}
+		state.set(s);
 
-		glBindVertexArray(0);
+		if (indices_count > 0) {
+			glBindVertexArray(vbo.vao);
+			glDrawElements(GL_TRIANGLES, indices_count, GL_UNSIGNED_INT, (void*)0);
+			glBindVertexArray(0);
+		}
 	}
 };
 

@@ -641,6 +641,7 @@ struct DirectionalCascadedShadowmap {
 	}
 };
 
+// TODO: probably can convert all current decals into curved decals
 struct DecalRenderer {
 	Shader* shad  = g_shaders.compile("decals");
 
@@ -689,35 +690,131 @@ struct DecalRenderer {
 	void render (StateManager& state, Gbuffer& gbuf, Textures& texs) {
 		ZoneScoped;
 		OGL_TRACE("DecalRenderer");
+		glUseProgram(shad->prog);
 
-		if (shad->prog) {
-			glUseProgram(shad->prog);
+		state.bind_textures(shad, {
+			{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
 
-			state.bind_textures(shad, {
-				{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
+			{ "cracks", *texs.cracks, texs.sampler_normal },
+		});
 
-				{ "cracks", *texs.cracks, texs.sampler_normal },
-			});
+		PipelineState s;
+		// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
+		// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
+		// (The shader still manually intersect the volume to correctly exclude pixels)
+		s.depth_test = true;
+		s.depth_func = DEPTH_BEHIND;
+		s.depth_write = false; // depth write off!
+		s.cull_face = true;
+		s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
+		s.blend_enable = true; // default blend mode (standard alpha)
+		state.set(s);
 
-			PipelineState s;
-			// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
-			// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
-			// (The shader still manually intersect the volume to correctly exclude pixels)
-			s.depth_test = true;
-			s.depth_func = DEPTH_BEHIND;
-			s.depth_write = false; // depth write off!
-			s.cull_face = true;
-			s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
-			s.blend_enable = true; // default blend mode (standard alpha)
-			state.set(s);
+		if (instance_count > 0) {
+			glBindVertexArray(vbo.vao);
+			glDrawElementsInstanced(GL_TRIANGLES, ARRLEN(render::shapes::CUBE_INDICES), GL_UNSIGNED_SHORT, (void*)0, instance_count);
+			glBindVertexArray(0);
+		}
+	}
+};
+struct CurvedDecals {
+	int res = 16;
+	struct Vertex {
+		float t;
+		
+		VERTEX_CONFIG(
+			ATTRIB(FLT,1, Vertex, t),
+		)
+	};
 
-			if (instance_count > 0) {
-				glBindVertexArray(vbo.vao);
-				glDrawElementsInstanced(GL_TRIANGLES, ARRLEN(render::shapes::CUBE_INDICES), GL_UNSIGNED_SHORT, (void*)0, instance_count);
-			}
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<Vertex, BezierDecalInstance>("CurvedDecals.vbo");
+	
+	CurvedDecals () {
+		std::vector<Vertex> verts;
+		std::vector<uint16_t> idxs;
+
+		for (int i=0; i<res+1; ++i) {
+			verts.push_back({ (float)i/(float)res });
+		}
+		for (int i=0; i<res; ++i) {
+			idxs.push_back(i);
+			idxs.push_back(i+1);
 		}
 
-		glBindVertexArray(0);
+		vbo.upload_mesh(verts, idxs);
+	}
+
+	int instances = 0;
+
+	void upload (std::vector<BezierDecalInstance> const& beziers, GLenum usage) {
+		instances = (int)beziers.size();
+		upload_buffer(GL_ARRAY_BUFFER, vbo.instances, beziers, usage);
+	}
+
+	void draw (StateManager& state) {
+		PipelineState s;
+		// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
+		// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
+		// (The shader still manually intersect the volume to correctly exclude pixels)
+		s.depth_test = true;
+		s.depth_func = DEPTH_BEHIND;
+		s.depth_write = false; // depth write off!
+		s.cull_face = true;
+		s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
+		s.blend_enable = true; // default blend mode (standard alpha)
+			
+		state.set_no_override(s);
+
+		if (instances > 0) {
+			glBindVertexArray(vbo.vao);
+			glDrawElementsInstanced(GL_LINES, res*2, GL_UNSIGNED_SHORT, (void*)0, (GLsizei)instances);
+			glBindVertexArray(0);
+		}
+	}
+};
+
+//struct CurvedDecalRender {
+//	Shader* shad  = g_shaders.compile_geometry("decals_curved");
+//
+//	CurvedDecals beziers;
+//
+//	void render (StateManager& state, Gbuffer& gbuf, App& app, Textures& texs) {
+//		ZoneScoped;
+//		OGL_TRACE("OverlayRender");
+//		glUseProgram(shad->prog);
+//
+//		state.bind_textures(shad, {
+//			{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
+//			{ "road_wear", *texs.road_wear, texs.sampler_normal },
+//		});
+//
+//		beziers.upload(app.overlay.beziers, GL_STREAM_DRAW);
+//		beziers.draw(state);
+//	}
+//};
+struct OverlayRender {
+	Shader* shad  = g_shaders.compile_geometry("overlay");
+
+	CurvedDecals beziers;
+
+	void render (StateManager& state, Gbuffer& gbuf, App& app, Textures& texs) {
+		ZoneScoped;
+		OGL_TRACE("OverlayRender");
+		glUseProgram(shad->prog);
+
+		state.bind_textures(shad, {
+			{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
+			{ "road_wear", *texs.road_wear, texs.sampler_normal },
+		});
+
+		int pattern_base_texid = texs.bindless_textures["misc/patterns/solid"];
+		int overlay_base_texid = texs.bindless_textures["misc/patterns/thick_arrow"];
+
+		shad->set_uniform("pattern_base_texid", pattern_base_texid);
+		shad->set_uniform("overlay_base_texid", overlay_base_texid);
+
+		beziers.upload(app.overlay.beziers, GL_STREAM_DRAW);
+		beziers.draw(state);
 	}
 };
 
@@ -805,32 +902,29 @@ struct ClippingRenderer {
 		// I first read depth using texelFetch2D, then write using gl_FragDepth = 0.0 both in the same fragment shader
 		// it seems to work!
 
-		if (shad->prog) {
-			glUseProgram(shad->prog);
+		glUseProgram(shad->prog);
 
-			state.bind_textures(shad, {
-				{ "gbuf_depth", { GL_TEXTURE_2D, depth }, depth_sampler },
-				//{ "test_tex", texs.terrain_diffuse, texs.sampler_normal },
-			});
+		state.bind_textures(shad, {
+			{ "gbuf_depth", { GL_TEXTURE_2D, depth }, depth_sampler },
+			//{ "test_tex", texs.terrain_diffuse, texs.sampler_normal },
+		});
 
-			PipelineState s;
-			s.depth_test = true;
-			s.depth_func = DEPTH_BEHIND;
-			s.depth_write = true;
-			s.cull_face = true;
-			s.front_face = CULL_FRONT;
-			if (shadow_pass) {
-				s.depth_clamp = true;
-			}
-			state.set_no_override(s);
-
-			if (instance_count > 0) {
-				glBindVertexArray(vbo.vao);
-				glDrawElementsInstanced(GL_TRIANGLES, index_count, GL_UNSIGNED_SHORT, (void*)0, instance_count);
-			}
+		PipelineState s;
+		s.depth_test = true;
+		s.depth_func = DEPTH_BEHIND;
+		s.depth_write = true;
+		s.cull_face = true;
+		s.front_face = CULL_FRONT;
+		if (shadow_pass) {
+			s.depth_clamp = true;
 		}
+		state.set_no_override(s);
 
-		glBindVertexArray(0);
+		if (instance_count > 0) {
+			glBindVertexArray(vbo.vao);
+			glDrawElementsInstanced(GL_TRIANGLES, index_count, GL_UNSIGNED_SHORT, (void*)0, instance_count);
+			glBindVertexArray(0);
+		}
 	}
 };
 
@@ -890,7 +984,7 @@ struct DefferedPointLightRenderer {
 	}
 
 	void draw (StateManager& state, Gbuffer& gbuf, PBR_Render& pbr) {
-		if (enable && shad->prog) {
+		if (enable) {
 			ZoneScoped;
 			OGL_TRACE("draw lights");
 
@@ -923,72 +1017,6 @@ struct DefferedPointLightRenderer {
 			glDrawElementsInstanced(GL_TRIANGLES, index_count, GL_UNSIGNED_SHORT, (void*)0, instance_count);
 			glBindVertexArray(0);
 		}
-	}
-};
-
-struct OverlayRender {
-	Shader* shad  = g_shaders.compile_geometry("overlay");
-
-	int res = 16;
-	struct Vertex {
-		float t;
-		
-		VERTEX_CONFIG(
-			ATTRIB(FLT,1, Vertex, t),
-		)
-	};
-
-	VertexBufferInstancedI vbo = vertex_buffer_instancedI<Vertex, OverlayDraw::BezierInstance>("OverlayRender.vbo");
-	
-	OverlayRender () {
-		std::vector<Vertex> verts;
-		std::vector<uint16_t> idxs;
-
-		for (int i=0; i<res+1; ++i) {
-			verts.push_back({ (float)i/(float)res });
-		}
-		for (int i=0; i<res; ++i) {
-			idxs.push_back(i);
-			idxs.push_back(i+1);
-		}
-
-		vbo.upload_mesh(verts, idxs);
-	}
-
-	void render (StateManager& state, Gbuffer& gbuf, App& app, Textures& texs) {
-		ZoneScoped;
-		OGL_TRACE("OverlayRender");
-
-		if (shad->prog) {
-			glUseProgram(shad->prog);
-
-			state.bind_textures(shad, {
-				{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
-				{ "road_wear", *texs.road_wear, texs.sampler_normal },
-			});
-
-			PipelineState s;
-			// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
-			// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
-			// (The shader still manually intersect the volume to correctly exclude pixels)
-			s.depth_test = true;
-			s.depth_func = DEPTH_BEHIND;
-			s.depth_write = false; // depth write off!
-			s.cull_face = true;
-			s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
-			s.blend_enable = true; // default blend mode (standard alpha)
-			
-			state.set_no_override(s);
-
-			vbo.stream_instances(app.overlay.beziers);
-
-			if (app.overlay.beziers.size() > 0) {
-				glBindVertexArray(vbo.vao);
-				glDrawElementsInstanced(GL_LINES, res*2, GL_UNSIGNED_SHORT, (void*)0, (GLsizei)app.overlay.beziers.size());
-			}
-		}
-
-		glBindVertexArray(0);
 	}
 };
 

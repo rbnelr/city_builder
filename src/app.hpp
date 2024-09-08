@@ -368,13 +368,7 @@ struct BezierBuilder {
 			if (sel)
 				bez.dbg_draw(128, lrgba(1,0,0,0.25f));
 			
-			float tex_aspect = 4;
-
-			float width = 3.4f;
-			float len = bez.approx_len(16);
-			float v1 = len / (width * tex_aspect);
-			overlay.draw_bezier_path(bez, float2(width, 1), lrgba(0,0,1,v1), lrgba(1,1,0,1));
-
+			overlay.draw_bezier_section(bez, float2(0,1), float2(3.4f, 1), lrgba(1,1,0,1), OverlayDraw::PATTERN_SOLID);
 
 			if (sel && I.buttons[KEY_DELETE].went_down) {
 				to_delete = it;
@@ -908,7 +902,8 @@ public:
 	// rand set by TestMapBuilder to get consistent paths for testing
 	Random sim_rand;
 
-	Test2 test;
+	Test test;
+	Test2 test2;
 	BezierBuilder test_bez;
 
 	View3D update_camera () {
@@ -975,11 +970,13 @@ public:
 	////
 		View3D view = update_camera();
 		
-		test.update(input, view);
-
 		// select after updating positions
 		interact.update(heightmap, entities, network, view, input);
 		
+	//// Testing stuff
+		//test.update(input, view);
+		//test2.update(input, view);
+
 		test_bez.imgui(input, view);
 		test_bez.update(input, view, overlay);
 

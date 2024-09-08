@@ -2,7 +2,7 @@ Tomorrows Agenda:
 1. Lane and traffic light visualization for selected intersection
 2. Traffic light editor
 3. Lane editor and allowed lane connections + Lane editor
-4. Segment and Intersection lane decals!
+*4. Segment and Intersection lane decals!
 5. Less lane switching on intersection
 6. Intersection metrics (cars/minute? counter, how to track? exponential average? + graph for last selected or similar?)
 7. Lane occupancy based lane selection

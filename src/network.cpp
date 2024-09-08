@@ -715,6 +715,13 @@ Conflict check_conflict (CachedConnection const& a, CachedConnection const& b) {
 	v0 *= 1.0f / COLLISION_STEPS;
 	v1 *= 1.0f / COLLISION_STEPS;
 
+	if (a.conn.a == b.conn.a) { // same start point, code miss intersection, force it
+		u0 = 0; v0 = 0;
+	}
+	if (a.conn.b == b.conn.b) { // same end   point, code miss intersection, force it
+		u1 = 1; v1 = 1;
+	}
+
 	return { u0, u1, v0, v1 };
 }
 
@@ -781,6 +788,30 @@ bool dbg_conflicts (App& app, Node* node, ActiveVehicle* vehicle) {
 	return true;
 }
 
+void debug_conflict (CachedConnection const& a, CachedConnection const& b, Conflict& conf) {
+	for (int i=0; i<COLLISION_STEPS; ++i) {
+		g_dbgdraw.line(float3(a.pointsL[i], ROAD_Z), float3(a.pointsL[i+1], ROAD_Z), lrgba(1,1,0,1));
+		g_dbgdraw.line(float3(a.pointsR[i], ROAD_Z), float3(a.pointsR[i+1], ROAD_Z), lrgba(1,1,0,1));
+		g_dbgdraw.line(float3(b.pointsL[i], ROAD_Z), float3(b.pointsL[i+1], ROAD_Z), lrgba(0,1,1,1));
+		g_dbgdraw.line(float3(b.pointsR[i], ROAD_Z), float3(b.pointsR[i+1], ROAD_Z), lrgba(0,1,1,1));
+	}
+
+	auto draw_line = [&] (float2 const* L, float2 const* R, float t) {
+		int i = (int)(t * COLLISION_STEPS);
+		t = t * COLLISION_STEPS - i;
+
+		g_dbgdraw.line(
+			float3(lerp(L[i], L[i+1], t), ROAD_Z),
+			float3(lerp(R[i], R[i+1], t), ROAD_Z), lrgba(1,0,0,1));
+	};
+	if (conf) {
+		draw_line(a.pointsL, a.pointsR, conf.a_t0);
+		draw_line(a.pointsL, a.pointsR, conf.a_t1);
+		draw_line(b.pointsL, b.pointsR, conf.b_t0);
+		draw_line(b.pointsL, b.pointsR, conf.b_t1);
+	}
+}
+
 NodeVehicle* get_left_vehicle (NodeVehicle& a, NodeVehicle& b) {
 	float2 dir_a = a.conn.pointsL[4] - a.conn.pointsL[0];
 	float2 dir_b = b.conn.pointsL[4] - b.conn.pointsL[0];
@@ -788,11 +819,14 @@ NodeVehicle* get_left_vehicle (NodeVehicle& a, NodeVehicle& b) {
 
 	return d > 0 ? &a : &b;
 }
-void yield_for_car (App& app, Node* node, NodeVehicle& a, NodeVehicle& b) {
+void yield_for_car (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg) {
 	// WARNING: a and b are kinda the wrong way around, b is on the left, ie. yielded for
 	assert(a.vehicle != b.vehicle);
 	
 	auto conf = query_conflict(node, a.conn, b.conn);
+	
+	//if (dbg) debug_conflict(a.conn, b.conn, conf);
+	
 	if (!conf)
 		return;
 	
@@ -994,6 +1028,9 @@ void cache_conn (CachedConnection& conn, ActiveVehicle* vehicle) {
 void update_node (App& app, Node* node, float dt) {
 	bool node_dbg = app.interact.selection.get<Node*>() == node;
 
+	auto* sel  = app.interact.selection.get<Person*>() ? app.interact.selection.get<Person*>()->vehicle.get() : nullptr;
+	auto* sel2 = app.interact.hover    .get<Person*>() ? app.interact.hover    .get<Person*>()->vehicle.get() : nullptr;
+
 	if (node->traffic_light) {
 		assert(node->traffic_light);
 		node->traffic_light->update(node, dt);
@@ -1127,8 +1164,9 @@ void update_node (App& app, Node* node, float dt) {
 		// loop over all previous cars (higher prio to yield for)
 		for (int j=0; j<i; ++j) {
 			auto& b = node->vehicles.test.list[j];
-
-			yield_for_car(app, node, a, b);
+			
+			bool dbg = (a.vehicle == sel || a.vehicle == sel2) && (b.vehicle == sel || b.vehicle == sel2);
+			yield_for_car(app, node, a, b, dbg);
 		}
 
 		// brake for target lane car

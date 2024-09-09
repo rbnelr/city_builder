@@ -418,7 +418,7 @@ void overlay_lane_vehicle (App& app, ActiveVehicle* vehicle, lrgba col, int tex)
 		// TODO: actually enable computing previous bezier!
 	}
 	
-	app.overlay.draw_bezier_section(cur_bez, float2(t0,t1), float2(LANE_COLLISION_R*2, 1), col, tex);
+	app.overlay.draw_bezier_portion(cur_bez, float2(t0,t1), float2(LANE_COLLISION_R*2, 1), col, tex);
 }
 
 void dbg_node_lane_alloc (App& app, Node* node) {
@@ -432,7 +432,7 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 		float bez_speed = length(bez.eval(t1).vel);
 		float t0 = t1 - a->car_len() / bez_speed;
 		
-		app.overlay.draw_bezier_section(bez, float2(t0,t1), float2(LANE_COLLISION_R*2, 1), lrgba(a->cit->col, 0.8f), OverlayDraw::PATTERN_STRIPED);
+		app.overlay.draw_bezier_portion(bez, float2(t0,t1), float2(LANE_COLLISION_R*2, 1), lrgba(a->cit->col, 0.8f), OverlayDraw::PATTERN_STRIPED);
 	};
 
 	for (auto& seg : node->segments) {
@@ -566,7 +566,7 @@ void debug_person (App& app, Person* person, View3D const& view) {
 				skip_next_node = false;
 			}
 			else {
-				app.overlay.draw_bezier_section(s.bezier, float2(start_t, s.end_t),
+				app.overlay.draw_bezier_portion(s.bezier, float2(start_t, s.end_t),
 					float2(2, 1), lrgba(1,1,0,0.75f), OverlayDraw::TEXTURE_THIN_ARROW);
 			}
 
@@ -775,7 +775,7 @@ bool dbg_conflicts (App& app, Node* node, ActiveVehicle* vehicle) {
 	};
 
 	// visualized vehicle's path through node as thick yellow arrow
-	app.overlay.draw_bezier_section(a.conn.bezier, float2(0,1), sz, lrgba(0.9f,0.9f,0.1f, 0.9f), OverlayDraw::TEXTURE_THICK_ARROW);
+	app.overlay.draw_bezier_portion(a.conn.bezier, float2(0,1), sz, lrgba(0.9f,0.9f,0.1f, 0.9f), OverlayDraw::TEXTURE_THICK_ARROW);
 	
 	// loop over all previous cars (higher prio to yield for)
 	for (int j=0; j<idx; ++j) {
@@ -785,7 +785,7 @@ bool dbg_conflicts (App& app, Node* node, ActiveVehicle* vehicle) {
 		if (!has_conflict(node, a, b, conf)) continue;
 		
 		// conflict on visualized vehicle's path as red striped zone
-		app.overlay.draw_bezier_section(a.conn.bezier, float2(conf.a_t0, conf.a_t1), sz, lrgba(1.0f,0.02f,0.02f, 1), OverlayDraw::PATTERN_STRIPED);
+		app.overlay.draw_bezier_portion(a.conn.bezier, float2(conf.a_t0, conf.a_t1), sz, lrgba(1.0f,0.02f,0.02f, 1), OverlayDraw::PATTERN_STRIPED);
 	}
 
 	// draw red arrows last to overlap all striped regions (looks nicer)
@@ -796,7 +796,7 @@ bool dbg_conflicts (App& app, Node* node, ActiveVehicle* vehicle) {
 		if (!has_conflict(node, a, b, conf)) continue;
 		
 		// yielded-to vehicle's path through node as thin red arrow
-		app.overlay.draw_bezier_section(b.conn.bezier, float2(0,1), sz, lrgba(1.0f,0.08f,0.08f, 0.9f), OverlayDraw::TEXTURE_THIN_ARROW);
+		app.overlay.draw_bezier_portion(b.conn.bezier, float2(0,1), sz, lrgba(1.0f,0.08f,0.08f, 0.9f), OverlayDraw::TEXTURE_THIN_ARROW);
 	}
 
 	return true;
@@ -887,7 +887,8 @@ void yield_for_car (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool d
 		float b_eta = (b_k0 - b.front_k) / (b.vehicle->speed + 1.0f);
 
 		// max .5m past stop line
-		bool behind_stop_line = a.front_k < 0.5f;
+		bool behind_stop_line = app.network.settings.intersec_heur.avoid_blocking_intersection &&
+			a.front_k < 0.5f;
 		// wait before conflict if we reach it fast and yielded-for car arrives in similar time to us
 		// otherwise wait at stop line
 		bool need_wait = b_eta / a_eta > 3.0f || a_eta > 10.0f;
@@ -903,7 +904,7 @@ void yield_for_car (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool d
 		}
 	}
 	
-	float dist = stop_k - a.front_k; // wait before conflict by default
+	float dist = stop_k - a.front_k;
 
 	brake_for_dist(a.vehicle, dist);
 	dbg_brake_for_vehicle(app, a.vehicle, dist, b.vehicle);

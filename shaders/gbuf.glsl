@@ -29,11 +29,25 @@ vec3 depth_to_pos_world (float depth, vec2 screen_uv) {
 	return pos_world.xyz;
 }
 
+#ifdef _FRAGMENT
 #define GBUF_OUT \
 	layout(location = 0) out vec4 frag_col; \
 	layout(location = 1) out vec4 frag_emiss; \
 	layout(location = 2) out vec4 frag_norm; \
 	layout(location = 3) out vec4 frag_pbr;
+	
+uniform bool wireframe = false;
+uniform vec4 wireframe_col = vec4(0,0,0,1);
+
+#define GBUF_HANDLE_WIREFRAME \
+	if (wireframe) { \
+		frag_col   = vec4(0,0,0,wireframe_col.a); \
+		frag_emiss = wireframe_col; \
+		frag_norm  = vec4(0,0,1,wireframe_col.a); \
+		frag_pbr   = vec4(1,0,0,wireframe_col.a); \
+		return; \
+	}
+#endif
 	
 struct GbufResult {
 	vec3  view_dir; // camera to point, or just pixel ray dir if !valid

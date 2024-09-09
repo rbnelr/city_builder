@@ -577,7 +577,7 @@ struct Settings {
 
 	struct IntersectionHeuristics {
 		SERIALIZE(IntersectionHeuristics, wait_boost_fac, progress_boost, exit_eta_penal,
-			right_before_left_penal, conflict_eta_penal, yield_lane_penal);
+			right_before_left_penal, conflict_eta_penal, yield_lane_penal, avoid_blocking_intersection);
 		
 		float wait_boost_fac          = 1;
 		float progress_boost          = 30;
@@ -585,6 +585,8 @@ struct Settings {
 		float right_before_left_penal = 15;
 		float conflict_eta_penal      = 20;
 		float yield_lane_penal        = 50;
+
+		bool avoid_blocking_intersection = true;
 	} intersec_heur;
 	
 	void imgui () {
@@ -612,6 +614,8 @@ struct Settings {
 			ImGui::DragFloat("right_before_left_penal", &intersec_heur.right_before_left_penal, 0.1f);
 			ImGui::DragFloat("conflict_eta_penal",      &intersec_heur.conflict_eta_penal     , 0.1f);
 			ImGui::DragFloat("yield_lane_penal",        &intersec_heur.yield_lane_penal       , 0.1f);
+			
+			ImGui::Checkbox("avoid_blocking_intersection", &intersec_heur.avoid_blocking_intersection);
 			ImGui::TreePop();
 		}
 

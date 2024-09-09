@@ -70,6 +70,8 @@
 	
 	GBUF_OUT
 	void main () {
+		GBUF_HANDLE_WIREFRAME
+		
 		vec2 uv; float fade; vec3 pos_world;
 		if (!curved_decal(uv, fade, pos_world))
 			discard;

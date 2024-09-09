@@ -29,14 +29,14 @@
 	},
 	"main_cam": {
 		"orbit_pos": [
-			401.2949523925781,
-			1003.4263916015625,
+			992.6167602539063,
+			996.4988403320313,
 			-0.14999611675739288
 		],
-		"zoom_target": -5.25,
+		"zoom_target": -5.0,
 		"rot_aer": [
-			-1.7809383869171143,
-			-0.7607006430625916,
+			-1.6751819849014282,
+			-0.5275959372520447,
 			0.0
 		],
 		"vfov": 0.9352987408638,
@@ -54,7 +54,8 @@
 				"exit_eta_penal": 10.0,
 				"right_before_left_penal": 15.0,
 				"conflict_eta_penal": 20.0,
-				"yield_lane_penal": 50.0
+				"yield_lane_penal": 50.0,
+				"avoid_blocking_intersection": true
 			},
 			"suspension": {
 				"max": [

@@ -447,6 +447,24 @@ struct BezierDecalInstance {
 		ATTRIB(FLT,4, BezierDecalInstance, col),
 		ATTRIB(INT,1, BezierDecalInstance, tex),
 	)
+
+	static BezierDecalInstance from_bezier (Bezier3 const& bez, float2 t_range, float2 size, float4 uv_remap, lrgba col, int tex) {
+		BezierDecalInstance i;
+		i.a = bez.a;
+		i.b = bez.b;
+		i.c = bez.c;
+		i.d = bez.d;
+		i.size = float4(t_range.x, t_range.y, size.x, size.y);
+		i.uv_remap = uv_remap;
+		i.col = col;
+		i.tex = tex;
+		return i;
+	}
+	static BezierDecalInstance from_bezier_portion (Bezier3 const& bez, float2 t_range, float2 size, lrgba col, int tex) {
+		float len = bez.approx_len(16) * (t_range.y - t_range.x);
+		float v1 = len / size.x;
+		return from_bezier(bez, t_range, size, float4(0,0,1,v1), col, tex);
+	}
 };
 
 struct OverlayDraw {
@@ -466,24 +484,9 @@ struct OverlayDraw {
 		beziers.shrink_to_fit();
 	}
 
-	void draw_bezier_path (Bezier3 const& bez, float2 t_range, float2 size, float4 uv_remap, lrgba col, int tex) {
-		BezierDecalInstance i;
-		i.a = bez.a;
-		i.b = bez.b;
-		i.c = bez.c;
-		i.d = bez.d;
-		i.size = float4(t_range.x, t_range.y, size.x, size.y);
-		i.uv_remap = uv_remap;
-		i.col = col;
-		i.tex = tex;
-		beziers.emplace_back(i);
-	}
-
 	// set uv_remap to U[0,1] and V[0,K] such that K causes correct UV aspect ratio (ie. V is unbounded = [0,inf])
 	// shader can do V1 / uv_remap.w to get UV[0,1] back!
-	void draw_bezier_section (Bezier3 const& bez, float2 t_range, float2 size, lrgba col, int tex) {
-		float len = bez.approx_len(16) * (t_range.y - t_range.x);
-		float v1 = len / size.x;
-		draw_bezier_path(bez, t_range, size, float4(0,0,1,v1), col, tex);
+	void draw_bezier_portion (Bezier3 const& bez, float2 t_range, float2 size, lrgba col, int tex) {
+		beziers.push_back( BezierDecalInstance::from_bezier_portion(bez, t_range, size, col, tex) );
 	}
 };

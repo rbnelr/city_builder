@@ -1,6 +1,5 @@
 #pragma once
 #include "common.hpp"
-#include "textures.hpp"
 #include "engine/camera.hpp"
 
 struct Assets;

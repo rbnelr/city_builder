@@ -333,21 +333,37 @@ struct Test {
 struct BezierBuilder {
 	SERIALIZE(BezierBuilder, beziers)
 	
-	std::vector<Bezier3> beziers;
+	struct Object {
+		SERIALIZE(Object, bez, width, col)
+
+		Bezier3 bez;
+		float width = 3.0f;
+		lrgba col = lrgba(1,1,0,1);
+
+		static Object create_at_screen_center (View3D& view) {
+			Object o;
+
+			Ray ray;
+			view.screen_ray(0.5f, &ray.pos, &ray.dir);
+
+			float3 pos = 0;
+
+			float hit_t;
+			if (intersect_ray_zplane(ray, 0, &hit_t)) {
+				pos = ray.pos + ray.dir * hit_t;
+			}
+			
+			o.bez = {pos, pos + float3(5,0,0), pos + float3(15,5,0), pos + float3(20,5,0)};
+			return o;
+		}
+	};
+	std::vector<Object> beziers;
 
 	void imgui (Input& I, View3D& view) {
 		if (!imgui_Header("BezierBuilder", true)) return;
 
 		if (ImGui::Button("+")) {
-			Ray ray;
-			if (view.cursor_ray(I, &ray.pos, &ray.dir)) {
-				float hit_t;
-				if (intersect_ray_zplane(ray, 0, &hit_t)) {
-					float3 pos = ray.pos + ray.dir * hit_t;
-					pos.z = 0;
-					beziers.push_back({pos, pos + float3(5,0,0), pos + float3(15,5,0), pos + float3(20,5,0)});
-				}
-			}
+			beziers.push_back(Object::create_at_screen_center(view));
 		}
 		if (ImGui::Button("-") && !beziers.empty())
 			beziers.pop_back();
@@ -358,17 +374,17 @@ struct BezierBuilder {
 		decltype(beziers.begin()) to_delete = beziers.end();
 
 		for (auto it = beziers.begin(); it != beziers.end(); ++it) {
-			auto& bez = *it;
+			auto& obj = *it;
 
-			bool  sel =  draggable(I, view, &bez.a, 1);
-			sel = sel || draggable(I, view, &bez.b, 1);
-			sel = sel || draggable(I, view, &bez.c, 1);
-			sel = sel || draggable(I, view, &bez.d, 1);
+			bool  sel =  draggable(I, view, &obj.bez.a, 1);
+			sel = sel || draggable(I, view, &obj.bez.b, 1);
+			sel = sel || draggable(I, view, &obj.bez.c, 1);
+			sel = sel || draggable(I, view, &obj.bez.d, 1);
 
 			if (sel)
-				bez.dbg_draw(128, lrgba(1,0,0,0.25f));
+				obj.bez.dbg_draw(128, lrgba(1,0,0,0.25f));
 			
-			overlay.draw_bezier_section(bez, float2(0,1), float2(3.4f, 1), lrgba(1,1,0,1), OverlayDraw::PATTERN_SOLID);
+			overlay.draw_bezier_portion(obj.bez, float2(0,1), float2(obj.width, 1), obj.col, OverlayDraw::PATTERN_SOLID);
 
 			if (sel && I.buttons[KEY_DELETE].went_down) {
 				to_delete = it;
@@ -530,7 +546,7 @@ struct TestMapBuilder {
 	void update (Assets& assets, Entities& entities, Network& net, Interaction& interact, Random& sim_rand) {
 		using namespace network;
 
-		bool buildings = ImGui::SliderInt("grid_n", &_grid_n, 1, 1000)
+		bool buildings = ImGui::SliderInt("grid_n", &_grid_n, 1, 100)
 			|| assets.assets_reloaded;
 		buildings = ImGui::Button("Respawn buildings") || buildings;
 

@@ -236,4 +236,9 @@ public:
 	}
 };
 
+inline std::unique_ptr<Renderer> create_ogl_backend () {
+	ZoneScoped;
+	return std::make_unique<ogl::OglRenderer>();
+}
+
 } // namespace ogl

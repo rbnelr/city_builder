@@ -50,6 +50,8 @@ VS2FS Vertex {
 	
 	GBUF_OUT
 	void main () {
+		GBUF_HANDLE_WIREFRAME
+		
 		vec3 gbuf_pos_world;
 		if (!decode_gbuf_pos(gbuf_pos_world))
 			discard;

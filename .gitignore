@@ -12,6 +12,8 @@ heightmap.data
 graphics_settings.json
 imgui.ini
 
+*.txt
+
 *.exe
 *.dll
 *.pdb

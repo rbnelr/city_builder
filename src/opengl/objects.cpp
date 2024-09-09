@@ -3,9 +3,24 @@
 
 namespace ogl {
 
-struct StaticInstances {
-	EntityRenderers& rend;
-	Textures& textures;
+// TODO: naming?
+struct Mesher {
+	EntityRenderers& entity_renders;
+	NetworkRenderer& network_render;
+	DecalRenderer&   decal_render;
+	ClippingRenderer& clip_render;
+	App            & app;
+	Textures       & textures;
+
+	Mesher (EntityRenderers& entity_renderers,
+	        NetworkRenderer& network_renderer,
+	        DecalRenderer& decal_renderer,
+	        ClippingRenderer& clip_render,
+	        App            & app,
+			Textures       & textures):
+		entity_renders{entity_renderers}, network_render{network_renderer}, decal_render{decal_renderer},
+		clip_render{clip_render}, app{app}, textures{textures} {}
+	
 
 	std::vector<StaticEntity> buildings;
 	std::vector<StaticEntity> props;
@@ -14,15 +29,38 @@ struct StaticInstances {
 
 	std::vector<DefferedPointLightRenderer::LightInstance> lights;
 
+	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
+	std::vector<ClippingRenderer::Instance> clippings;
+
+	std::vector<DecalRenderer::Instance>    decals;
+	std::vector<BezierDecalInstance>        bez_decals;
+	
 	void reserve () {
-		buildings.reserve(4096);
-		props.reserve(4096);
-		lamps.reserve(4096);
+		buildings      .reserve(4096);
+		props          .reserve(4096);
+		lamps          .reserve(4096);
 		traffic_signals.reserve(512);
-		lights.reserve(4096);
+		lights         .reserve(4096);
+		clippings      .reserve(512);
+		decals         .reserve(4096);
+		bez_decals     .reserve(4096);
+	}
+	void upload () {
+		ZoneScoped;
+		OGL_TRACE("upload StaticGeometry");
+		
+		entity_renders.buildings      .upload<0>(buildings, false);
+		entity_renders.props          .upload<0>(props, false);
+		entity_renders.lamps          .upload<0>(lamps, false);
+		entity_renders.traffic_signals.upload<0>(traffic_signals, false);
+
+		entity_renders.light_renderer.update_instances(lights);
+		
+		network_render.upload(network_mesh);
+		decal_render  .upload(decals);
+		clip_render   .upload(clippings);
 	}
 
-		
 	void _push_light (float3x4 const& matrix, PointLight& light) {
 		auto* inst = push_back(lights, 1);
 			
@@ -36,7 +74,7 @@ struct StaticInstances {
 	void _push_base_prop (std::vector<StaticEntity>& vec, PropAsset* prop, float3 pos, float rot) {
 		auto* inst = push_back(vec, 1);
 
-		inst->mesh_id = rend.prop_meshes.asset2mesh_id[prop];
+		inst->mesh_id = entity_renders.prop_meshes.asset2mesh_id[prop];
 		inst->tex_id = textures.bindless_textures[prop->tex_filename];
 		inst->pos = pos;
 		inst->rot = rot;
@@ -56,31 +94,9 @@ struct StaticInstances {
 	void push_traffic_signal (PropAsset* prop, float3 pos, float rot) {
 		_push_base_prop(traffic_signals, prop, pos, rot);
 	}
-};
 
-struct Mesher {
-	EntityRenderers& entity_renders;
-	NetworkRenderer& network_render;
-	DecalRenderer&   decal_render;
-	ClippingRenderer& clip_render;
-	App            & app;
-	Textures       & textures;
-	
-	EntityRenderers::StaticInstances static_inst;
+////
 
-	Mesher (EntityRenderers& entity_renderers,
-	        NetworkRenderer& network_renderer,
-	        DecalRenderer& decal_renderer,
-	        ClippingRenderer& clip_render,
-	        App            & app,
-			Textures       & textures):
-		entity_renders{entity_renderers}, network_render{network_renderer}, decal_render{decal_renderer}, clip_render{clip_render}, app{app}, textures{textures},
-		static_inst{ entity_renderers, textures } {}
-	
-	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
-	std::vector<DecalRenderer::Instance> decals;
-	std::vector<ClippingRenderer::Instance> clippings;
-	
 	void place_segment_line_props (network::Segment& seg, NetworkAsset::Streetlight& light) {
 		float y = 0;
 		while (y < seg._length) {
@@ -93,7 +109,7 @@ struct Mesher {
 			float3 shift = light.shift + float3(0,y,0);
 			float3 pos = seg.pos_a + right * shift.x + forw * shift.y + up * shift.z;
 
-			static_inst.push_lamp(light.prop.get(), pos, rot);
+			push_lamp(light.prop.get(), pos, rot);
 
 			y += light.spacing;
 		}
@@ -113,7 +129,7 @@ struct Mesher {
 		float2 shift = seg.asset->traffic_light_shift;
 		float3 pos = seg.pos_for_node(node) + right * shift.x + forw * shift.y;
 
-		static_inst.push_prop(props->mast_prop.get(), pos, rot);
+		push_prop(props->mast_prop.get(), pos, rot);
 
 		for (auto in_lane : seg.in_lanes(node)) {
 			auto& layout = seg.get_lane_layout(&in_lane.get());
@@ -122,7 +138,7 @@ struct Mesher {
 			float3 local_pos = props->get_signal_pos(x);
 			float3 spos = pos + right * local_pos.x + forw * local_pos.y + up * local_pos.z;
 
-			static_inst.push_traffic_signal(props->signal_prop.get(), spos, rot);
+			push_traffic_signal(props->signal_prop.get(), spos, rot);
 		}
 	}
 
@@ -217,6 +233,10 @@ struct Mesher {
 		extrude(sR0 , sR1 , curb_tex_tiling);
 		extrude(sR1 , sR2b, curb_tex_tiling);
 		extrude(sR2 , sR3 );
+
+		for (auto& lane : seg.asset->lanes) {
+			
+		}
 		
 		for (auto& line : seg.asset->line_markings) {
 			int tex_id = textures.bindless_textures[
@@ -438,11 +458,11 @@ struct Mesher {
 	void push_buildings () {
 		ZoneScoped;
 
-		static_inst.buildings.resize(app.entities.buildings.size());
+		buildings.resize(app.entities.buildings.size());
 
 		for (uint32_t i=0; i<(uint32_t)app.entities.buildings.size(); ++i) {
 			auto& entity = app.entities.buildings[i];
-			auto& inst = static_inst.buildings[i];
+			auto& inst = buildings[i];
 			
 			inst.mesh_id = entity_renders.building_meshes.asset2mesh_id[entity->asset];
 			inst.tex_id = textures.bindless_textures[entity->asset->tex_filename];
@@ -455,7 +475,7 @@ struct Mesher {
 	void remesh (App& app) {
 		ZoneScoped;
 
-		static_inst.reserve();
+		reserve();
 		
 		// get diffuse texture id (normal is +1)
 		// negative means worldspace uv mapped
@@ -467,11 +487,7 @@ struct Mesher {
 
 		remesh_network();
 		
-		entity_renders.upload_static_instances(static_inst);
-		
-		network_render.upload(network_mesh);
-		decal_render.upload(decals);
-		clip_render.upload(clippings);
+		upload();
 	}
 };
 

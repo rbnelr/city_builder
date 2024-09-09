@@ -699,16 +699,20 @@ struct DecalRenderer {
 		});
 
 		PipelineState s;
-		// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
-		// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
-		// (The shader still manually intersect the volume to correctly exclude pixels)
-		s.depth_test = true;
-		s.depth_func = DEPTH_BEHIND;
-		s.depth_write = false; // depth write off!
-		s.cull_face = true;
-		s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
-		s.blend_enable = true; // default blend mode (standard alpha)
+		if (!state.wireframe) { // draw normal way for wireframe
+			// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
+			// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
+			// (The shader still manually intersect the volume to correctly exclude pixels)
+			s.depth_test = true;
+			s.depth_func = DEPTH_BEHIND;
+			s.depth_write = false; // depth write off!
+			s.cull_face = true;
+			s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
+			s.blend_enable = true; // default blend mode (standard alpha)
+		}
 		state.set(s);
+		shad->set_uniform("wireframe", state.wireframe);
+		shad->set_uniform("wireframe_col", lrgba(1,1,1,0.75f));
 
 		if (instance_count > 0) {
 			glBindVertexArray(vbo.vao);
@@ -751,19 +755,24 @@ struct CurvedDecals {
 		upload_buffer(GL_ARRAY_BUFFER, vbo.instances, beziers, usage);
 	}
 
-	void draw (StateManager& state) {
+	void draw (Shader* shad, StateManager& state, bool allow_wireframe=true) {
 		PipelineState s;
-		// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
-		// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
-		// (The shader still manually intersect the volume to correctly exclude pixels)
-		s.depth_test = true;
-		s.depth_func = DEPTH_BEHIND;
-		s.depth_write = false; // depth write off!
-		s.cull_face = true;
-		s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
-		s.blend_enable = true; // default blend mode (standard alpha)
-			
-		state.set_no_override(s);
+		if (!(state.wireframe && allow_wireframe)) { // draw normal way for wireframe
+			// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
+			// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
+			// (The shader still manually intersect the volume to correctly exclude pixels)
+			s.depth_test = true;
+			s.depth_func = DEPTH_BEHIND;
+			s.depth_write = false; // depth write off!
+			s.cull_face = true;
+			s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
+			s.blend_enable = true; // default blend mode (standard alpha)
+		}
+		if (allow_wireframe) state.set(s);
+		else                 state.set_no_override(s);
+
+		shad->set_uniform("wireframe", state.wireframe && allow_wireframe);
+		shad->set_uniform("wireframe_col", lrgba(1,0.75f,0.5f,0.75f));
 
 		if (instances > 0) {
 			glBindVertexArray(vbo.vao);
@@ -793,7 +802,7 @@ struct CurvedDecals {
 //	}
 //};
 struct OverlayRender {
-	Shader* shad  = g_shaders.compile_geometry("overlay");
+	Shader* shad = g_shaders.compile_geometry("overlay");
 
 	CurvedDecals beziers;
 
@@ -814,7 +823,7 @@ struct OverlayRender {
 		shad->set_uniform("overlay_base_texid", overlay_base_texid);
 
 		beziers.upload(app.overlay.beziers, GL_STREAM_DRAW);
-		beziers.draw(state);
+		beziers.draw(shad, state);
 	}
 };
 

@@ -13,9 +13,7 @@
 		return clamp(t, 0.0, 1.0);
 	}
 	
-	GBUF_OUT
-	
-	void texture_fitted (vec2 uv, float fade, int tex) {
+	vec4 texture_fitted (vec2 uv, int tex) {
 		const float tex_aspect = 2.0;
 		
 		{
@@ -45,18 +43,14 @@
 		
 		//col = vec4(fract(uv.yy), 0, 1);
 		
-		col.a *= fade;
-		frag_col   = col;
-		frag_emiss = vec4(0,0,0, col.a);
-		frag_norm  = vec4(0,0,1, col.a);
-		frag_pbr   = vec4(1,0,0, col.a);
+		return col;
 	}
 	
-	void pattern (vec2 uv, float fade, vec3 pos_world, int tex) {
+	vec4 pattern (vec2 uv, vec3 pos_world, int tex) {
 		// -1 => pattern_base_texid, -2 => pattern_base_texid+1 etc.
 		float pat = bindless_tex_scaled(pattern_base_texid + (-1-tex), 0, flip_y(pos_world.xy)).r;
 		
-		vec4 col_inner   = g.col * vec4(1,1,1, 0.75) * pat;
+		vec4 col_inner   = g.col * vec4(1,1,1, 0.9) * pat;
 		vec4 col_outline = g.col * vec4(0.1,0.1,0.1, 1.0);
 		
 		vec4 col;
@@ -71,23 +65,38 @@
 			col.a *= edge0;
 		}
 		
-		col.a *= fade;
-		frag_col   = col;
-		frag_emiss = vec4(0,0,0, col.a);
-		frag_norm  = vec4(0,0,1, col.a);
-		frag_pbr   = vec4(1,0,0, col.a);
+		return col;
 	}
 	
+	GBUF_OUT
 	void main () {
 		vec2 uv; float fade; vec3 pos_world;
 		if (!curved_decal(uv, fade, pos_world))
 			discard;
 		
+		vec4 col;
 		if (g.tex >= 0) {
-			texture_fitted(uv, fade, g.tex);
+			col = texture_fitted(uv, g.tex);
 		}
 		else {
-			pattern(uv, fade, pos_world, g.tex);
+			col = pattern(uv, pos_world, g.tex);
 		}
+		
+		col.a *= fade;
+	#if 0
+		// sets the albedo
+		frag_col   = col;
+		frag_emiss = vec4(0,0,0, col.a);
+		frag_norm  = vec4(0,0,1, col.a);
+		frag_pbr   = vec4(1,0,0, col.a);
+	#else
+		// use emissive (not multiplied by exposure factor like usual, so it stays constant brightness!)
+		// albedo, normal and pbr factors still get blended with constants and alpha,
+		// so the emissive acts more like an albedo that is lit by a constant 1 brightness light!
+		frag_col   = vec4(0,0,0, col.a); // black albedo
+		frag_emiss = col;
+		frag_norm  = vec4(0,0,1, col.a); // up facing normal
+		frag_pbr   = vec4(1,0,0, col.a); // 100% roughness, 0% metallic
+	#endif
 	}
 #endif

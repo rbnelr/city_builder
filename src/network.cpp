@@ -753,15 +753,9 @@ bool dbg_conflicts (App& app, Node* node, ActiveVehicle* vehicle) {
 	float2 sz = float2(LANE_COLLISION_R*2, 1);
 	auto& a = node->vehicles.test.list[idx];
 
-	// visualized vehicle's path through node as thick yellow arrow
-	app.overlay.draw_bezier_section(a.conn.bezier, float2(0,1), sz, lrgba(0.9f,0.9f,0.1f, 0.8f), OverlayDraw::TEXTURE_THICK_ARROW);
-	
-	// loop over all previous cars (higher prio to yield for)
-	for (int j=0; j<idx; ++j) {
-		auto& b = node->vehicles.test.list[j];
-
-		auto conf = query_conflict(node, a.conn, b.conn);
-		if (!conf) continue;
+	auto has_conflict = [] (Node* node, NodeVehicle& a, NodeVehicle& b, Conflict& conf) {
+		conf = query_conflict(node, a.conn, b.conn);
+		if (!conf) return false;
 		
 		// Need to keep this code in sync with yield_for_car! (which sucks, not sure what the alternative is if I want to seperate the vis code this cleanly)
 		float a_k1 = conf.a_t1 * a.conn.bez_len;
@@ -776,13 +770,33 @@ bool dbg_conflicts (App& app, Node* node, ActiveVehicle* vehicle) {
 		bool same = merge && diverge; // identical path
 	
 		if (a_exited || b_exited || diverge)
-			continue;
+			return false;
+		return true;
+	};
+
+	// visualized vehicle's path through node as thick yellow arrow
+	app.overlay.draw_bezier_section(a.conn.bezier, float2(0,1), sz, lrgba(0.9f,0.9f,0.1f, 0.9f), OverlayDraw::TEXTURE_THICK_ARROW);
+	
+	// loop over all previous cars (higher prio to yield for)
+	for (int j=0; j<idx; ++j) {
+		auto& b = node->vehicles.test.list[j];
+
+		Conflict conf;
+		if (!has_conflict(node, a, b, conf)) continue;
 		
 		// conflict on visualized vehicle's path as red striped zone
-		app.overlay.draw_bezier_section(a.conn.bezier, float2(conf.a_t0, conf.a_t1), sz, lrgba(1.0f,0.02f,0.02f, 1.0f), OverlayDraw::PATTERN_STRIPED);
+		app.overlay.draw_bezier_section(a.conn.bezier, float2(conf.a_t0, conf.a_t1), sz, lrgba(1.0f,0.02f,0.02f, 1), OverlayDraw::PATTERN_STRIPED);
+	}
 
+	// draw red arrows last to overlap all striped regions (looks nicer)
+	for (int j=0; j<idx; ++j) {
+		auto& b = node->vehicles.test.list[j];
+
+		Conflict conf;
+		if (!has_conflict(node, a, b, conf)) continue;
+		
 		// yielded-to vehicle's path through node as thin red arrow
-		app.overlay.draw_bezier_section(b.conn.bezier, float2(0,1), sz, lrgba(1.0f,0.08f,0.08f, 0.8f), OverlayDraw::TEXTURE_THIN_ARROW);
+		app.overlay.draw_bezier_section(b.conn.bezier, float2(0,1), sz, lrgba(1.0f,0.08f,0.08f, 0.9f), OverlayDraw::TEXTURE_THIN_ARROW);
 	}
 
 	return true;

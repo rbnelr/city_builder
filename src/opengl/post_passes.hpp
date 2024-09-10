@@ -1,6 +1,6 @@
 #pragma once
 #include "common.hpp"
-#include "ogl_common.hpp"
+#include "ogl_render.hpp"
 
 namespace ogl {
 	

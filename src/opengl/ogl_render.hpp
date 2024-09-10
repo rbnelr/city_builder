@@ -1,244 +1,115 @@
 #pragma once
 #include "common.hpp"
-#include "ogl_common.hpp"
-#include "terrain.hpp"
-#include "objects.hpp"
-#include "render_passes.hpp"
-#include "engine/text_render.hpp"
+#include "engine/opengl.hpp"
+#include "app.hpp"
+#include "agnostic_render.hpp"
+#include "gl_dbgdraw.hpp"
+#include "textures.hpp"
+#include "assets.hpp"
 
 namespace ogl {
 
-class OglRenderer : public Renderer {
-	SERIALIZE(OglRenderer, lighting, passes, entity_render)
-public:
-	
-	virtual void to_json (nlohmann::ordered_json& j) {
-		j["ogl_renderer"] = *this;
-	}
-	virtual void from_json (nlohmann::ordered_json const& j) {
-		if (j.contains("ogl_renderer")) j.at("ogl_renderer").get_to(*this);
-	}
-	
-	virtual void imgui (App& app) {
-		//if (imgui_Header("Renderer", true)) {
-		if (ImGui::Begin("Renderer")) {
+static constexpr int UBO_BINDING_COMMON = 0;
+static constexpr int SSBO_BINDING_BINDLESS_TEX_LUT = 0;
+static constexpr int SSBO_BINDING_DBGDRAW_INDIRECT = 1;
+static constexpr int SSBO_BINDING_ENTITY_INSTANCES = 2;
+static constexpr int SSBO_BINDING_ENTITY_MDI       = 3;
+static constexpr int SSBO_BINDING_ENTITY_MESH_INFO = 4;
+static constexpr int SSBO_BINDING_ENTITY_LOD_INFO  = 5;
 
-			passes.exposure.imgui();
+struct Lighting {
+	SERIALIZE(Lighting, sun_col, sky_col, fog_col, fog_base, fog_falloff)
+	
+	float exposure;
+	float inv_exposure;
+
+	float time_of_day = 0.6f;
+	float _pad0;
+		
+	float4x4 sun2world;
+	float4x4 world2sun;
+	float4x4 moon2world;
+	float4x4 world2moon;
+	float4x4 solar2world;
+	float4x4 world2solar;
+
+	lrgb sun_col = lrgb(1.0f, 0.95f, 0.8f);
+	float _pad2;
+	lrgb sky_col = srgb(210, 230, 255);
+	float _pad3;
+	lrgb skybox_bottom_col = srgb(40,50,60);
+	float _pad4;
+		
+	lrgb fog_col = srgb(210, 230, 255);
+	//float _pad3;
+
+	float fog_base    = 0.00005f;
+	float fog_falloff = 0.0005f;
+
+	float clouds_z  = 5000.0;								// cloud height in m
+	float clouds_sz = 1024.0 * 64.0;						// cloud texture size in m
+	float2 clouds_offset = 0;								// cloud uv offset for movement (wraps in [0,1))
+	// 15m/s is realistic but seems very slow visually
+	float2 clouds_vel = rotate2(deg(30)) * float2(100.0);	// current cloud velocity in m/s
+
+	void update (App& app, float expo, GameTime::SkyConfig& sky) {
+		exposure     = expo;
+		inv_exposure = 1.0f / expo;
+
+		time_of_day = app.time.time_of_day;
+
+		sun2world   = (float4x4)sky.sun2world  ;
+		world2sun   = (float4x4)sky.world2sun  ;
+		moon2world  = (float4x4)sky.moon2world ;
+		world2moon  = (float4x4)sky.world2moon ;
+		solar2world = (float4x4)sky.solar2world;
+		world2solar = (float4x4)sky.world2solar;
 			
-			passes.imgui();
-			entity_render.light_renderer.imgui();
-			textures.imgui();
-
-		#if OGL_USE_REVERSE_DEPTH
-			ImGui::Checkbox("reverse_depth", &ogl::reverse_depth);
-		#endif
-
-			gl_dbgdraw.imgui(g_dbgdraw.text);
-
-			lod.imgui();
-
-			lighting.imgui();
-			terrain_render.imgui();
-		}
-		ImGui::End();
+		// TODO: move this to app?
+		clouds_offset += (1.0f / clouds_sz) * clouds_vel * app.sim_dt();
+		clouds_offset = wrap(clouds_offset, 1.0f);
 	}
 
-	StateManager state;
+	void imgui () {
+		if (imgui_Header("Lighting")) {
 
-	glDebugDraw gl_dbgdraw;
-	
-	CommonUniforms common_ubo;
-	
-	RenderPasses passes;
+			imgui_ColorEdit("sun_col", &sun_col);
+			imgui_ColorEdit("sky_col", &sky_col);
+			imgui_ColorEdit("fog_col", &fog_col);
 
-	Lighting lighting;
+			ImGui::DragFloat("fog_base",    &fog_base,    0.0000001f, 0,0, "%.10f");
+			ImGui::DragFloat("fog_falloff", &fog_falloff, 0.000001f, 0,0, "%.10f");
 
-	TerrainRenderer terrain_render;
-	
-	NetworkRenderer network_render;
-	DecalRenderer   decal_render;
-
-	ClippingRenderer clip_render;
-
-	EntityRenderers entity_render;
-
-	OverlayRender overlay_render;
-
-	//SkyboxRenderer skybox;
-	
-	LOD_Func lod;
-
-	Textures textures;
-
-	OglRenderer () {
-		
-	}
-
-	virtual void reload_textures () {
-		textures.reload_all();
-	}
-	
-	void upload_static_instances (App& app);
-	void update_dynamic_traffic_signals (Network& net);
-	void upload_vehicle_instances (App& app, View3D& view);
-	void update_vehicle_instance (DynamicVehicle& instance, Person& entity, int i, View3D& view, float dt);
-	
-	virtual void begin (App& app) {
-		ZoneScoped;
-		gl_dbgdraw.gl_text_render.begin(g_dbgdraw.text); // upload text and init data structures to allow text printing
-	}
-	virtual void end (App& app, View3D& view) {
-		ZoneScoped;
-		
-		auto sky_config = app.time.calc_sky_config(view);
-		
-		lighting.update(app, passes.exposure.exposure_mult(), sky_config);
-		
-	#if RENDERER_DEBUG_LABELS
-		// Dummy call because first gl event in nsight is always bugged, and by doing this the next OGL_TRACE() actually works
-		glBindVertexArray(0);
-	#endif
-		
-		{
-			ZoneScopedN("uploads");
-			OGL_TRACE("uploads");
-
-			textures.heightmap.update_changes(app.heightmap);
-
-			if (app.assets.assets_reloaded) {
-				ZoneScopedN("assets_reloaded");
-				entity_render.upload_meshes(app.assets);
-			}
-
-			if (app.entities.buildings_changed) {
-				ZoneScopedN("buildings_changed");
-
-				upload_static_instances(app);
-			}
-
-			upload_vehicle_instances(app, view);
-			update_dynamic_traffic_signals(app.network);
-		}
-
-		{
-			ZoneScopedN("setup");
-			OGL_TRACE("setup");
-
-			{
-				//OGL_TRACE("set state defaults");
-
-				state.wireframe          = gl_dbgdraw.wireframe;
-				state.wireframe_no_cull  = gl_dbgdraw.wireframe_no_cull;
-				state.wireframe_no_blend = gl_dbgdraw.wireframe_no_blend;
-
-				state.set_default();
-
-				//glEnable(GL_LINE_SMOOTH); // This is extremely slow
-				glLineWidth(gl_dbgdraw.line_width);
-			}
-
-			{
-				common_ubo.begin();
-				common_ubo.set_lighting(lighting);
-				textures.bindless_textures.update_lut(SSBO_BINDING_BINDLESS_TEX_LUT);
-
-				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_DBGDRAW_INDIRECT, gl_dbgdraw.indirect_vbo);
-
-				gl_dbgdraw.update(app.input);
-			}
-		}
-
-		passes.update(state, textures, app.input.window_size);
-
-		auto update_view_resolution = [&] (int2 res) {
-			
-			view.viewport_size = (float2)res;
-			view.inv_viewport_size = 1.0f / view.viewport_size;
-
-			common_ubo.set_view(view);
-		};
-		
-
-		// Lod & Cull with real camera if in dbg camera and dbg_lodcull > 0
-		View3D real_view = app.dbg_lodcull > 0 && app.view_dbg_cam ? app.dbg_get_main_view() : view;
-		View3D shadowmap_casc_cull;
-
-		if (passes.shadowmap) {
-			ZoneScopedN("shadow_pass");
-			OGL_TRACE("shadow_pass");
-
-			int counter = 0;
-			passes.shadowmap->draw_cascades(real_view, sky_config, state, [&] (View3D& shadow_view, TextureView& depth_tex) {
-				common_ubo.set_view(shadow_view);
-				
-				if (++counter + 1 == app.dbg_lodcull)
-					shadowmap_casc_cull = shadow_view;
-
-				terrain_render.render_terrain(state, app.heightmap, textures, real_view, shadow_view, true);
-				clip_render.render(state, depth_tex, true);
-		
-				network_render.render(state, textures, true);
-
-				entity_render.draw_all(state, true);
-			});
-		}
-		
-		update_view_resolution(passes.renderscale.size);
-
-		{
-			ZoneScopedN("geometry_pass");
-			OGL_TRACE("geometry_pass");
-			
-			passes.begin_geometry_pass(state);
-			
-			// visualize shadowmap culling with app.dbg_lodcull > 1
-			View3D& cull_view = app.dbg_lodcull > 1 ? shadowmap_casc_cull : real_view;
-			if (app.dbg_lodcull > 0) {
-				dbgdraw_frustrum(cull_view.clip2world, lrgba(0,1,0,1));
-			}
-
-			terrain_render.render_terrain(state, app.heightmap, textures, real_view, cull_view);
-			clip_render.render(state, passes.gbuf.depth);
-
-			network_render.render(state, textures);
-			decal_render.render(state, passes.gbuf, textures);
-
-			overlay_render.render(state, passes.gbuf, app, textures);
-
-			entity_render.draw_all(state);
-		}
-
-		{
-			ZoneScopedN("deferred_lighting");
-			OGL_TRACE("deferred_lighting");
-			
-			passes.deferred_lighting_pass(state, textures, entity_render.light_renderer);
-		}
-		
-		update_view_resolution(app.input.window_size);
-
-		passes.postprocess(state, app.input.window_size, app.input.real_dt);
-
-		gl_dbgdraw.render(state, g_dbgdraw);
-
-		{
-			ZoneScopedN("draw ui");
-			OGL_TRACE("draw ui");
-		
-			if (app.trigger_screenshot && !app.screenshot_hud) take_screenshot(app.input.window_size);
-		
-			// draw HUD
-			app.draw_imgui();
-
-			if (app.trigger_screenshot && app.screenshot_hud)  take_screenshot(app.input.window_size);
-			app.trigger_screenshot = false;
+			ImGui::PopID();
 		}
 	}
 };
 
-inline std::unique_ptr<Renderer> create_ogl_backend () {
-	ZoneScoped;
-	return std::make_unique<ogl::OglRenderer>();
-}
+struct CommonUniforms {
+	Ubo ubo = {"common_ubo"};
+
+	struct Common {
+		View3D view;
+		Lighting lighting;
+	};
+
+	void begin () {
+		glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+		glBufferData(GL_UNIFORM_BUFFER, sizeof(Common), nullptr, GL_STREAM_DRAW);
+		glBindBufferBase(GL_UNIFORM_BUFFER, UBO_BINDING_COMMON, ubo);
+		glBindBuffer(GL_UNIFORM_BUFFER, 0);
+	}
+	void upload (size_t offset, size_t size, void const* data) {
+		glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+		glBufferSubData(GL_UNIFORM_BUFFER, offset, size, data);
+		glBindBuffer(GL_UNIFORM_BUFFER, 0);
+	}
+	void set_lighting (Lighting const& l) {
+		upload(offsetof(Common, lighting), sizeof(l), &l);
+	}
+	void set_view (View3D const& view) {
+		upload(offsetof(Common, view), sizeof(view), &view);
+	}
+};
 
 } // namespace ogl

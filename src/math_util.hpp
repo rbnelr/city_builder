@@ -165,14 +165,15 @@ inline int intersect_ray_zcircle (Ray const& ray, float3 center, float r, float*
 	return 1;
 }
 
-inline bool line_line_intersect (float2 const& a, float2 const& b, float2 const& c, float2 const& d, float2* out_point) {
+inline bool line_line_intersect (float2 const& a, float2 const& ab, float2 const& c, float2 const& cd, float2* out_point) {
 	// https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
-	float numer = (a.x-c.x)*(c.y-d.y) - (a.y-c.y)*(c.x-d.x);
-	float denom = (a.x-b.x)*(c.y-d.y) - (a.y-b.y)*(c.x-d.x);
+	float2 ac = c - a;
+	float numer = ac.x * cd.y - ac.y * cd.x;
+	float denom = ab.x * cd.y - ab.y * cd.x;
 	if (denom == 0)
 		return false; // parallel, either overlapping (numer == 0) or not
 	float u = numer / denom;
-	*out_point = a + u*(b-a);
+	*out_point = a + u*ab;
 	return true; // always intersect for now
 }
 

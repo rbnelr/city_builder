@@ -1,6 +1,6 @@
 #pragma once
 #include "common.hpp"
-#include "ogl_common.hpp"
+#include "ogl_render.hpp"
 #include "post_passes.hpp"
 
 namespace ogl {
@@ -712,7 +712,7 @@ struct DecalRenderer {
 		}
 		state.set(s);
 		shad->set_uniform("wireframe", state.wireframe);
-		shad->set_uniform("wireframe_col", lrgba(1,1,1,0.75f));
+		shad->set_uniform("wireframe_col", lrgba(1,1,0.2f,0.75f));
 
 		if (instance_count > 0) {
 			glBindVertexArray(vbo.vao);

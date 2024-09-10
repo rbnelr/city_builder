@@ -1,6 +1,5 @@
 #version 430
 #include "common.glsl"
-#include "gbuf.glsl"
 
 // TODO: use instancing
 
@@ -45,10 +44,13 @@ VS2FS Vertex {
 	}
 #endif
 #ifdef _FRAGMENT
+	#include "gbuf.glsl"
 	uniform vec4 pbr = vec4(0.75, 0.0, 0,1);
 	
 	GBUF_OUT
 	void main () {
+		GBUF_HANDLE_WIREFRAME
+		
 		vec3 col = bindless_tex_scaled(v.tex_id, 0, v.uv).rgb;
 		vec3 norm = normal_map(v.norm, v.tang,
 		           bindless_tex_scaled(v.tex_id, 1, v.uv).rgb );

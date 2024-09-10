@@ -40,9 +40,6 @@
     <ClCompile Include="..\src\engine\agnostic_render.cpp">
       <Filter>engine</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\opengl\ogl_render.cpp">
-      <Filter>opengl</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\engine\tracy\public\TracyClient.cpp">
       <Filter>engine\tracy</Filter>
     </ClCompile>
@@ -83,6 +80,9 @@
     </ClCompile>
     <ClCompile Include="..\src\main.cpp" />
     <ClCompile Include="..\src\opengl\objects.cpp">
+      <Filter>opengl</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\opengl\ogl_render.cpp">
       <Filter>opengl</Filter>
     </ClCompile>
   </ItemGroup>
@@ -248,9 +248,6 @@
       <Filter>opengl</Filter>
     </ClInclude>
     <ClInclude Include="..\src\opengl\ogl_render.hpp">
-      <Filter>opengl</Filter>
-    </ClInclude>
-    <ClInclude Include="..\src\opengl\ogl_common.hpp">
       <Filter>opengl</Filter>
     </ClInclude>
     <ClInclude Include="..\src\math_util.hpp" />

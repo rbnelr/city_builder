@@ -1,6 +1,6 @@
 #pragma once
 #include "common.hpp"
-#include "ogl_common.hpp"
+#include "ogl_render.hpp"
 #include "render_passes.hpp"
 
 namespace ogl {
@@ -184,16 +184,18 @@ struct AssetMeshes {
 
 // A bit of a horrible class based around variadic template and std::tuple to allow to split instance data into multiple vbos for cleaner updates of only the dynamic parts
 template <typename ASSET_T, typename... INSTANCE_PARTS>
-struct EntityRenderer {
+struct EntityRender {
 	const char* const dbg_name;
 
 	Shader* shad;
 	Shader* shad_lod_cull;
 
+	lrgba wireframe_col;
+
 	AssetMeshes<ASSET_T>& meshes;
 
-	EntityRenderer (const char* dbg_name, AssetMeshes<ASSET_T>& meshes, const char* shad_name, const char* variant_name="_VARIANT"):
-		dbg_name{dbg_name}, meshes{meshes} {
+	EntityRender (const char* dbg_name, AssetMeshes<ASSET_T>& meshes, const char* shad_name, const char* variant_name="_VARIANT", lrgba wireframe_col={1}):
+		dbg_name{dbg_name}, meshes{meshes}, wireframe_col{wireframe_col} {
 
 		shad = g_shaders.compile(shad_name, {{variant_name, "1"}},
 			false, prints("%s (%s)", shad_name, variant_name).c_str());
@@ -273,6 +275,8 @@ struct EntityRenderer {
 		{
 			OGL_TRACE("draw indirect");
 
+			glUseProgram(shad->prog);
+
 			PipelineState s;
 			if (!shadow_pass) {
 				s.depth_test = true;
@@ -285,7 +289,8 @@ struct EntityRenderer {
 			}
 			state.set(s);
 
-			glUseProgram(shad->prog);
+			shad->set_uniform("wireframe", state.wireframe && !shadow_pass);
+			shad->set_uniform("wireframe_col", wireframe_col);
 
 			glBindVertexArray(vao);
 			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, MDI_vbo);
@@ -357,20 +362,20 @@ struct DynamicVehicle {
 	)
 };
 
-struct EntityRenderers {
-	SERIALIZE(EntityRenderers, light_renderer)
+struct EntityRenders {
+	SERIALIZE(EntityRenders, lights)
 
 	AssetMeshes<BuildingAsset> building_meshes;
 	AssetMeshes<PropAsset>     prop_meshes;
 	AssetMeshes<VehicleAsset>  vehicle_meshes;
 
-	EntityRenderer<BuildingAsset, StaticEntity>                       buildings       = {"buildings",       building_meshes, "entities", "BUILDINGS"};
-	EntityRenderer<PropAsset,     StaticEntity>                       props           = {"props",           prop_meshes,    "entities", "PROPS"};
-	EntityRenderer<PropAsset,     StaticEntity>                       lamps           = {"lamps",           prop_meshes,    "entities", "LAMPS"};
-	EntityRenderer<PropAsset,     StaticEntity, DynamicTrafficSignal> traffic_signals = {"traffic_signals", prop_meshes,    "entities", "TRAFFIC_SIGNALS"};
-	EntityRenderer<VehicleAsset,  DynamicVehicle>                     vehicles        = {"vehicles",        vehicle_meshes, "vehicles", "VEHICLES"};
+	EntityRender<BuildingAsset, StaticEntity>                       buildings       = {"buildings",       building_meshes, "entities", "BUILDINGS",      lrgba(1,1,1, 1)};
+	EntityRender<PropAsset,     StaticEntity>                       props           = {"props",           prop_meshes,    "entities", "PROPS",           lrgba(1,1,1, 1)};
+	EntityRender<PropAsset,     StaticEntity>                       lamps           = {"lamps",           prop_meshes,    "entities", "LAMPS",           lrgba(1,1,1, 1)};
+	EntityRender<PropAsset,     StaticEntity, DynamicTrafficSignal> traffic_signals = {"traffic_signals", prop_meshes,    "entities", "TRAFFIC_SIGNALS", lrgba(1,1,1, 1)};
+	EntityRender<VehicleAsset,  DynamicVehicle>                     vehicles        = {"vehicles",        vehicle_meshes, "vehicles", "VEHICLES",        lrgba(1,0,0, 1)};
 
-	DefferedPointLightRenderer light_renderer;
+	DefferedPointLightRenderer lights;
 
 	void upload_meshes (Assets& assets) {
 		building_meshes.upload_meshes(assets.buildings);
@@ -389,7 +394,7 @@ struct EntityRenderers {
 	}
 };
 
-struct NetworkRenderer {
+struct NetworkRender {
 	struct Vertex {
 		float3 pos;
 		float3 norm;
@@ -438,12 +443,35 @@ struct NetworkRenderer {
 		}
 		state.set(s);
 
+		shad->set_uniform("wireframe", state.wireframe && !shadow_pass);
+		shad->set_uniform("wireframe_col", lrgba(1,1,1, 1));
+
 		if (indices_count > 0) {
 			glBindVertexArray(vbo.vao);
 			glDrawElements(GL_TRIANGLES, indices_count, GL_UNSIGNED_INT, (void*)0);
 			glBindVertexArray(0);
 		}
 	}
+};
+
+struct ObjectRender {
+	SERIALIZE(ObjectRender, entities)
+
+	EntityRenders entities;
+	NetworkRender networks;
+
+	DecalRenderer decals;
+	
+	ClippingRenderer clippings;
+
+	void imgui () {
+		entities.lights.imgui();
+	}
+
+	void upload_static_instances (Textures& texs, App& app);
+	void update_dynamic_traffic_signals (Textures& texs, Network& net);
+	void update_vehicle_instance (Textures& texs, DynamicVehicle& instance, Person& entity, int i, View3D& view, float dt);
+	void upload_vehicle_instances (Textures& texs, App& app, View3D& view);
 };
 
 } // namespace ogl

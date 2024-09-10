@@ -255,28 +255,26 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 	};
 
 	auto building_enter_bezier = [&] (SegLane& lane, Building* build, float* out_t) {
-		auto l = lane.clac_lane_info();
-		float len = distance(l.a, l.b);
-		float t = max(0.5f - 5 / len, 0.0f);
+		auto lane_bez = lane._bezier();
+		float len = lane_bez.approx_len(4);
+		float t = max(0.5f - 5 / len, 0.0f); // curve such that the endpoint is 5m earlier on the lane than the middle point
 
-		float3 a = lerp(l.a, l.b, t);
-		float3 b = lerp(l.a, l.b, 0.5f);
-		float3 c = build->pos;
+		float3 ctrl = lane_bez.eval(0.5f).pos;
+		float3 end  = lane_bez.eval(t).pos;
 
 		*out_t = t;
-		return Bezier3(a, b, b, c);
+		return Bezier3(end, ctrl, ctrl, build->pos);
 	};
 	auto building_exit_bezier = [&] (SegLane& lane, Building* build, float* out_t) {
-		auto l = lane.clac_lane_info();
-		float len = distance(l.a, l.b);
+		auto lane_bez = lane._bezier();
+		float len = lane_bez.approx_len(4);
 		float t = min(0.5f + 5 / len, 1.0f);
 
-		float3 a = build->pos;
-		float3 b = lerp(l.a, l.b, 0.5f);
-		float3 c = lerp(l.a, l.b, t);
+		float3 ctrl = lane_bez.eval(0.5f).pos;
+		float3 end  = lane_bez.eval(t).pos;
 
 		*out_t = t;
-		return Bezier3(a, b, b, c);
+		return Bezier3(build->pos, ctrl, ctrl, end);
 	};
 
 	if (idx == 0) {
@@ -290,16 +288,6 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		// currently wrong, since it ignored turn arrows if next move is turn, need to somehow use same logic as in PathState::SEGMENT;
 		s.next_lane = start_seg->lanes_in_dir(seg_dir).outer(); // start on outermost lane
 		
-		auto s_lane = s.next_lane.clac_lane_info();
-
-		float len = distance(s_lane.a, s_lane.b);
-		float3 p0     = vehicle->start->pos;
-		float3 middle = lerp(s_lane.a, s_lane.b, 0.5f);
-		float3 p3     = lerp(s_lane.a, s_lane.b, min(0.5f + 5*1.0f/len, 1.0f));
-
-		//float3 s1 = lerp(s0, s3);
-		//float3 s2 = (s_lane.a + s_lane.b) * 0.5f;
-
 		s.next_vehicles = &s.next_lane.vehicles().list;
 		s.bezier = building_exit_bezier(s.next_lane, vehicle->start, &s.next_start_t);
 	}
@@ -351,8 +339,6 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 					s.cur_turn = classify_turn(s.cur_node, seg0, seg1);
 				}
 			}
-
-			auto l = s.cur_lane.clac_lane_info();
 		
 			s.cur_vehicles  = &s.cur_lane.vehicles().list;
 			s.next_vehicles = s.cur_node ? &s.cur_node->vehicles.free : nullptr;
@@ -361,8 +347,8 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 			if (!s.cur_node) {
 				building_enter_bezier(prev_state->cur_lane, vehicle->end, &s.end_t);
 			}
-
-			s.bezier = { l.a, lerp(l.a, l.b, 0.3333f), lerp(l.a, l.b, 0.6667f), l.b }; // 3d 2d?
+			
+			s.bezier = s.cur_lane._bezier();
 		}
 		else {
 			s.state = PathState::NODE;
@@ -371,9 +357,6 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 			s.next_lane = prev_state->next_lane;
 			s.cur_turn = prev_state->cur_turn;
 			s.cur_node = find_node(s.cur_lane.seg, s.next_lane.seg);
-
-			auto l  = s.cur_lane.clac_lane_info();
-			auto l2 = s.next_lane ? s.next_lane.clac_lane_info() : Line{0,0};
 
 			//if (s.cur_node) assert(contains(s.cur_node->in_lanes , s.cur_lane ));
 			//if (s.cur_node) assert(contains(s.cur_node->out_lanes, s.next_lane));
@@ -385,8 +368,8 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		
 			s.cur_vehicles  = &s.cur_node->vehicles.free;
 			s.next_vehicles = &s.next_lane.vehicles().list;
-		
-			s.bezier = calc_curve(l, l2);
+			
+			s.bezier = s.cur_node->calc_curve(s.cur_lane, s.next_lane);
 		}
 	}
 
@@ -423,14 +406,15 @@ void overlay_lane_vehicle (App& app, ActiveVehicle* vehicle, lrgba col, int tex)
 
 void dbg_node_lane_alloc (App& app, Node* node) {
 	
-	auto dbg_avail_space = [&] (SegLane const& lane_out, ActiveVehicle* a) {
+	auto dbg_avail_space = [&] (SegLane& lane_out, ActiveVehicle* a) {
 		// interpolate lane bezier instead of trying to go call overlay_lane_vehicle on vehicle
 		// because vehicle is not actually in this spot yet! remember we allocate lane space by placing virtual cars!
-		auto bez = _lane_bezier(lane_out);
+		
+		auto bez = lane_out._bezier();
 		float t1 = lane_out.vehicles().avail_space / lane_out.seg->_length;
 
 		float bez_speed = length(bez.eval(t1).vel);
-		float t0 = t1 - a->car_len() / bez_speed;
+		float t0 = t1 - a->car_len() / bez_speed; // TODO: cache accurate k in vehicle and eliminate this calculation!
 		
 		app.overlay.draw_bezier_portion(bez, float2(t0,t1), float2(LANE_COLLISION_R*2, 1), lrgba(a->cit->col, 0.8f), OverlayDraw::PATTERN_STRIPED);
 	};
@@ -623,12 +607,12 @@ void _FORCEINLINE dbg_brake_for_vehicle (App& app, ActiveVehicle* cur, float dis
 }
 void _FORCEINLINE dbg_brake_for_blocked_lane_start (App& app, NodeVehicle& v, float dist, SegLane& lane) {
 	if (app.interact.selection.get<Person*>() == v.vehicle->cit) {
-		dbg_brake_for(app, v.vehicle, dist, lane.clac_lane_info().a, lrgba(0.2f,0.8f,1,1));
+		dbg_brake_for(app, v.vehicle, dist, lane._bezier().a, lrgba(0.2f,0.8f,1,1));
 	}
 }
 void _FORCEINLINE dbg_brake_for_blocked_lane_end (App& app, NodeVehicle& v, float dist, SegLane& lane) {
 	if (app.interact.selection.get<Person*>() == v.vehicle->cit) {
-		dbg_brake_for(app, v.vehicle, dist, lane.clac_lane_info().b, lrgba(0.2f,0.8f,1,1));
+		dbg_brake_for(app, v.vehicle, dist, lane._bezier().b, lrgba(0.2f,0.8f,1,1));
 	}
 }
 
@@ -1030,9 +1014,9 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 	return do_swap;
 }
 
-void cache_conn (CachedConnection& conn, ActiveVehicle* vehicle) {
+void cache_conn (Node* node, CachedConnection& conn, ActiveVehicle* vehicle) {
 	conn.conn = { vehicle->state.cur_lane, vehicle->state.next_lane };
-	conn.bezier = calc_curve(conn.conn.a.clac_lane_info(), conn.conn.b.clac_lane_info());
+	conn.bezier = node->calc_curve(conn.conn.a, conn.conn.b);
 	conn.bez_len = conn.bezier.approx_len(COLLISION_STEPS);
 	
 	auto bez2d = (Bezier2)conn.bezier;
@@ -1080,7 +1064,7 @@ void update_node (App& app, Node* node, float dt) {
 				vehicle.vehicle = v;
 				vehicle.node_idx = v->idx+1;
 				vehicle.wait_time = 0;
-				cache_conn(vehicle.conn, v);
+				cache_conn(node, vehicle.conn, v);
 
 				node->vehicles.test.add(vehicle);
 			}

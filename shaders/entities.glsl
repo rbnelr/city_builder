@@ -1,6 +1,5 @@
 #version 430
 #include "common.glsl"
-#include "gbuf.glsl"
 #include "entity_instances.glsl"
 #include "procedural_sky.glsl"
 
@@ -72,8 +71,12 @@ void main () {
 #endif
 
 #ifdef _FRAGMENT
+	#include "gbuf.glsl"
+	
 	GBUF_OUT
 	void main () {
+		GBUF_HANDLE_WIREFRAME
+		
 		vec4 col = texture(bindless_tex(v.tex_id, 0), v.uv);
 		vec3 ERM = texture(bindless_tex(v.tex_id, 2), v.uv).rgb;
 		

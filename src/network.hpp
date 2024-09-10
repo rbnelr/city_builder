@@ -40,30 +40,6 @@ enum class Turns : uint8_t {
 };
 ENUM_BITFLAG_OPERATORS_TYPE(Turns, uint8_t)
 
-struct Line {
-	float3 a, b;
-};
-inline Bezier3 calc_curve (Line const& l0, Line const& l1) {
-	float3 tang0, tang1;
-	float2 point;
-	if (line_line_intersect((float2)l0.a, (float2)l0.b, (float2)l1.a, (float2)l1.b, &point)) {
-		tang0 = float3(point, l0.b.z);
-		tang1 = float3(point, l1.a.z);
-	}
-	else {
-		float dist = distance(l0.b, l1.a) * 0.5f;
-		tang0 = l0.b + normalizesafe(l0.b - l0.a) * dist;
-		tang1 = l1.a - normalizesafe(l1.b - l1.a) * dist;
-	}
-
-	Bezier3 bez;
-	bez.a = l0.b;
-	bez.b = lerp(l0.b, tang0, 0.6667f);
-	bez.c = lerp(l1.a, tang1, 0.6667f);
-	bez.d = l1.a;
-	return bez;
-}
-
 // TODO: overhaul this! We need to track lanes per segment so we can actually just turn this into a pointer
 struct SegLane {
 	Segment* seg = nullptr;
@@ -79,10 +55,11 @@ struct SegLane {
 	operator bool () const { return seg != nullptr; }
 
 	Lane& get ();
+	NetworkAsset::Lane& get_asset ();
+
+	Bezier3 _bezier ();
 	
-	Line clac_lane_info (float shift=0) const;
-	
-	LaneVehicles& vehicles () const;
+	LaneVehicles& vehicles ();
 };
 VALUE_HASHER(SegLane, t.seg, t.lane);
 
@@ -373,6 +350,9 @@ struct Node {
 	SelCircle get_sel_shape () {
 		return { pos, _radius, lrgb(0.04f, 0.04f, 1) };
 	}
+
+	Bezier3 calc_curve (Segment* seg0, Segment* seg1, float shift0=0, float shift1=0);
+	Bezier3 calc_curve (SegLane& in, SegLane& out);
 };
 
 struct Lane {
@@ -389,19 +369,37 @@ struct Segment { // better name? Keep Path and call path Route?
 	float3 pos_a;
 	float3 pos_b;
 
+	float3 control_a () {
+		return lerp(pos_a, pos_b, 0.33333f); // TODO: implement curved segments!
+	}
+	float3 control_b () {
+		return lerp(pos_b, pos_a, 0.33333f);
+	}
+	float3 tangent_a () { // return reverse of this, ie forward vector?
+		return normalizesafe(control_a() - pos_a);
+	}
+	float3 tangent_b () {
+		return normalizesafe(control_b() - pos_b);
+	}
+
+	Bezier3 bezier () {
+		return Bezier3{ pos_a, control_a(), control_b(), pos_b };
+	}
+	Bezier3 _bezier_shifted (float shift);
+
 	float _length = 0;
 
 	SegVehicles vehicles;
 
 	std::vector<Lane> lanes;
-	laneid_t num_lanes () const { return (laneid_t)lanes.size(); }
+	laneid_t num_lanes () { return (laneid_t)lanes.size(); }
 
-	Lane& get_lane (NetworkAsset::Lane* layout_lane) {
-		return lanes[layout_lane - &asset->lanes[0]];
-	}
-	NetworkAsset::Lane& get_lane_layout (Lane* lane) {
-		return asset->lanes[lane - &lanes[0]];
-	}
+	//Lane& get_lane (NetworkAsset::Lane* layout_lane) {
+	//	return lanes[layout_lane - &asset->lanes[0]];
+	//}
+	//NetworkAsset::Lane& get_lane_layout (Lane const* lane) const {
+	//	return asset->lanes[lane - &lanes[0]];
+	//}
 	
 	Node* get_other_node (Node* node) {
 		return node_a == node ? node_b : node_a;
@@ -417,8 +415,27 @@ struct Segment { // better name? Keep Path and call path Route?
 		return dir == LaneDir::FORWARD ? node_b : node_a;
 	}
 
-	float3& pos_for_node (Node* node) {
-		return node_a == node ? pos_a : pos_b;
+	struct EndInfo {
+		float3 pos;
+		float3 forw;
+		float3 right;
+	};
+	EndInfo get_end_info (LaneDir dir, float shift=0) {
+		EndInfo i;
+		if (dir == LaneDir::FORWARD) {
+			i.pos = pos_b;
+			i.forw = -tangent_b();
+		}
+		else {
+			i.pos = pos_a;
+			i.forw = -tangent_a();
+		}
+		i.right = rotate90_right(i.forw);
+		i.pos += i.right * shift;
+		return i;
+	}
+	EndInfo get_end_info (Node* node, float shift=0) {
+		return get_end_info(get_dir_to_node(node), shift);
 	}
 
 	// I despise iterators so much... I just want zero-cost generator functions....
@@ -482,45 +499,74 @@ struct Segment { // better name? Keep Path and call path Route?
 
 		_length = distance(pos_a, pos_b);
 	}
-		
-	// Segment direction vectors
-	Dirs clac_seg_vecs () { // TODO: this code should go away
-		float3 forw = normalizesafe(node_b->pos - node_a->pos);
-		return relative2dir(forw);
-	}
 };
-inline Line SegLane::clac_lane_info (float shift) const {
-	auto v = seg->clac_seg_vecs();
-
-	auto& l = seg->asset->lanes[lane];
-
-	float3 seg_right  = v.right;
-	float3 lane_right = l.direction == LaneDir::FORWARD ? v.right : -v.right;
-
-	float3 a = seg->pos_a + seg_right * l.shift + lane_right * shift + float3(0,0,ROAD_Z);
-	float3 b = seg->pos_b + seg_right * l.shift + lane_right * shift + float3(0,0,ROAD_Z);
-
-	if (l.direction == LaneDir::FORWARD) return { a, b };
-	else                                 return { b, a };
-}
 inline Lane& SegLane::get () {
 	return seg->lanes[lane];
 }
-
-// TODO: Once segments actually become beziers, this goes away!
-inline Bezier3 _lane_bezier (SegLane lane) {
-	auto info = lane.clac_lane_info();
-	
-	Bezier3 bez;
-	bez.a = info.a;
-	bez.b = lerp(info.a, info.b, 0.333333f);
-	bez.c = lerp(info.a, info.b, 0.666667f);
-	bez.d = info.b;
-	return bez;
+inline NetworkAsset::Lane& SegLane::get_asset () {
+	return seg->asset->lanes[lane];
+}
+inline LaneVehicles& SegLane::vehicles () {
+	return seg->vehicles.lanes[lane];
 }
 
-inline LaneVehicles& SegLane::vehicles () const {
-	return seg->vehicles.lanes[lane];
+inline Bezier3 Segment::_bezier_shifted (float shift) {
+	Bezier3 bez = bezier();
+	float3 r0 = rotate90_right(tangent_a());
+	float3 r1 = rotate90_right(-tangent_b());
+	bez.a += r0 * shift;
+	bez.b += r0 * shift;
+	bez.c += r1 * shift;
+	bez.d += r1 * shift;
+	return bez;
+}
+// This math is dodgy because technically you can't offset a bezier by it's normal!
+// TODO: implement curved segments and test this further!, perhaps a simple rule works good enough
+inline Bezier3 SegLane::_bezier () {
+	float shift = get_asset().shift;
+	auto bez = seg->_bezier_shifted(shift);
+	if (get_asset().direction == LaneDir::BACKWARD)
+		bez = bez.reverse();
+	return bez;
+}
+inline Bezier3 Node::calc_curve (Segment* seg0, Segment* seg1, float shift0, float shift1) {
+	auto i0 = seg0->get_end_info(this, shift0);
+	auto i1 = seg1->get_end_info(this, shift1);
+
+	float3 ctrl_in, ctrl_out;
+	float2 point;
+	// Find straight line intersection of in/out lanes with their tangents
+	if (line_line_intersect((float2)i0.pos, (float2)i0.forw, (float2)i1.pos, (float2)i1.forw, &point)) {
+		ctrl_in  = float3(point, i0.pos.z);
+		ctrl_out = float3(point, i1.pos.z);
+	}
+	// Come up with seperate control points TODO: how reasonable is this?
+	else {
+		float dist = distance(i0.pos, i1.pos) * 0.5f;
+		ctrl_in  = i0.pos + float3((float2)i0.forw, 0) * dist;
+		ctrl_out = i1.pos + float3((float2)i1.forw, 0) * dist;
+	}
+
+	// NOTE: for quarter circle turns k=0.5539 would result in almost exactly a quarter circle!
+	// https://pomax.github.io/bezierinfo/#circles_cubic
+	// but turns that are sharper in the middle are more realistic, but we could make this customizable?
+	float k = 0.6667f;
+
+	Bezier3 bez;
+	bez.a = i0.pos;
+	bez.b = lerp(i0.pos, ctrl_in , k);
+	bez.c = lerp(i1.pos, ctrl_out, k);
+	bez.d = i1.pos;
+	return bez;
+}
+inline Bezier3 Node::calc_curve (SegLane& in, SegLane& out) {
+	// calc_curve works with shifts 
+	auto& a0 = in.get_asset();
+	auto& a1 = out.get_asset();
+	float shift0 = a0.direction == LaneDir::FORWARD ? a0.shift : -a0.shift;
+	float shift1 = a1.direction == LaneDir::FORWARD ? -a1.shift : a1.shift;
+
+	return calc_curve(in.seg, out.seg, shift0, shift1);
 }
 
 // max lanes/segment and max segments per node == 256
@@ -657,8 +703,8 @@ struct Network {
 // classify_turn(node, a, b) == STRAIGHT => classify_turn(node, b, a)
 inline Turns classify_turn (Node* node, Segment* in, Segment* out) {
 	auto seg_dir_to_node = [] (Node* node, Segment* seg) {
-		float2 dir = (float2)seg->clac_seg_vecs().forw; // dir: node_a -> node_b
-		return seg->get_dir_to_node(node) == LaneDir::FORWARD ? dir : -dir;
+		return seg->get_dir_to_node(node) == LaneDir::FORWARD ?
+			seg->tangent_b() : seg->tangent_a();
 	};
 
 	float2 in_dir  = seg_dir_to_node(node, in);
@@ -739,7 +785,8 @@ inline void Node::update_cached () {
 
 	_radius = 0;
 	for (auto* seg : segments) {
-		_radius = max(_radius, distance(pos, seg->pos_for_node(this)));
+		auto info = seg->get_end_info(seg->get_dir_to_node(this));
+		_radius = max(_radius, distance(pos, info.pos));
 	}
 
 	// TODO: replace traffic light as well?

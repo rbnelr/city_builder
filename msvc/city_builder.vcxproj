@@ -297,24 +297,10 @@
     <ClInclude Include="..\src\game_camera.hpp" />
     <ClInclude Include="..\src\opengl\bindless_textures.hpp" />
     <ClInclude Include="..\src\opengl\gl_dbgdraw.hpp" />
-    <ClCompile Include="..\src\opengl\ogl_render.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">NotUsing</PrecompiledHeader>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">NotUsing</PrecompiledHeader>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">
-      </PrecompiledHeaderFile>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-      </PrecompiledHeaderFile>
-    </ClCompile>
     <ClCompile Include="..\src\opengl\objects.cpp" />
     <ClInclude Include="..\src\opengl\objects.hpp" />
-    <ClInclude Include="..\src\opengl\ogl_common.hpp" />
     <ClInclude Include="..\src\opengl\ogl_render.hpp" />
+    <ClCompile Include="..\src\opengl\ogl_render.cpp" />
     <ClInclude Include="..\src\opengl\post_passes.hpp" />
     <ClInclude Include="..\src\opengl\render_passes.hpp" />
     <ClInclude Include="..\src\opengl\terrain.hpp" />

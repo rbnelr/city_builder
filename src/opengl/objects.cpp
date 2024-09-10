@@ -5,15 +5,15 @@ namespace ogl {
 
 // TODO: naming?
 struct Mesher {
-	EntityRenderers& entity_renders;
-	NetworkRenderer& network_render;
+	EntityRenders& entity_renders;
+	NetworkRender& network_render;
 	DecalRenderer&   decal_render;
 	ClippingRenderer& clip_render;
 	App            & app;
 	Textures       & textures;
 
-	Mesher (EntityRenderers& entity_renderers,
-	        NetworkRenderer& network_renderer,
+	Mesher (EntityRenders& entity_renderers,
+	        NetworkRender& network_renderer,
 	        DecalRenderer& decal_renderer,
 	        ClippingRenderer& clip_render,
 	        App            & app,
@@ -29,7 +29,7 @@ struct Mesher {
 
 	std::vector<DefferedPointLightRenderer::LightInstance> lights;
 
-	Mesh<NetworkRenderer::Vertex, uint32_t> network_mesh;
+	Mesh<NetworkRender::Vertex, uint32_t> network_mesh;
 	std::vector<ClippingRenderer::Instance> clippings;
 
 	std::vector<DecalRenderer::Instance>    decals;
@@ -54,7 +54,7 @@ struct Mesher {
 		entity_renders.lamps          .upload<0>(lamps, false);
 		entity_renders.traffic_signals.upload<0>(traffic_signals, false);
 
-		entity_renders.light_renderer.update_instances(lights);
+		entity_renders.lights.update_instances(lights);
 		
 		network_render.upload(network_mesh);
 		decal_render  .upload(decals);
@@ -96,6 +96,7 @@ struct Mesher {
 	}
 
 ////
+	// TODO: clean up this math!, maybe with a generic  Seg/SegLane::clac_position(uvz, rot)  function
 
 	void place_segment_line_props (network::Segment& seg, NetworkAsset::Streetlight& light) {
 		float y = 0;
@@ -127,13 +128,13 @@ struct Mesher {
 		float rot = angle2d(forw);
 
 		float2 shift = seg.asset->traffic_light_shift;
-		float3 pos = seg.pos_for_node(node) + right * shift.x + forw * shift.y;
+		float3 pos = seg.get_end_info(node).pos + right * shift.x + forw * shift.y;
 
 		push_prop(props->mast_prop.get(), pos, rot);
 
 		for (auto in_lane : seg.in_lanes(node)) {
-			auto& layout = seg.get_lane_layout(&in_lane.get());
-			float x = (seg.get_dir_to_node(node) == LaneDir::FORWARD ? +layout.shift : -layout.shift) - shift.x;
+			auto& lasset = in_lane.get_asset();
+			float x = (seg.get_dir_to_node(node) == LaneDir::FORWARD ? +lasset.shift : -lasset.shift) - shift.x;
 
 			float3 local_pos = props->get_signal_pos(x);
 			float3 spos = pos + right * local_pos.x + forw * local_pos.y + up * local_pos.z;
@@ -181,7 +182,7 @@ struct Mesher {
 
 		float3 tang = forw;
 		
-		typedef NetworkRenderer::Vertex V;
+		typedef NetworkRender::Vertex V;
 		
 		float road_z = network::ROAD_Z;
 		float sidw_z = 0;
@@ -235,7 +236,7 @@ struct Mesher {
 		extrude(sR2 , sR3 );
 
 		for (auto& lane : seg.asset->lanes) {
-			
+			//bez_decals.push_back()
 		}
 		
 		for (auto& line : seg.asset->line_markings) {
@@ -264,62 +265,28 @@ struct Mesher {
 	}
 
 	void mesh_node (network::Node* node) {
-		struct SegInfo {
-			float2 pos;
-			float2 forw;
-			float2 right;
-			NetworkAsset* asset;
-		};
-		auto calc_seg_info = [&] (network::Segment* seg) {
-			SegInfo info;
-
-			auto* other = seg->get_other_node(node);
-			info.forw = normalizesafe(node->pos - other->pos);
-			info.right = rotate90(-info.forw);
-
-			info.pos = seg->pos_for_node(node);
-
-			info.asset = seg->asset;
-
-			return info;
-		};
-
-		auto get_bez = [] (float2 a, float2 a_dir, float2 b, float2 b_dir) {
-			network::Line la = { float3(a - a_dir,0), float3(a,0) };
-			network::Line lb = { float3(b,0), float3(b - b_dir,0) };
-			return network::calc_curve(la, lb);
-		};
-
+		
 		int count = (int)node->segments.size();
 		for (int i=0; i<count; ++i) {
-			//network::Segment* l = node->segments[((i-1)+count) % count];
 			network::Segment* s = node->segments[i];
 			network::Segment* r = node->segments[(i+1) % count];
 
-			auto si = calc_seg_info(s);
-			auto ri = calc_seg_info(r);
+			auto si = s->get_end_info(node);
+			auto ri = r->get_end_info(node);
 
-			float2 sidewalk_Ra0  = si.pos + si.right * si.asset->sidewalkR;
-			float2 sidewalk_Rb0  = si.pos + si.right * si.asset->width*0.5f;
-
-			float2 sidewalk_Ra1  = ri.pos + ri.right * ri.asset->sidewalkL;
-			float2 sidewalk_Rb1  = ri.pos - ri.right * ri.asset->width*0.5f;
-
-			float2 sidewalk_RR = ri.pos + ri.right * ri.asset->sidewalkL;
-
-			auto sidewalk_Ra = get_bez(sidewalk_Ra0, si.forw, sidewalk_Ra1, ri.forw);
-			auto sidewalk_Rb = get_bez(sidewalk_Rb0, si.forw, sidewalk_Rb1, ri.forw);
+			auto sidewalk_Ra = node->calc_curve(s,r, s->asset->sidewalkR, r->asset->sidewalkL);
+			auto sidewalk_Rb = node->calc_curve(s,r, s->asset->width*0.5f, -r->asset->width*0.5f);
 
 			//sidewalk_Ra.dbg_draw(app.view, 0, 4, lrgba(1,0,0,1));
 			//sidewalk_Rb.dbg_draw(app.view, 0, 4, lrgba(0,1,0,1));
 
-			float2 segL = si.pos + si.right * si.asset->sidewalkL;
-			float2 segR = si.pos + si.right * si.asset->sidewalkR;
+			float2 segL = si.pos + si.right * s->asset->sidewalkL;
+			float2 segR = si.pos + si.right * s->asset->sidewalkR;
 
 			float road_z = network::ROAD_Z;
 			float sidw_z = 0;
 
-			typedef NetworkRenderer::Vertex V;
+			typedef NetworkRender::Vertex V;
 			V nodeCenter = { node->pos + float3(0, 0, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
 			V seg0       = { float3(segL, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
 			V seg1       = { float3(segR, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
@@ -365,8 +332,6 @@ struct Mesher {
 		for (auto& seg : app.network.segments) {
 			mesh_segment(*seg);
 
-			auto v = seg->clac_seg_vecs();
-			
 			{
 				float3 forw = normalizesafe(seg->pos_b - seg->pos_a);
 				float ang = angle2d((float2)forw);
@@ -389,18 +354,19 @@ struct Mesher {
 			for (laneid_t id=0; id<seg->num_lanes(); ++id) {
 				auto seg_lane = network::SegLane{ seg.get(), id };
 				auto& lane = seg->lanes[id];
-				auto& lane_asset = seg->get_lane_layout(&lane);
+				auto& lane_asset = seg_lane.get_asset();
 
-				auto li = seg_lane.clac_lane_info();
-				// TODO: this will be a bezier
-				float3 forw = normalizesafe(li.b - li.a);
+				auto lbez = seg_lane._bezier();
+				// TODO: this will be a bezier => this is bezier but used wrong FIX it!
+				float3 forw = normalizesafe(lbez.d - lbez.a);
+				float3 right = rotate90_right(forw);
 				//float3 right = float3(rotate90(-forw), 0);
 				float ang = angle2d((float2)forw) - deg(90);
 
 				{ // push turn arrow
 					float2 size = float2(1, 1.5f) * lane_asset.width;
 
-					float3 pos = li.b;
+					float3 pos = lbez.d;
 					pos -= forw * size.y*0.75f;
 
 					auto filename = textures.turn_arrows[(int)lane.allowed_turns - 1];
@@ -426,8 +392,8 @@ struct Mesher {
 					uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
 
 					DecalRenderer::Instance decal;
-					decal.pos = base_pos + float3(v.right * ((r+l)*0.5f), 0);
-					decal.rot = angle2d(v.right) + deg(90) * (dir == 0 ? -1 : +1);
+					decal.pos = base_pos + float3(right * ((r+l)*0.5f), 0);
+					decal.rot = angle2d(right) + deg(90) * (dir == 0 ? -1 : +1);
 					decal.size = float3(width, length, 1);
 					decal.tex_id = tex_id;
 					decal.uv_scale = float2(1, uv_len);
@@ -491,13 +457,13 @@ struct Mesher {
 	}
 };
 
-void OglRenderer::upload_static_instances (App& app) {
-	Mesher mesher{ entity_render, network_render, decal_render, clip_render, app, textures };
+void ObjectRender::upload_static_instances (Textures& texs, App& app) {
+	Mesher mesher{ entities, networks, decals, clippings, app, texs };
 	mesher.remesh(app);
 }
 
 // Match order in Mesher::remesh_network->mesh_node
-void OglRenderer::update_dynamic_traffic_signals (Network& net) {
+void ObjectRender::update_dynamic_traffic_signals (Textures& texs, Network& net) {
 	std::vector<DynamicTrafficSignal> signal_colors;
 	signal_colors.reserve(512);
 
@@ -508,10 +474,10 @@ void OglRenderer::update_dynamic_traffic_signals (Network& net) {
 		}
 	}
 
-	entity_render.traffic_signals.upload<1>(signal_colors, true);
+	entities.traffic_signals.upload<1>(signal_colors, true);
 }
 
-void OglRenderer::upload_vehicle_instances (App& app, View3D& view) {
+void ObjectRender::upload_vehicle_instances (Textures& texs, App& app, View3D& view) {
 	ZoneScoped;
 		
 	std::vector<DynamicVehicle> instances;
@@ -522,16 +488,17 @@ void OglRenderer::upload_vehicle_instances (App& app, View3D& view) {
 			uint32_t instance_idx = (uint32_t)instances.size();
 			auto& instance = instances.emplace_back();
 
-			update_vehicle_instance(instance, *entity, instance_idx, view, app.input.real_dt);
+			update_vehicle_instance(texs, instance, *entity, instance_idx, view, app.input.real_dt);
 		}
 	}
 
-	entity_render.vehicles.upload<0>(instances, true);
+	entities.vehicles.upload<0>(instances, true);
 }
-void OglRenderer::update_vehicle_instance (DynamicVehicle& instance, Person& entity, int i, View3D& view, float dt) {
+
+void ObjectRender::update_vehicle_instance (Textures& texs, DynamicVehicle& instance, Person& entity, int i, View3D& view, float dt) {
 	auto& bone_mats = entity.owned_vehicle->bone_mats;
 		
-	int tex_id = textures.bindless_textures[entity.owned_vehicle->tex_filename];
+	int tex_id = texs.bindless_textures[entity.owned_vehicle->tex_filename];
 
 	auto vehicle_hash = (uint32_t)hash((size_t)entity.vehicle.get());
 	float rand1 = (float)vehicle_hash / (float)UINT_MAX;
@@ -543,7 +510,7 @@ void OglRenderer::update_vehicle_instance (DynamicVehicle& instance, Person& ent
 	float ang;
 	entity.vehicle->calc_pos(&center, &ang);
 
-	instance.mesh_id = entity_render.vehicle_meshes.asset2mesh_id[entity.owned_vehicle];
+	instance.mesh_id = entities.vehicle_meshes.asset2mesh_id[entity.owned_vehicle];
 	instance.instance_id = i;
 	instance.tex_id = tex_id;
 	instance.pos = center;

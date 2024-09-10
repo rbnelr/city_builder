@@ -137,6 +137,10 @@ struct Bezier {
 	VEC tangent1 () const {
 		return d - c;
 	}
+
+	Bezier reverse () const {
+		return { d, c, b, a };
+	}
 	
 	BezierRes<VEC> eval (float t) const {
 		VEC c0 = a;                   // a

@@ -1,6 +1,5 @@
 #version 430
 #include "common.glsl"
-#include "gbuf.glsl"
 
 VS2FS Vertex {
 	vec3 pos;
@@ -119,6 +118,8 @@ VS2FS vec3 wireframe_barycentric;
 	}
 #endif
 #ifdef _FRAGMENT
+	#include "gbuf.glsl"
+	
 	uniform sampler2D terrain_diffuse;
 	uniform vec4 pbr = vec4(0.95,0.0, 0,1);
 	
@@ -126,6 +127,8 @@ VS2FS vec3 wireframe_barycentric;
 	
 	GBUF_OUT
 	void main () {
+		GBUF_HANDLE_WIREFRAME
+		
 		vec2 uv = v.pos.xy / 32.0;
 		uv.y = 1.0 - uv.y; // all textures are flipped!
 		vec3 col = v.tint * texture(terrain_diffuse, v.pos.xy / 32.0).rgb;

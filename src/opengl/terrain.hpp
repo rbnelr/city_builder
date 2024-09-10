@@ -1,6 +1,6 @@
 #pragma once
 #include "common.hpp"
-#include "ogl_common.hpp"
+#include "ogl_render.hpp"
 #include "heightmap.hpp"
 
 namespace ogl {
@@ -8,7 +8,7 @@ namespace ogl {
 struct TerrainRenderer {
 	static constexpr int TERRAIN_CHUNK_SZ = 32; // 128 is max with GL_UNSIGNED_SHORT indices
 
-	Shader* shad_terrain = g_shaders.compile("terrain");
+	Shader* shad = g_shaders.compile("terrain");
 	
 	bool draw_terrain = true;
 
@@ -229,12 +229,13 @@ struct TerrainRenderer {
 	void render_terrain (StateManager& state, Heightmap const& heightmap, Textures const& texs,
 			View3D const& lodding_view, View3D const& culling_view,
 			bool shadow_pass=false) {
-		ZoneScoped;
-		OGL_TRACE("render_terrain");
-
 		drawn_chunks = 0;
 
-		if (draw_terrain && shad_terrain->prog) {
+		if (draw_terrain) {
+			ZoneScoped;
+			OGL_TRACE("render_terrain");
+
+			glUseProgram(shad->prog);
 			
 			std::vector<TerrainChunkInstance> instances;
 
@@ -260,19 +261,20 @@ struct TerrainRenderer {
 			}
 			state.set(s);
 
-			glUseProgram(shad_terrain->prog);
+			shad->set_uniform("wireframe", state.wireframe && !shadow_pass);
+			shad->set_uniform("wireframe_col", lrgba(0.02f, 0.2f, 0.0f, 1));
 
-			state.bind_textures(shad_terrain,
+			state.bind_textures(shad,
 				texs.heightmap.textures() + TextureBinds{{
 				{"terrain_diffuse", *texs.terrain_diffuse, texs.sampler_normal},
 
 				{ "grid_tex", *texs.grid, texs.sampler_normal },
 			}});
 			
-			shad_terrain->set_uniform("inv_map_size", 1.0f / (float2)heightmap.inner.map_size);
-			shad_terrain->set_uniform("inv_outer_size", 1.0f / (float2)heightmap.outer.map_size);
-			shad_terrain->set_uniform("height_min", heightmap.height_min);
-			shad_terrain->set_uniform("height_range", heightmap.height_range);
+			shad->set_uniform("inv_map_size", 1.0f / (float2)heightmap.inner.map_size);
+			shad->set_uniform("inv_outer_size", 1.0f / (float2)heightmap.outer.map_size);
+			shad->set_uniform("height_min", heightmap.height_min);
+			shad->set_uniform("height_range", heightmap.height_range);
 
 			vbo.stream_instances(instances);
 			glBindVertexArray(vbo.vao);

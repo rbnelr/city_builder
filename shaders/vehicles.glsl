@@ -1,6 +1,5 @@
 #version 430
 #include "common.glsl"
-#include "gbuf.glsl"
 #include "entity_instances.glsl"
 
 VS2FS Vertex {
@@ -50,6 +49,8 @@ void main () {
 #endif
 
 #ifdef _FRAGMENT
+	#include "gbuf.glsl"
+	
 	uniform sampler2D tex;
 	
 	vec3 vehicle_emiss (vec3 glow_tex) {
@@ -73,6 +74,8 @@ void main () {
 	
 	GBUF_OUT
 	void main () {
+		GBUF_HANDLE_WIREFRAME
+		
 		vec4 diff = texture(bindless_tex(v.tex_id, 0), v.uv);
 		vec3 TRM  = texture(bindless_tex(v.tex_id, 2), v.uv).rgb;
 		vec3 glow = texture(bindless_tex(v.tex_id, 3), v.uv).rgb;

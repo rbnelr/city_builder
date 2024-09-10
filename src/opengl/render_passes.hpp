@@ -755,7 +755,7 @@ struct CurvedDecals {
 		upload_buffer(GL_ARRAY_BUFFER, vbo.instances, beziers, usage);
 	}
 
-	void draw (Shader* shad, StateManager& state, bool allow_wireframe=true) {
+	void draw (Shader* shad, StateManager& state, bool allow_wireframe=false) {
 		PipelineState s;
 		if (!(state.wireframe && allow_wireframe)) { // draw normal way for wireframe
 			// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
@@ -782,25 +782,26 @@ struct CurvedDecals {
 	}
 };
 
-//struct CurvedDecalRender {
-//	Shader* shad  = g_shaders.compile_geometry("decals_curved");
-//
-//	CurvedDecals beziers;
-//
-//	void render (StateManager& state, Gbuffer& gbuf, App& app, Textures& texs) {
-//		ZoneScoped;
-//		OGL_TRACE("OverlayRender");
-//		glUseProgram(shad->prog);
-//
-//		state.bind_textures(shad, {
-//			{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
-//			{ "road_wear", *texs.road_wear, texs.sampler_normal },
-//		});
-//
-//		beziers.upload(app.overlay.beziers, GL_STREAM_DRAW);
-//		beziers.draw(state);
-//	}
-//};
+struct CurvedDecalRender {
+	Shader* shad  = g_shaders.compile_geometry("decals_curved");
+
+	CurvedDecals beziers;
+
+	void upload (std::vector<BezierDecalInstance>& decals) {
+		beziers.upload(decals, GL_STATIC_DRAW);
+	}
+	void render (StateManager& state, Gbuffer& gbuf) {
+		ZoneScoped;
+		OGL_TRACE("CurvedDecalRender");
+		glUseProgram(shad->prog);
+
+		state.bind_textures(shad, {
+			{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
+		});
+
+		beziers.draw(shad, state, true);
+	}
+};
 struct OverlayRender {
 	Shader* shad = g_shaders.compile_geometry("overlay");
 
@@ -813,7 +814,6 @@ struct OverlayRender {
 
 		state.bind_textures(shad, {
 			{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
-			{ "road_wear", *texs.road_wear, texs.sampler_normal },
 		});
 
 		int pattern_base_texid = texs.bindless_textures["misc/patterns/solid"];

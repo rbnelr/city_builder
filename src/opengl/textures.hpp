@@ -298,7 +298,6 @@ struct Textures {
 	Texture2D* terrain_diffuse = nullptr;
 
 	Texture2D* cracks = nullptr;
-	Texture2D* road_wear = nullptr;
 	
 	// TODO: fix this, automatically add .norm and also just encode these in the assets?
 	std::string_view asphalt        = "ground/pebbled_asphalt";
@@ -367,7 +366,6 @@ struct Textures {
 		grid      = bindless_textures.get_gl_tex("misc/grid2", 0);
 		terrain_diffuse = bindless_textures.get_gl_tex("ground/Rock_Moss", 0);
 		cracks    = bindless_textures.get_gl_tex("misc/cracks", 0);
-		road_wear = bindless_textures.get_gl_tex("misc/road_wear", 0);
 	}
 
 	Textures () {

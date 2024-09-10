@@ -207,7 +207,7 @@ struct CameraTrack {
 
 			// smoothly lerp from free camera to tracking target for smoothing_duration seconds
 			// NOTE: camera movement overridden entirely if CameraTrack::update is called after camera::update
-			cam.orbit_pos = lerp(cam.orbit_pos, pos_target, smoothing_t);
+			cam.orbit_pos = lerp(cam.orbit_pos, pos_target, smoothing_t); // TODO: framereate dependent!!!
 			smoothing_t = min(smoothing_t + dt / smoothing_duration, 1.0f);
 
 			prev_pos = pos;

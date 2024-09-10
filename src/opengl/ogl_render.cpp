@@ -186,6 +186,7 @@ public:
 
 			objects.networks.render(state, textures);
 			objects.decals.render(state, passes.gbuf, textures);
+			objects.curved_decals.render(state, passes.gbuf);
 
 			overlay.render(state, passes.gbuf, app, textures);
 

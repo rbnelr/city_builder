@@ -5,20 +5,23 @@ namespace ogl {
 
 // TODO: naming?
 struct Mesher {
-	EntityRenders& entity_renders;
-	NetworkRender& network_render;
-	DecalRenderer&   decal_render;
-	ClippingRenderer& clip_render;
-	App            & app;
-	Textures       & textures;
+	EntityRenders&     entity_renders;
+	NetworkRender&     network_render;
+	DecalRenderer&     decal_render;
+	CurvedDecalRender& curved_decal_render;
+	ClippingRenderer&  clip_render;
+	App&               app;
+	Textures&          textures;
 
-	Mesher (EntityRenders& entity_renderers,
-	        NetworkRender& network_renderer,
-	        DecalRenderer& decal_renderer,
-	        ClippingRenderer& clip_render,
-	        App            & app,
-			Textures       & textures):
-		entity_renders{entity_renderers}, network_render{network_renderer}, decal_render{decal_renderer},
+	Mesher (EntityRenders&     entity_renderers,
+	        NetworkRender&     network_renderer,
+	        DecalRenderer&     decal_renderer,
+	        CurvedDecalRender& curved_decal_render,
+	        ClippingRenderer&  clip_render,
+	        App&               app,
+			Textures&          textures):
+		entity_renders{entity_renderers}, network_render{network_renderer},
+		decal_render{decal_renderer}, curved_decal_render{curved_decal_render},
 		clip_render{clip_render}, app{app}, textures{textures} {}
 	
 
@@ -33,7 +36,7 @@ struct Mesher {
 	std::vector<ClippingRenderer::Instance> clippings;
 
 	std::vector<DecalRenderer::Instance>    decals;
-	std::vector<BezierDecalInstance>        bez_decals;
+	std::vector<BezierDecalInstance>        curved_decals;
 	
 	void reserve () {
 		buildings      .reserve(4096);
@@ -43,7 +46,7 @@ struct Mesher {
 		lights         .reserve(4096);
 		clippings      .reserve(512);
 		decals         .reserve(4096);
-		bez_decals     .reserve(4096);
+		curved_decals  .reserve(4096);
 	}
 	void upload () {
 		ZoneScoped;
@@ -56,9 +59,10 @@ struct Mesher {
 
 		entity_renders.lights.update_instances(lights);
 		
-		network_render.upload(network_mesh);
-		decal_render  .upload(decals);
-		clip_render   .upload(clippings);
+		network_render     .upload(network_mesh);
+		decal_render       .upload(decals);
+		curved_decal_render.upload(curved_decals);
+		clip_render        .upload(clippings);
 	}
 
 	void _push_light (float3x4 const& matrix, PointLight& light) {
@@ -235,8 +239,11 @@ struct Mesher {
 		extrude(sR1 , sR2b, curb_tex_tiling);
 		extrude(sR2 , sR3 );
 
-		for (auto& lane : seg.asset->lanes) {
-			//bez_decals.push_back()
+		for (auto lane : seg.all_lanes()) {
+			auto bez = lane._bezier();
+			float width = 3.5f; //lane.get_asset().width;
+			int tex_id = textures.bindless_textures["misc/road_wear"];
+			curved_decals.push_back(BezierDecalInstance::from_bezier_portion(bez, float2(0,1), float2(width, 1), 1, tex_id));
 		}
 		
 		for (auto& line : seg.asset->line_markings) {
@@ -351,13 +358,13 @@ struct Mesher {
 				clippings.push_back(clip);
 			}
 
-			for (laneid_t id=0; id<seg->num_lanes(); ++id) {
-				auto seg_lane = network::SegLane{ seg.get(), id };
-				auto& lane = seg->lanes[id];
-				auto& lane_asset = seg_lane.get_asset();
+			for (auto lane : seg->all_lanes()) {
+				auto& lane_obj = lane.get();
+				auto& lane_asset = lane.get_asset();
+				
+				// TODO: This code is stale, needs to be reworked once segments can curve at the latest!
 
-				auto lbez = seg_lane._bezier();
-				// TODO: this will be a bezier => this is bezier but used wrong FIX it!
+				auto lbez = lane._bezier();
 				float3 forw = normalizesafe(lbez.d - lbez.a);
 				float3 right = rotate90_right(forw);
 				//float3 right = float3(rotate90(-forw), 0);
@@ -369,7 +376,7 @@ struct Mesher {
 					float3 pos = lbez.d;
 					pos -= forw * size.y*0.75f;
 
-					auto filename = textures.turn_arrows[(int)lane.allowed_turns - 1];
+					auto filename = textures.turn_arrows[(int)lane_obj.allowed_turns - 1];
 					int tex_id = textures.bindless_textures[filename];
 
 					DecalRenderer::Instance decal;
@@ -382,7 +389,8 @@ struct Mesher {
 					decals.push_back(decal);
 				}
 				
-				auto stop_line = [&] (float3 base_pos, float l, float r, int dir, bool type) {
+				auto stop_line = [&] (float3 base_pos, float l, float r, int dir) {
+					bool type = lane_obj.yield;
 					int tex_id = textures.bindless_textures[type ? "misc/shark_teeth" : "misc/line"];
 					
 					float width = type ? stopline_width*1.5f : stopline_width;
@@ -405,13 +413,13 @@ struct Mesher {
 					float l = lane_asset.shift - lane_asset.width*0.5f;
 					float r = lane_asset.shift + lane_asset.width*0.5f;
 
-					stop_line(seg->pos_b, l, r, 0, lane.yield);
+					stop_line(seg->pos_b, l, r, 0);
 				}
 				else {
-					float l = lane_asset.shift - lane_asset.width*0.5f;
-					float r = lane_asset.shift + lane_asset.width*0.5f;
+					float l = -lane_asset.shift - lane_asset.width*0.5f;
+					float r = -lane_asset.shift + lane_asset.width*0.5f;
 
-					stop_line(seg->pos_a, l, r, 1, lane.yield);
+					stop_line(seg->pos_a, l, r, 1);
 				}
 			}
 		}
@@ -458,7 +466,7 @@ struct Mesher {
 };
 
 void ObjectRender::upload_static_instances (Textures& texs, App& app) {
-	Mesher mesher{ entities, networks, decals, clippings, app, texs };
+	Mesher mesher{ entities, networks, decals, curved_decals, clippings, app, texs };
 	mesher.remesh(app);
 }
 

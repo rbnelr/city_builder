@@ -461,6 +461,7 @@ struct ObjectRender {
 	NetworkRender networks;
 
 	DecalRenderer decals;
+	CurvedDecalRender curved_decals;
 	
 	ClippingRenderer clippings;
 

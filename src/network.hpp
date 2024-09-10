@@ -351,7 +351,7 @@ struct Node {
 		return { pos, _radius, lrgb(0.04f, 0.04f, 1) };
 	}
 
-	Bezier3 calc_curve (Segment* seg0, Segment* seg1, float shift0=0, float shift1=0);
+	Bezier3 calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0=0, float2 shiftXZ_1=0);
 	Bezier3 calc_curve (SegLane& in, SegLane& out);
 };
 
@@ -385,7 +385,7 @@ struct Segment { // better name? Keep Path and call path Route?
 	Bezier3 bezier () {
 		return Bezier3{ pos_a, control_a(), control_b(), pos_b };
 	}
-	Bezier3 _bezier_shifted (float shift);
+	Bezier3 _bezier_shifted (float2 shiftXZ);
 
 	float _length = 0;
 
@@ -420,7 +420,7 @@ struct Segment { // better name? Keep Path and call path Route?
 		float3 forw;
 		float3 right;
 	};
-	EndInfo get_end_info (LaneDir dir, float shift=0) {
+	EndInfo get_end_info (LaneDir dir, float2 shiftXZ=0) {
 		EndInfo i;
 		if (dir == LaneDir::FORWARD) {
 			i.pos = pos_b;
@@ -431,11 +431,12 @@ struct Segment { // better name? Keep Path and call path Route?
 			i.forw = -tangent_a();
 		}
 		i.right = rotate90_right(i.forw);
-		i.pos += i.right * shift;
+		i.pos += i.right * shiftXZ.x;
+		i.pos += float3(0, 0, shiftXZ.y);
 		return i;
 	}
-	EndInfo get_end_info (Node* node, float shift=0) {
-		return get_end_info(get_dir_to_node(node), shift);
+	EndInfo get_end_info (Node* node, float2 shiftXZ=0) {
+		return get_end_info(get_dir_to_node(node), shiftXZ);
 	}
 
 	// I despise iterators so much... I just want zero-cost generator functions....
@@ -493,6 +494,9 @@ struct Segment { // better name? Keep Path and call path Route?
 	LanesRange out_lanes (Node* node) {
 		return lanes_in_dir(get_dir_from_node(node));
 	}
+	LanesRange all_lanes () {
+		return { this, 0, num_lanes() };
+	}
 
 	void update_cached () {
 		lanes.resize(asset->lanes.size());
@@ -510,28 +514,28 @@ inline LaneVehicles& SegLane::vehicles () {
 	return seg->vehicles.lanes[lane];
 }
 
-inline Bezier3 Segment::_bezier_shifted (float shift) {
+inline Bezier3 Segment::_bezier_shifted (float2 shiftXZ) {
 	Bezier3 bez = bezier();
-	float3 r0 = rotate90_right(tangent_a());
+	float3 r0 = rotate90_right(tangent_a()); // This probably shouldn't include Z!
 	float3 r1 = rotate90_right(-tangent_b());
-	bez.a += r0 * shift;
-	bez.b += r0 * shift;
-	bez.c += r1 * shift;
-	bez.d += r1 * shift;
+	bez.a += r0 * shiftXZ.x + float3(0,0,shiftXZ.y);
+	bez.b += r0 * shiftXZ.x + float3(0,0,shiftXZ.y);
+	bez.c += r1 * shiftXZ.x + float3(0,0,shiftXZ.y);
+	bez.d += r1 * shiftXZ.x + float3(0,0,shiftXZ.y);
 	return bez;
 }
 // This math is dodgy because technically you can't offset a bezier by it's normal!
 // TODO: implement curved segments and test this further!, perhaps a simple rule works good enough
 inline Bezier3 SegLane::_bezier () {
 	float shift = get_asset().shift;
-	auto bez = seg->_bezier_shifted(shift);
+	auto bez = seg->_bezier_shifted(float2(shift, ROAD_Z));
 	if (get_asset().direction == LaneDir::BACKWARD)
 		bez = bez.reverse();
 	return bez;
 }
-inline Bezier3 Node::calc_curve (Segment* seg0, Segment* seg1, float shift0, float shift1) {
-	auto i0 = seg0->get_end_info(this, shift0);
-	auto i1 = seg1->get_end_info(this, shift1);
+inline Bezier3 Node::calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0, float2 shiftXZ_1) {
+	auto i0 = seg0->get_end_info(this, shiftXZ_0);
+	auto i1 = seg1->get_end_info(this, shiftXZ_1);
 
 	float3 ctrl_in, ctrl_out;
 	float2 point;
@@ -566,7 +570,7 @@ inline Bezier3 Node::calc_curve (SegLane& in, SegLane& out) {
 	float shift0 = a0.direction == LaneDir::FORWARD ? a0.shift : -a0.shift;
 	float shift1 = a1.direction == LaneDir::FORWARD ? -a1.shift : a1.shift;
 
-	return calc_curve(in.seg, out.seg, shift0, shift1);
+	return calc_curve(in.seg, out.seg, float2(shift0, ROAD_Z), float2(shift1, ROAD_Z));
 }
 
 // max lanes/segment and max segments per node == 256

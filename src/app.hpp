@@ -365,6 +365,7 @@ struct BezierBuilder {
 		if (ImGui::Button("+")) {
 			beziers.push_back(Object::create_at_screen_center(view));
 		}
+		ImGui::SameLine();
 		if (ImGui::Button("-") && !beziers.empty())
 			beziers.pop_back();
 
@@ -376,10 +377,18 @@ struct BezierBuilder {
 		for (auto it = beziers.begin(); it != beziers.end(); ++it) {
 			auto& obj = *it;
 
+			float3 old_a = obj.bez.a;
+			float3 old_d = obj.bez.d;
+
 			bool  sel =  draggable(I, view, &obj.bez.a, 1);
 			sel = sel || draggable(I, view, &obj.bez.b, 1);
 			sel = sel || draggable(I, view, &obj.bez.c, 1);
 			sel = sel || draggable(I, view, &obj.bez.d, 1);
+			
+			// move b,c along with a,b
+			obj.bez.b += obj.bez.a - old_a;
+			obj.bez.c += obj.bez.d - old_d;
+
 
 			if (sel)
 				obj.bez.dbg_draw(128, lrgba(1,0,0,0.25f));

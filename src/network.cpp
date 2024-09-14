@@ -115,10 +115,10 @@ bool Network::pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle)
 
 				// check if turn to this node is actually allowed
 				auto turn = classify_turn(cur_node, cur_node->_pred_seg, lane.seg);
-				if ((allowed & turn) == Turns::NONE) {
+				if (!any_set(allowed, turn)) {
 					// turn not allowed
-					assert(false); // currently impossible, only the case for roads with no right turn etc.
-					//continue;
+					//assert(false); // currently impossible, only the case for roads with no right turn etc.
+					continue;
 				}
 
 				float len = lane.seg->_length + lane.seg->node_a->_radius + lane.seg->node_b->_radius;
@@ -208,7 +208,7 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 	};
 	auto pick_random_allowed_lane = [&] (Segment::LanesRange& lanes, Turns turn, SegLane default_lane, bool exclude_default=false) {
 		auto choose = [&] (SegLane lane) {
-			return (lane.get().allowed_turns & turn) != Turns::NONE &&
+			return any_set(lane.get().allowed_turns, turn) &&
 				(exclude_default ? lane != default_lane : true);
 		};
 		
@@ -240,7 +240,7 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		auto in_lanes = in->in_lanes(node);
 		
 		SegLane stay_lane = pick_stay_in_lane(in_lanes, cur_lane);
-		bool can_stay_in_lane = (stay_lane.get().allowed_turns & turn) != Turns::NONE;
+		bool can_stay_in_lane = any_set(stay_lane.get().allowed_turns, turn);
 
 		// if we can't stay in lane, pick random turn lane
 		if (!can_stay_in_lane)
@@ -452,9 +452,11 @@ void debug_node (App& app, Node* node, View3D const& view) {
 	
 	static bool debug_priority_order = false;
 	static bool debug_node_lane_alloc = false;
+	static bool show_lane_connections = false;
 	if (imgui_Header("debug_node", true)) {
 		ImGui::Checkbox("debug_priority_order", &debug_priority_order);
 		ImGui::Checkbox("debug_node_lane_alloc", &debug_node_lane_alloc);
+		ImGui::Checkbox("show_lane_connections", &show_lane_connections);
 
 		ImGui::Text("%d conflicts cached", (int)node->vehicles.conflict_cache.size());
 
@@ -475,6 +477,21 @@ void debug_node (App& app, Node* node, View3D const& view) {
 
 	if (debug_node_lane_alloc)
 		dbg_node_lane_alloc(app, node);
+
+	if (show_lane_connections) {
+		
+		int idx = 0;
+		for (auto* seg : node->segments) {
+			auto col = render::SimpleColors::get(idx++);
+			col.w = 0.5f;
+			for (auto lane_in : seg->in_lanes(node)) {
+				for (auto lane_out : lane_in.get().connections) {
+					auto bez = node->calc_curve(lane_in, lane_out);
+					app.overlay.draw_bezier_portion(bez, float2(0,1), float2(3.5f, 1), col, OverlayDraw::TEXTURE_THIN_ARROW);
+				}
+			}
+		}
+	}
 
 #if 0
 	{ // visualize conficts somehow? idk this code is old
@@ -595,9 +612,7 @@ void dbg_brake_for (App& app, ActiveVehicle* cur, float dist, float3 obstacle, l
 	g_dbgdraw.line(end - normal, end + normal, col);
 }
 #else
-void dbg_brake_for (App& app, ActiveVehicle* cur, float dist, float3 obstacle, lrgba col) {
-	
-}
+void dbg_brake_for (App& app, ActiveVehicle* cur, float dist, float3 obstacle, lrgba col) {}
 #endif
 void _FORCEINLINE dbg_brake_for_vehicle (App& app, ActiveVehicle* cur, float dist, ActiveVehicle* obstacle) {
 	if (app.interact.selection.get<Person*>() == cur->cit) {

@@ -306,7 +306,6 @@ struct NetworkAsset : public Asset {
 
 	// for now: (RHD) inner forward, outer forward, ..., inner reverse, outer reverse
 	// ie. sorted from left to right per direction
-	// (relevant for pathing)
 	std::vector<Lane> lanes;
 
 	std::vector<LineMarking> line_markings;

@@ -27,16 +27,15 @@ struct TrafficLight;
 enum class Turns : uint8_t {
 	NONE     = 0,
 
-	LEFT     = 0b0001,
-	STRAIGHT = 0b0010,
-	RIGHT    = 0b0100,
-	//UTURN    = 8,
-	//CUSTOM     = 16,
+	STRAIGHT = 0b0001,
+	RIGHT    = 0b0010,
+	LEFT     = 0b0100,
+	UTURN    = 0b1000,
 	
+	SR     = STRAIGHT | RIGHT,
 	LS     = LEFT     | STRAIGHT,
 	LR     = LEFT     | RIGHT,
-	SR     = STRAIGHT | RIGHT,
-	ALL    = LEFT     | STRAIGHT | RIGHT,
+	LSR    = LEFT     | STRAIGHT | RIGHT,
 };
 ENUM_BITFLAG_OPERATORS_TYPE(Turns, uint8_t)
 
@@ -356,8 +355,10 @@ struct Node {
 };
 
 struct Lane {
-	Turns allowed_turns = Turns::ALL;
+	Turns allowed_turns = Turns::NONE;
 	bool  yield = false;
+
+	std::vector<SegLane> connections;
 };
 
 // Segments are oriented from a -> b, such that the 'forward' lanes go from a->b and reverse lanes from b->a
@@ -394,15 +395,11 @@ struct Segment { // better name? Keep Path and call path Route?
 	std::vector<Lane> lanes;
 	laneid_t num_lanes () { return (laneid_t)lanes.size(); }
 
-	//Lane& get_lane (NetworkAsset::Lane* layout_lane) {
-	//	return lanes[layout_lane - &asset->lanes[0]];
-	//}
-	//NetworkAsset::Lane& get_lane_layout (Lane const* lane) const {
-	//	return asset->lanes[lane - &lanes[0]];
-	//}
-	
 	Node* get_other_node (Node* node) {
 		return node_a == node ? node_b : node_a;
+	}
+	Node* get_node_in_dir (LaneDir dir) {
+		return dir == LaneDir::FORWARD ? node_b : node_a;
 	}
 	LaneDir get_dir_to_node (Node* node) {
 		return node_a != node ? LaneDir::FORWARD : LaneDir::BACKWARD;
@@ -411,10 +408,6 @@ struct Segment { // better name? Keep Path and call path Route?
 		return node_a == node ? LaneDir::FORWARD : LaneDir::BACKWARD;
 	}
 	
-	Node* get_node_in_dir (LaneDir dir) {
-		return dir == LaneDir::FORWARD ? node_b : node_a;
-	}
-
 	struct EndInfo {
 		float3 pos;
 		float3 forw;
@@ -440,21 +433,25 @@ struct Segment { // better name? Keep Path and call path Route?
 	}
 
 	// I despise iterators so much... I just want zero-cost generator functions....
+	
+	// Lanes are iterated innermost to outermost in travel direction
+	// for RHD: left to right
 	struct LanesRange {
 		struct _Iter {
-			SegLane sl;
+			Segment* seg;
+			int lane;
 
 			bool operator!= (_Iter const& other) {
-				assert(sl.seg == other.sl.seg); // only happens if caller is stupid
-				return sl.lane != other.sl.lane;
+				assert(seg == other.seg); // only happens if caller is stupid
+				return lane != other.lane;
 			}
 			_Iter operator++ () {
 				auto copy = *this;
-				sl.lane++;
-				return copy; // return copy that no one ever needs
+				lane++;
+				return copy;
 			}
 			SegLane operator* () {
-				return sl; // don't actually deref anything
+				return { seg, (laneid_t)lane }; // don't actually deref anything
 			}
 		};
 
@@ -462,19 +459,28 @@ struct Segment { // better name? Keep Path and call path Route?
 		laneid_t first;
 		laneid_t end_;
 
-		_Iter begin () { return {{ seg, first }}; }
-		_Iter end ()   { return {{ seg, end_ }}; }
+		int count () {
+			return (int)end_ - (int)first;
+		}
 
-		SegLane inner () { return { seg, first }; }
-		SegLane outer () { return { seg, (laneid_t)(end_-1) }; }
+		_Iter begin () { return { seg, first }; }
+		_Iter end ()   { return { seg, end_ }; }
+
+		SegLane inner (int idx=0) {
+			assert(idx >= 0 && idx < count());
+			return { seg, (laneid_t)(first+idx) };
+		}
+		SegLane outer (int idx=0) {
+			assert(idx >= 0 && idx < count());
+			return { seg, (laneid_t)(end_-1-idx) };
+		}
 
 		bool contains (SegLane sl) {
 			return sl.seg == seg && (sl.lane >= first && sl.lane < end_);
 		}
 
-		SegLane operator[] (laneid_t idx) {
-			assert(idx >= first && idx < end_);
-			return { seg, (laneid_t)(first+idx) };
+		SegLane operator[] (int idx) {
+			return inner(idx);
 		}
 	};
 	LanesRange lanes_forward () {
@@ -719,9 +725,10 @@ inline Turns classify_turn (Node* node, Segment* in, Segment* out) {
 	rel.x = dot(-out_dir, rotate90(-in_dir));
 
 	// TODO: track uturns?
-	if (rel.y > abs(rel.x)) return Turns::STRAIGHT;
-	else if (rel.x < 0.0f)  return Turns::LEFT;
-	else                    return Turns::RIGHT;
+	if      (rel.y > abs(rel.x))  return Turns::STRAIGHT;
+	else if (rel.y < -abs(rel.x)) return Turns::UTURN;
+	else if (rel.x < 0.0f)        return Turns::LEFT;
+	else                          return Turns::RIGHT;
 }
 inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowed) {
 	return (classify_turn(node, in, out) & allowed) != Turns::NONE;
@@ -731,46 +738,111 @@ inline int default_lane_yield (int node_class, Segment& seg) {
 	return seg.asset->road_class < node_class;
 }
 inline void set_default_lane_options (Node& node, bool fully_dedicated, int node_class) {
-	
+	bool allow_mixed_lefts = node.traffic_light == nullptr;
+	bool allow_mixed_rights = true;
+
 	for (auto& seg : node.segments) {
-		auto dir = seg->get_dir_to_node(&node);
-		int count = seg->asset->num_lanes_in_dir(dir);
-		auto in_lanes = seg->lanes_in_dir(dir);
+		auto in_lanes = seg->in_lanes(&node);
 		
-		if (count <= 1) {
-			for (auto lane : in_lanes)
-				lane.get().allowed_turns = Turns::ALL;
-		}
-		else if (count == 2 || !fully_dedicated) {
-			for (auto lane : in_lanes) {
-				bool leftmost  = lane.lane == in_lanes.first;
-				bool rightmost = lane.lane == in_lanes.end_-1;
-				if      (leftmost)  lane.get().allowed_turns = Turns::LS;
-				else if (rightmost) lane.get().allowed_turns = Turns::SR;
-				else                lane.get().allowed_turns = Turns::STRAIGHT;
+		auto set_lane_arrows = [&] () {
+			int count = in_lanes.count();
+
+			if (count <= 1) {
+				for (auto lane : in_lanes)
+					lane.get().allowed_turns = Turns::LSR;
 			}
-		}
-		else {
-			// fully dedicated
-			int div = count / 3;
-			int rem = count % 3;
-
-			// equal lanes for left straight right turn, remainder goes to straight then left
-			int L=div, S=div, R=div;
-			if (rem >= 1) S+=1;
-			if (rem >= 1) L+=1;
+			else if (count == 2 || !fully_dedicated) {
+				for (auto lane : in_lanes) {
+					bool leftmost  = lane.lane == in_lanes.first;
+					bool rightmost = lane.lane == in_lanes.end_-1;
+					if      (leftmost)  lane.get().allowed_turns = Turns::LS;
+					else if (rightmost) lane.get().allowed_turns = Turns::SR;
+					else                lane.get().allowed_turns = Turns::STRAIGHT;
+				}
+			}
+			else {
+				// fully dedicated
+				int div = count / 3;
+				int rem = count % 3;
+			
+				// equal lanes for left straight right turn, remainder goes to straight then left
+				int L=div, S=div, R=div;
+				if (rem >= 1) S+=1;
+				if (rem >= 1) L+=1;
+			
+				for (auto lane : in_lanes) {
+					int idx = 0;
+					for (int i=0; i<L; ++i) in_lanes[idx++].get().allowed_turns = Turns::LEFT;
+					for (int i=0; i<S; ++i) in_lanes[idx++].get().allowed_turns = Turns::STRAIGHT;
+					for (int i=0; i<R; ++i) in_lanes[idx++].get().allowed_turns = Turns::SR; //Turns::RIGHT;
+				}
+			}
 
 			for (auto lane : in_lanes) {
-				int idx = 0;
-				for (int i=0; i<L; ++i) in_lanes[idx++].get().allowed_turns = Turns::LEFT;
-				for (int i=0; i<S; ++i) in_lanes[idx++].get().allowed_turns = Turns::STRAIGHT;
-				for (int i=0; i<R; ++i) in_lanes[idx++].get().allowed_turns = Turns::SR; //Turns::RIGHT;
+				lane.get().yield = default_lane_yield(node_class, *seg);
 			}
-		}
+		};
 
-		for (auto lane : in_lanes) {
-			lane.get().yield = default_lane_yield(node_class, *seg);
-		}
+		auto set_connections = [&] () {
+			
+			std::vector<SegLane> outL, outS, outR;
+			
+			for (auto* seg_out : node.segments) {
+				auto push_lanes = [&] (std::vector<SegLane>& vec) {
+					for (auto lane : seg_out->out_lanes(&node)) {
+						vec.push_back(lane);
+					}
+				};
+
+				auto turn = classify_turn(&node, seg, seg_out);
+				if      (turn == Turns::LEFT)     push_lanes(outL);
+				else if (turn == Turns::STRAIGHT) push_lanes(outS);
+				else if (turn == Turns::RIGHT)    push_lanes(outR);
+			}
+			
+			int reqL = (int)outL.size();
+			int reqS = (int)outS.size();
+			int reqR = (int)outR.size();
+			int avail_lanes = in_lanes.count();
+
+			{
+				int num = min(reqS, avail_lanes);
+				for (int i=0; i<num; ++i) {
+					auto& l = in_lanes.outer(i).get();
+					l.connections.push_back(outS[reqS-1-i]);
+					l.allowed_turns |= Turns::STRAIGHT;
+				}
+			}
+			{
+				int num = min(reqR, avail_lanes);
+				for (int i=0; i<num; ++i) {
+					auto& l = in_lanes.outer(i).get();
+					// TODO: rewrite to do this via integer counts instead of break?
+					bool mixed = any_set(l.allowed_turns, ~Turns::RIGHT);
+					if (!mixed || allow_mixed_rights) {
+						l.connections.push_back(outR[reqR-1-i]);
+						l.allowed_turns |= Turns::RIGHT;
+					}
+					if (mixed) break;
+				}
+			}
+			{
+				int num = min(reqL, avail_lanes);
+				for (int i=0; i<num; ++i) {
+					auto& l = in_lanes.inner(i).get();
+					bool mixed = any_set(l.allowed_turns, ~Turns::LEFT);
+					if (!mixed || allow_mixed_lefts) {
+						l.connections.push_back(outL[i]);
+						l.allowed_turns |= Turns::LEFT;
+					}
+					if (mixed) break;
+				}
+			}
+		};
+		
+		//set_lane_arrows();
+
+		set_connections();
 	}
 }
 

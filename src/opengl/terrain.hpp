@@ -152,7 +152,7 @@ struct TerrainRenderer {
 				//culled = false;
 
 				if (dbg) {
-					lrgba col = g_dbgdraw.COLS[wrap(lod, ARRLEN(g_dbgdraw.COLS))];
+					lrgba col = render::SimpleColors::get(lod);
 					if (culled) col *= 0.25f;
 					g_dbgdraw.wire_quad(float3(pos,0), (float2)(float)sz, col);
 				}

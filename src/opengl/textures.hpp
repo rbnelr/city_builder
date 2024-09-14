@@ -313,6 +313,19 @@ struct Textures {
 		"misc/turn_arrow_SR" ,
 		"misc/turn_arrow_LSR",
 	};
+	const char* get_turn_arrow (network::Turns turns) {
+		turns &= ~network::Turns::UTURN; // no uturn graphic for now
+		switch (turns) {
+			case network::Turns::LEFT     : return turn_arrows[0];
+			case network::Turns::STRAIGHT : return turn_arrows[1];
+			case network::Turns::LS       : return turn_arrows[2];
+			case network::Turns::RIGHT    : return turn_arrows[3];
+			case network::Turns::LR       : return turn_arrows[4];
+			case network::Turns::SR       : return turn_arrows[5];
+			case network::Turns::LSR      : return turn_arrows[6];
+			default: return nullptr;
+		}
+	}
 	
 	typedef TexLoader::Jobs Jobs;
 

@@ -997,6 +997,8 @@ public:
 		
 		// select after updating positions
 		interact.update(heightmap, entities, network, view, input);
+
+		network.draw_debug(*this, view); // TODO: move to interact?
 		
 	//// Testing stuff
 		//test.update(input, view);
@@ -1010,8 +1012,6 @@ public:
 	//// Visually relevant
 		//time.visualize_planet(view);
 		time.calc_sky_config(view);
-
-		network.draw_debug(*this, view);
 		
 		g_dbgdraw.axis_gizmo(view, input.window_size);
 		return view;

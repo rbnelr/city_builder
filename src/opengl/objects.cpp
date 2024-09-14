@@ -325,6 +325,17 @@ struct Mesher {
 
 			network_mesh.push_tri(seg0, seg1, nodeCenter);
 		}
+
+		for (auto* seg : node->segments) {
+			for (auto lane_in : seg->in_lanes(node)) {
+				for (auto lane_out : lane_in.get().connections) {
+					auto bez = node->calc_curve(lane_in, lane_out);
+					float width = 3.5f; //lane.get_asset().width;
+					int tex_id = textures.bindless_textures["misc/road_wear"];
+					curved_decals.push_back(BezierDecalInstance::from_bezier_portion(bez, float2(0,1), float2(width, 1), 1, tex_id));
+				}
+			}
+		}
 		
 		if (node->traffic_light) {
 			for (auto& seg : node->segments) {
@@ -376,17 +387,19 @@ struct Mesher {
 					float3 pos = lbez.d;
 					pos -= forw * size.y*0.75f;
 
-					auto filename = textures.turn_arrows[(int)lane_obj.allowed_turns - 1];
-					int tex_id = textures.bindless_textures[filename];
+					auto filename = textures.get_turn_arrow(lane_obj.allowed_turns);
+					if (filename) {
+						int tex_id = textures.bindless_textures[filename];
 
-					DecalRenderer::Instance decal;
-					decal.pos = pos;
-					decal.rot = ang;
-					decal.size = float3(size, 1);
-					decal.tex_id = tex_id;
-					decal.uv_scale = 1;
-					decal.col = 1;
-					decals.push_back(decal);
+						DecalRenderer::Instance decal;
+						decal.pos = pos;
+						decal.rot = ang;
+						decal.size = float3(size, 1);
+						decal.tex_id = tex_id;
+						decal.uv_scale = 1;
+						decal.col = 1;
+						decals.push_back(decal);
+					}
 				}
 				
 				auto stop_line = [&] (float3 base_pos, float l, float r, int dir) {

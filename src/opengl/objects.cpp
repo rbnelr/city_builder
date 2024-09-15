@@ -163,17 +163,26 @@ struct Mesher {
 	int asphalt_tex_id;
 	int curb_tex_id;
 	int sidewalk_tex_id;
+	int road_wear_tex_id;
 
 	float2 curb_tex_tiling = float2(2,0);
 
-	float streetlight_spacing = 10;
-	
-	float stopline_width  = 1.0f;
+	float stopline_width = 1.0f;
 
 	static constexpr float2 no_uv = 0;
 
 	float3 norm_up = float3(0,0,1);
 	float3 tang_up = float3(1,0,0);
+
+	void push_road_wear (Bezier3 const& bez, float alpha0=1, float alpha1=1) {
+		float width = 3.5f; // Road wear texture desiged for fixed width tire spacing currently
+
+		lrgba col0 = lrgba(1,1,1, alpha0);
+		lrgba col1 = lrgba(1,1,1, alpha1);
+
+		curved_decals.push_back(BezierDecalInstance::from_bezier_portion(bez,
+			float2(0,1), float2(width, 1), col0, col1, road_wear_tex_id));
+	}
 
 	void mesh_segment (network::Segment& seg) {
 		float width = seg.asset->width;
@@ -239,13 +248,6 @@ struct Mesher {
 		extrude(sR1 , sR2b, curb_tex_tiling);
 		extrude(sR2 , sR3 );
 
-		for (auto lane : seg.all_lanes()) {
-			auto bez = lane._bezier();
-			float width = 3.5f; //lane.get_asset().width;
-			int tex_id = textures.bindless_textures["misc/road_wear"];
-			curved_decals.push_back(BezierDecalInstance::from_bezier_portion(bez, float2(0,1), float2(width, 1), 1, tex_id));
-		}
-		
 		for (auto& line : seg.asset->line_markings) {
 			int tex_id = textures.bindless_textures[
 				line.type == LineMarkingType::LINE ? "misc/line" : "misc/stripe"
@@ -269,8 +271,123 @@ struct Mesher {
 		for (auto& streetlight : seg.asset->streetlights) {
 			place_segment_line_props(seg, streetlight);
 		}
+
+		for (auto lane : seg.all_lanes()) {
+			auto& lane_obj = lane.get();
+			auto& lane_asset = lane.get_asset();
+
+			push_road_wear(lane._bezier());
+			
+			// TODO: This code is stale, needs to be reworked once segments can curve at the latest!
+
+			auto lbez = lane._bezier();
+			float3 forw = normalizesafe(lbez.d - lbez.a);
+			float3 right = rotate90_right(forw);
+			//float3 right = float3(rotate90(-forw), 0);
+			float ang = angle2d((float2)forw) - deg(90);
+
+			{ // push turn arrow
+				float2 size = float2(1, 1.5f) * lane_asset.width;
+
+				float3 pos = lbez.d;
+				pos -= forw * size.y*0.75f;
+
+				auto filename = textures.get_turn_arrow(lane_obj.allowed_turns);
+				if (filename) {
+					int tex_id = textures.bindless_textures[filename];
+
+					DecalRenderer::Instance decal;
+					decal.pos = pos;
+					decal.rot = ang;
+					decal.size = float3(size, 1);
+					decal.tex_id = tex_id;
+					decal.uv_scale = 1;
+					decal.col = 1;
+					decals.push_back(decal);
+				}
+			}
+				
+			auto stop_line = [&] (float3 base_pos, float l, float r, int dir) {
+				bool type = lane_obj.yield;
+				int tex_id = textures.bindless_textures[type ? "misc/shark_teeth" : "misc/line"];
+					
+				float width = type ? stopline_width*1.5f : stopline_width; // Why is this done?
+				float length = r - l;
+					
+				float uv_len = length / (width*2); // 2 since texture has 1-2 aspect ratio
+				uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
+
+				DecalRenderer::Instance decal;
+				decal.pos = base_pos + float3(right * ((r+l)*0.5f), 0);
+				decal.rot = angle2d(right) + deg(90) * (dir == 0 ? -1 : +1);
+				decal.size = float3(width, length, 1);
+				decal.tex_id = tex_id;
+				decal.uv_scale = float2(1, uv_len);
+				decal.col = 1;
+				decals.push_back(decal);
+			};
+
+			if (lane_asset.direction == LaneDir::FORWARD) {
+				float l = lane_asset.shift - lane_asset.width*0.5f;
+				float r = lane_asset.shift + lane_asset.width*0.5f;
+
+				stop_line(seg.pos_b, l, r, 0);
+			}
+			else {
+				float l = -lane_asset.shift - lane_asset.width*0.5f;
+				float r = -lane_asset.shift + lane_asset.width*0.5f;
+
+				stop_line(seg.pos_a, l, r, 1);
+			}
+		}
+		
+		{ // clipping
+			float3 forw = normalizesafe(seg.pos_b - seg.pos_a);
+			float ang = angle2d((float2)forw);
+
+			float3 center = (seg.pos_a + seg.pos_b) * 0.5f;
+			float3 size;
+			size.x = distance(seg.pos_b, seg.pos_a) + 15.0f*2; // TODO: this will get done better with better road meshing
+			size.y = seg.asset->width;
+			size.z = 1.0f + 10.0f; // 10 meters above ground;
+			float offs_z = -1.0f + size.z/2;
+
+			ClippingRenderer::Instance clip;
+			clip.pos = (seg.pos_a + seg.pos_b) * 0.5f;
+			clip.pos.z += offs_z;
+			clip.rot = ang;
+			clip.size = size;
+			clippings.push_back(clip);
+		}
 	}
 
+	void push_node_road_wear (network::Node* node) {
+		// Multiple road wear decals overlap on nodes, which causes sharp changes in intensity between seg & node!
+		// Fix this by computing the number of segments that overlap at each end and weighting the alpha at the decal start and ends!
+
+		// TODO: this might be slow!
+		Hashmap<network::SegLane, int, network::SegLaneHasher> conn_counts;
+		
+		for (auto* seg : node->segments) {
+			for (auto lane_in : seg->in_lanes(node)) {
+				for (auto lane_out : lane_in.get().connections) {
+					conn_counts.get_or_default(lane_in)++;
+					conn_counts.get_or_default(lane_out)++;
+				}
+			}
+		}
+
+		for (auto* seg : node->segments) {
+			for (auto lane_in : seg->in_lanes(node)) {
+				for (auto lane_out : lane_in.get().connections) {
+					float alpha0 = 1.0f / (float)conn_counts[lane_in];
+					float alpha1 = 1.0f / (float)conn_counts[lane_out];
+
+					push_road_wear(node->calc_curve(lane_in, lane_out), alpha0, alpha1);
+				}
+			}
+		}
+	}
 	void mesh_node (network::Node* node) {
 		
 		int count = (int)node->segments.size();
@@ -326,16 +443,7 @@ struct Mesher {
 			network_mesh.push_tri(seg0, seg1, nodeCenter);
 		}
 
-		for (auto* seg : node->segments) {
-			for (auto lane_in : seg->in_lanes(node)) {
-				for (auto lane_out : lane_in.get().connections) {
-					auto bez = node->calc_curve(lane_in, lane_out);
-					float width = 3.5f; //lane.get_asset().width;
-					int tex_id = textures.bindless_textures["misc/road_wear"];
-					curved_decals.push_back(BezierDecalInstance::from_bezier_portion(bez, float2(0,1), float2(width, 1), 1, tex_id));
-				}
-			}
-		}
+		push_node_road_wear(node);
 		
 		if (node->traffic_light) {
 			for (auto& seg : node->segments) {
@@ -349,92 +457,6 @@ struct Mesher {
 		
 		for (auto& seg : app.network.segments) {
 			mesh_segment(*seg);
-
-			{
-				float3 forw = normalizesafe(seg->pos_b - seg->pos_a);
-				float ang = angle2d((float2)forw);
-
-				float3 center = (seg->pos_a + seg->pos_b) * 0.5f;
-				float3 size;
-				size.x = distance(seg->pos_b, seg->pos_a) + 15.0f*2; // TODO: this will get done better with better road meshing
-				size.y = seg->asset->width;
-				size.z = 1.0f + 10.0f; // 10 meters above ground;
-				float offs_z = -1.0f + size.z/2;
-
-				ClippingRenderer::Instance clip;
-				clip.pos = (seg->pos_a + seg->pos_b) * 0.5f;
-				clip.pos.z += offs_z;
-				clip.rot = ang;
-				clip.size = size;
-				clippings.push_back(clip);
-			}
-
-			for (auto lane : seg->all_lanes()) {
-				auto& lane_obj = lane.get();
-				auto& lane_asset = lane.get_asset();
-				
-				// TODO: This code is stale, needs to be reworked once segments can curve at the latest!
-
-				auto lbez = lane._bezier();
-				float3 forw = normalizesafe(lbez.d - lbez.a);
-				float3 right = rotate90_right(forw);
-				//float3 right = float3(rotate90(-forw), 0);
-				float ang = angle2d((float2)forw) - deg(90);
-
-				{ // push turn arrow
-					float2 size = float2(1, 1.5f) * lane_asset.width;
-
-					float3 pos = lbez.d;
-					pos -= forw * size.y*0.75f;
-
-					auto filename = textures.get_turn_arrow(lane_obj.allowed_turns);
-					if (filename) {
-						int tex_id = textures.bindless_textures[filename];
-
-						DecalRenderer::Instance decal;
-						decal.pos = pos;
-						decal.rot = ang;
-						decal.size = float3(size, 1);
-						decal.tex_id = tex_id;
-						decal.uv_scale = 1;
-						decal.col = 1;
-						decals.push_back(decal);
-					}
-				}
-				
-				auto stop_line = [&] (float3 base_pos, float l, float r, int dir) {
-					bool type = lane_obj.yield;
-					int tex_id = textures.bindless_textures[type ? "misc/shark_teeth" : "misc/line"];
-					
-					float width = type ? stopline_width*1.5f : stopline_width;
-					float length = r - l;
-					
-					float uv_len = length / (width*2); // 2 since texture has 1-2 aspect ratio
-					uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
-
-					DecalRenderer::Instance decal;
-					decal.pos = base_pos + float3(right * ((r+l)*0.5f), 0);
-					decal.rot = angle2d(right) + deg(90) * (dir == 0 ? -1 : +1);
-					decal.size = float3(width, length, 1);
-					decal.tex_id = tex_id;
-					decal.uv_scale = float2(1, uv_len);
-					decal.col = 1;
-					decals.push_back(decal);
-				};
-
-				if (lane_asset.direction == LaneDir::FORWARD) {
-					float l = lane_asset.shift - lane_asset.width*0.5f;
-					float r = lane_asset.shift + lane_asset.width*0.5f;
-
-					stop_line(seg->pos_b, l, r, 0);
-				}
-				else {
-					float l = -lane_asset.shift - lane_asset.width*0.5f;
-					float r = -lane_asset.shift + lane_asset.width*0.5f;
-
-					stop_line(seg->pos_a, l, r, 1);
-				}
-			}
 		}
 
 		for (auto& node : app.network.nodes) {
@@ -466,9 +488,10 @@ struct Mesher {
 		
 		// get diffuse texture id (normal is +1)
 		// negative means worldspace uv mapped
-		asphalt_tex_id  = -textures.bindless_textures[textures.asphalt];
-		sidewalk_tex_id = -textures.bindless_textures[textures.pavement];
-		curb_tex_id     =  textures.bindless_textures[textures.curb];
+		asphalt_tex_id   = -textures.bindless_textures[textures.asphalt];
+		sidewalk_tex_id  = -textures.bindless_textures[textures.pavement];
+		curb_tex_id      =  textures.bindless_textures[textures.curb];
+		road_wear_tex_id =  textures.bindless_textures["misc/road_wear"];
 
 		push_buildings();
 

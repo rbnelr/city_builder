@@ -109,8 +109,9 @@ struct Vertex {
 	layout(location = 4) in vec3 inst_bez_d;
 	layout(location = 5) in vec4 inst_size;
 	layout(location = 6) in vec4 inst_uv_remap;
-	layout(location = 7) in vec4 inst_col;
-	layout(location = 8) in int  inst_tex;
+	layout(location = 7) in vec4 inst_col0;
+	layout(location = 8) in vec4 inst_col1;
+	layout(location = 9) in int  inst_tex;
 
 	out Vertex v;
 
@@ -122,7 +123,7 @@ struct Vertex {
 		v.k = mesh_t;
 		v.height = inst_size.w;
 		v.uv_remap = inst_uv_remap;
-		v.col = inst_col;
+		v.col = mix(inst_col0, inst_col1, mesh_t);
 		v.tex = inst_tex;
 	}
 #endif
@@ -133,8 +134,9 @@ struct Geom {
 	flat vec3 a, b, c, d; // back left, back right, front left, front right
 	flat float height;
 	flat vec4 uv_remap;
-	flat vec4 col;
 	flat int  tex;
+	flat vec4 col0;
+	flat vec4 col1;
 };
 
 #ifdef _GEOMETRY
@@ -171,7 +173,8 @@ struct Geom {
 		geom.d = v[1].pos + v[1].right - up;
 		geom.height = v[0].height;
 		geom.uv_remap = v[0].uv_remap;
-		geom.col = v[0].col;
+		geom.col0 = v[0].col;
+		geom.col1 = v[1].col;
 		geom.tex = v[0].tex;
 		
 		cube_verts[0] = geom.a;
@@ -204,7 +207,7 @@ struct Geom {
 	
 	uniform float fade_strength = 0.5;
 	
-	bool curved_decal (out vec2 uv, out float fade, out vec3 pos_world) {
+	bool curved_decal (out vec2 uv, out vec4 col, out vec3 pos_world) {
 		if (!decode_gbuf_pos(pos_world))
 			return false;
 		
@@ -217,8 +220,12 @@ struct Geom {
 		// apply uv remap for this curve
 		uv = mix(g.uv_remap.xy, g.uv_remap.zw, uv);
 		
+		// reconstruct color
+		col = mix(g.col0, g.col1, local_coords.y);
+		
 		// fade out at top and bottom bounds of decal volume
-		fade = smoothstep(0.0, 1.0, map(abs(local_coords.z * 2.0 - 1.0), 1.0, 0.999 - fade_strength));
+		float fade = smoothstep(0.0, 1.0, map(abs(local_coords.z * 2.0 - 1.0), 1.0, 0.999 - fade_strength));
+		col.a *= fade;
 		
 		return true;
 	}

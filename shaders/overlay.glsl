@@ -38,20 +38,15 @@
 		
 		float greyscale = bindless_tex_scaled(overlay_base_texid + tex, 0, flip_y(uv)).r;
 		
-		vec4 col = g.col;
-		col.a *= greyscale;
-		
-		//col = vec4(fract(uv.yy), 0, 1);
-		
-		return col;
+		return vec4(1,1,1, greyscale);
 	}
 	
 	vec4 pattern (vec2 uv, vec3 pos_world, int tex) {
 		// -1 => pattern_base_texid, -2 => pattern_base_texid+1 etc.
 		float pat = bindless_tex_scaled(pattern_base_texid + (-1-tex), 0, flip_y(pos_world.xy)).r;
 		
-		vec4 col_inner   = g.col * vec4(1,1,1, 0.9) * pat;
-		vec4 col_outline = g.col * vec4(0.1,0.1,0.1, 1.0);
+		vec4 col_inner   = vec4(1,1,1, 0.9) * pat;
+		vec4 col_outline = vec4(0.1,0.1,0.1, 1.0);
 		
 		vec4 col;
 		{ // draw outline
@@ -72,19 +67,17 @@
 	void main () {
 		GBUF_HANDLE_WIREFRAME
 		
-		vec2 uv; float fade; vec3 pos_world;
-		if (!curved_decal(uv, fade, pos_world))
+		vec2 uv; vec4 col; vec3 pos_world;
+		if (!curved_decal(uv, col, pos_world))
 			discard;
 		
-		vec4 col;
 		if (g.tex >= 0) {
-			col = texture_fitted(uv, g.tex);
+			col *= texture_fitted(uv, g.tex);
 		}
 		else {
-			col = pattern(uv, pos_world, g.tex);
+			col *= pattern(uv, pos_world, g.tex);
 		}
 		
-		col.a *= fade;
 	#if 0
 		// sets the albedo
 		frag_col   = col;

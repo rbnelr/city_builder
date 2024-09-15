@@ -251,6 +251,11 @@ struct Hashmap : public std::unordered_map<KEY_T, VAL_T, HASHER> {
 	}
 
 	template <typename T>
+	VAL_T& get_or_default (T const& key) {
+		return std::unordered_map<KEY_T, VAL_T, HASHER>::operator[](key);
+	}
+
+	template <typename T>
 	VAL_T& operator[] (T const& key) {
 		auto* ptr = try_get(key);
 		assert(ptr);
@@ -434,7 +439,8 @@ struct BezierDecalInstance {
 	float3 d;
 	float4 size; // t0, t1, width, height
 	float4 uv_remap; // u0,v0, u1,v1
-	float4 col;
+	float4 col0;
+	float4 col1;
 	int    tex;
 
 	VERTEX_CONFIG(
@@ -444,26 +450,30 @@ struct BezierDecalInstance {
 		ATTRIB(FLT,3, BezierDecalInstance, d),
 		ATTRIB(FLT,4, BezierDecalInstance, size),
 		ATTRIB(FLT,4, BezierDecalInstance, uv_remap),
-		ATTRIB(FLT,4, BezierDecalInstance, col),
+		ATTRIB(FLT,4, BezierDecalInstance, col0),
+		ATTRIB(FLT,4, BezierDecalInstance, col1),
 		ATTRIB(INT,1, BezierDecalInstance, tex),
 	)
 
-	static BezierDecalInstance from_bezier (Bezier3 const& bez, float2 t_range, float2 size, float4 uv_remap, lrgba col, int tex) {
+	static BezierDecalInstance from_bezier_portion (Bezier3 const& bez, float2 t_range,
+			float2 size, lrgba col0, lrgba col1, int tex) {
+		float len = bez.approx_len(16) * (t_range.y - t_range.x);
+		float v1 = len / size.x;
+		
 		BezierDecalInstance i;
 		i.a = bez.a;
 		i.b = bez.b;
 		i.c = bez.c;
 		i.d = bez.d;
 		i.size = float4(t_range.x, t_range.y, size.x, size.y);
-		i.uv_remap = uv_remap;
-		i.col = col;
+		i.uv_remap = float4(0,0,1,v1);
+		i.col0 = col0;
+		i.col1 = col1;
 		i.tex = tex;
 		return i;
 	}
 	static BezierDecalInstance from_bezier_portion (Bezier3 const& bez, float2 t_range, float2 size, lrgba col, int tex) {
-		float len = bez.approx_len(16) * (t_range.y - t_range.x);
-		float v1 = len / size.x;
-		return from_bezier(bez, t_range, size, float4(0,0,1,v1), col, tex);
+		return from_bezier_portion(bez, t_range, size, col, col, tex);
 	}
 };
 

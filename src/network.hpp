@@ -352,6 +352,8 @@ struct Node {
 
 	Bezier3 calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0=0, float2 shiftXZ_1=0);
 	Bezier3 calc_curve (SegLane& in, SegLane& out);
+	
+	static Node* between (Segment* in, Segment* out);
 };
 
 struct Lane {
@@ -401,6 +403,7 @@ struct Segment { // better name? Keep Path and call path Route?
 	Node* get_node_in_dir (LaneDir dir) {
 		return dir == LaneDir::FORWARD ? node_b : node_a;
 	}
+	
 	LaneDir get_dir_to_node (Node* node) {
 		return node_a != node ? LaneDir::FORWARD : LaneDir::BACKWARD;
 	}
@@ -510,6 +513,16 @@ struct Segment { // better name? Keep Path and call path Route?
 		_length = distance(pos_a, pos_b);
 	}
 };
+inline Node* Node::between (Segment* in, Segment* out) {
+	if (in->node_a == out->node_a || in->node_a == out->node_b) {
+		return in->node_a;
+	}
+	else {
+		assert(in->node_b == out->node_a || in->node_b == out->node_b);
+		return in->node_b;
+	}
+}
+
 inline Lane& SegLane::get () {
 	return seg->lanes[lane];
 }
@@ -592,6 +605,123 @@ inline uint32_t conn_id (Node* node, Connection const& conn) {
 inline uint64_t conn_pair_id (uint32_t conn_a_id, uint32_t conn_b_id) {
 	return (uint64_t)conn_a_id | ((uint64_t)conn_b_id << 32);
 }
+
+inline Turns classify_turn (Node* node, Segment* in, Segment* out) {
+	auto seg_dir_to_node = [] (Node* node, Segment* seg) {
+		return seg->get_dir_to_node(node) == LaneDir::FORWARD ?
+			seg->tangent_b() : seg->tangent_a();
+	};
+
+	float2 in_dir  = seg_dir_to_node(node, in);
+	float2 out_dir = seg_dir_to_node(node, out);
+
+	float2 rel;
+	rel.y = dot(-out_dir, in_dir);
+	rel.x = dot(-out_dir, rotate90(-in_dir));
+
+	// TODO: track uturns?
+	if      (rel.y > abs(rel.x))  return Turns::STRAIGHT;
+	else if (rel.y < -abs(rel.x)) return Turns::UTURN;
+	else if (rel.x < 0.0f)        return Turns::LEFT;
+	else                          return Turns::RIGHT;
+}
+inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowed) {
+	return (classify_turn(node, in, out) & allowed) != Turns::NONE;
+}
+
+////
+struct TrafficLight {
+	enum SignalState {
+		//OFF = 0,
+		RED = 0,
+		YELLOW,
+		GREEN,
+	};
+
+	static constexpr float yellow_time = 2.0f; // 1sec, TODO: make customizable or have it depend on duration of cycle?
+
+	float phase_go_duration = 10; // how long we have green/yellow
+	float phase_idle_duration = 2; // how long to hold red before next phase starts
+
+	float timer = 0;
+
+	int num_phases = 0;
+	// bitmasks of active lanes per phase, limit lanes in node to max 64
+	std::unique_ptr<uint64_t[]> phases = nullptr;
+
+	TrafficLight (Node* node);
+
+	void update (Node* node, float dt) {
+		timer += dt / (phase_go_duration + phase_idle_duration);
+		timer = fmodf(timer, (float)num_phases);
+	}
+
+	struct CurPhase {
+		uint64_t mask;
+		float green_remain;
+	};
+	CurPhase decode_phase () {
+		CurPhase res;
+
+		int phase_i = floori(timer);
+		float t = timer - (float)phase_i;
+		
+		float elapsed = t * (phase_go_duration + phase_idle_duration);
+
+		res.mask  = phases[phase_i];
+		res.green_remain = phase_go_duration - elapsed;
+		return res;
+	}
+	SignalState get_signal (CurPhase& cur_phase, int signal_slot) {
+		
+		if (cur_phase.mask & ((uint64_t)1 << signal_slot)) {
+			if (cur_phase.green_remain >= yellow_time)
+				return GREEN;
+			if (cur_phase.green_remain >= 0.0f)
+				return YELLOW;
+			// else green_remain < 0 -> phase_idle_duration, so everything red
+		}
+		return RED;
+	}
+
+	// In order of segments, then in order of incoming lanes
+	template <typename T>
+	void push_signal_colors (Node* node, std::vector<T>& signal_colors) {
+		auto cur_phase = decode_phase();
+
+		int signal_slot = 0;
+		for (int seg_i=0; seg_i<(int)node->segments.size(); ++seg_i) {
+			auto& seg = node->segments[seg_i];
+			auto* light_asset = seg->asset->traffic_light_props.get();
+
+			for (auto in_lane : seg->in_lanes(node)) {
+				auto state = get_signal(cur_phase, signal_slot);
+
+				auto* colors = push_back(signal_colors, 1);
+				colors->colors[0] = state == RED    ? light_asset->colors[0] : lrgb(0);
+				colors->colors[1] = state == YELLOW ? light_asset->colors[1] : lrgb(0);
+				colors->colors[2] = state == GREEN  ? light_asset->colors[2] : lrgb(0);
+
+				signal_slot++;
+			}
+		}
+	}
+
+	// usages probably should be optimized!
+	static int _find_signal_slot (Node* node, SegLane& lane) {
+		int signal_slot = 0;
+		for (int seg_i=0; seg_i<(int)node->segments.size(); ++seg_i) {
+			auto& seg = node->segments[seg_i];
+			for (auto in_lane : seg->in_lanes(node)) {
+				if (lane == in_lane)
+					return signal_slot;
+				signal_slot++;
+			}
+		}
+		assert(false);
+		return 0;
+	}
+};
 
 struct Metrics {
 
@@ -709,370 +839,6 @@ struct Network {
 	void simulate (App& app);
 	void draw_debug (App& app, View3D& view);
 };
-
-// classify_turn(node, a, b) == STRAIGHT => classify_turn(node, b, a)
-inline Turns classify_turn (Node* node, Segment* in, Segment* out) {
-	auto seg_dir_to_node = [] (Node* node, Segment* seg) {
-		return seg->get_dir_to_node(node) == LaneDir::FORWARD ?
-			seg->tangent_b() : seg->tangent_a();
-	};
-
-	float2 in_dir  = seg_dir_to_node(node, in);
-	float2 out_dir = seg_dir_to_node(node, out);
-
-	float2 rel;
-	rel.y = dot(-out_dir, in_dir);
-	rel.x = dot(-out_dir, rotate90(-in_dir));
-
-	// TODO: track uturns?
-	if      (rel.y > abs(rel.x))  return Turns::STRAIGHT;
-	else if (rel.y < -abs(rel.x)) return Turns::UTURN;
-	else if (rel.x < 0.0f)        return Turns::LEFT;
-	else                          return Turns::RIGHT;
-}
-inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowed) {
-	return (classify_turn(node, in, out) & allowed) != Turns::NONE;
-}
-
-inline int default_lane_yield (int node_class, Segment& seg) {
-	return seg.asset->road_class < node_class;
-}
-inline void set_default_lane_options (Node& node, bool fully_dedicated, int node_class) {
-	bool allow_mixed_lefts = node.traffic_light == nullptr;
-	bool allow_mixed_rights = true;
-
-	for (auto& seg : node.segments) {
-		auto in_lanes = seg->in_lanes(&node);
-		
-		auto set_lane_arrows = [&] () {
-			int count = in_lanes.count();
-
-			if (count <= 1) {
-				for (auto lane : in_lanes)
-					lane.get().allowed_turns = Turns::LSR;
-			}
-			else if (count == 2 || !fully_dedicated) {
-				for (auto lane : in_lanes) {
-					bool leftmost  = lane.lane == in_lanes.first;
-					bool rightmost = lane.lane == in_lanes.end_-1;
-					if      (leftmost)  lane.get().allowed_turns = Turns::LS;
-					else if (rightmost) lane.get().allowed_turns = Turns::SR;
-					else                lane.get().allowed_turns = Turns::STRAIGHT;
-				}
-			}
-			else {
-				// fully dedicated
-				int div = count / 3;
-				int rem = count % 3;
-			
-				// equal lanes for left straight right turn, remainder goes to straight then left
-				int L=div, S=div, R=div;
-				if (rem >= 1) S+=1;
-				if (rem >= 1) L+=1;
-			
-				for (auto lane : in_lanes) {
-					int idx = 0;
-					for (int i=0; i<L; ++i) in_lanes[idx++].get().allowed_turns = Turns::LEFT;
-					for (int i=0; i<S; ++i) in_lanes[idx++].get().allowed_turns = Turns::STRAIGHT;
-					for (int i=0; i<R; ++i) in_lanes[idx++].get().allowed_turns = Turns::SR; //Turns::RIGHT;
-				}
-			}
-
-			for (auto lane : in_lanes) {
-				lane.get().yield = default_lane_yield(node_class, *seg);
-			}
-		};
-
-		auto set_connections = [&] () {
-			
-			std::vector<SegLane> outL, outS, outR;
-			
-			for (auto* seg_out : node.segments) {
-				auto push_lanes = [&] (std::vector<SegLane>& vec) {
-					for (auto lane : seg_out->out_lanes(&node)) {
-						vec.push_back(lane);
-					}
-				};
-
-				auto turn = classify_turn(&node, seg, seg_out);
-				if      (turn == Turns::LEFT)     push_lanes(outL);
-				else if (turn == Turns::STRAIGHT) push_lanes(outS);
-				else if (turn == Turns::RIGHT)    push_lanes(outR);
-			}
-			
-			int reqL = (int)outL.size();
-			int reqS = (int)outS.size();
-			int reqR = (int)outR.size();
-			int avail_lanes = in_lanes.count();
-
-			{
-				int num = min(reqS, avail_lanes);
-				for (int i=0; i<num; ++i) {
-					auto& l = in_lanes.outer(i).get();
-					l.connections.push_back(outS[reqS-1-i]);
-					l.allowed_turns |= Turns::STRAIGHT;
-				}
-			}
-			{
-				int num = min(reqR, avail_lanes);
-				for (int i=0; i<num; ++i) {
-					auto& l = in_lanes.outer(i).get();
-					// TODO: rewrite to do this via integer counts instead of break?
-					bool mixed = any_set(l.allowed_turns, ~Turns::RIGHT);
-					if (!mixed || allow_mixed_rights) {
-						l.connections.push_back(outR[reqR-1-i]);
-						l.allowed_turns |= Turns::RIGHT;
-					}
-					if (mixed) break;
-				}
-			}
-			{
-				int num = min(reqL, avail_lanes);
-				for (int i=0; i<num; ++i) {
-					auto& l = in_lanes.inner(i).get();
-					bool mixed = any_set(l.allowed_turns, ~Turns::LEFT);
-					if (!mixed || allow_mixed_lefts) {
-						l.connections.push_back(outL[i]);
-						l.allowed_turns |= Turns::LEFT;
-					}
-					if (mixed) break;
-				}
-			}
-		};
-		
-		//set_lane_arrows();
-
-		set_connections();
-	}
-}
-
-inline void Node::update_cached () {
-	// Sort CCW(?) segments in place for good measure
-	auto get_seg_angle = [] (Node* node, Segment* a) {
-		Node* other = a->get_other_node(node);
-		float2 dir = other->pos - node->pos;
-		return atan2f(dir.y, dir.x);
-	};
-	std::sort(segments.begin(), segments.end(), [&] (Segment* l, Segment* r) {
-		float ang_l = get_seg_angle(this, l);
-		float ang_r = get_seg_angle(this, r);
-		return ang_l < ang_r;
-	});
-
-	_radius = 0;
-	for (auto* seg : segments) {
-		auto info = seg->get_end_info(seg->get_dir_to_node(this));
-		_radius = max(_radius, distance(pos, info.pos));
-	}
-
-	// TODO: replace traffic light as well?
-	// lane id for phases might have been invalidated!
-}
-inline void Node::set_defaults () {
-	int node_class;
-	{
-		node_class = 0;
-		for (auto& seg : segments) {
-			node_class = max(node_class, seg->asset->road_class);
-		}
-		
-		auto want_traffic_light = [&] () {
-			int non_small_segs = 0;
-			for (auto& seg : segments) {
-				if (seg->asset->road_class > 0)
-					non_small_segs++;
-			}
-
-			// only have traffic light if more than 2 at least medium roads intersect
-			return non_small_segs > 2;
-		};
-		replace_traffic_light( want_traffic_light() );
-	}
-
-	set_default_lane_options(*this, _fully_dedicated_turns, node_class);
-}
-
-inline float get_cur_speed_limit (ActiveVehicle* vehicle) {
-	auto state = vehicle->state.state;
-	if (state == PathState::SEGMENT) {
-		return vehicle->state.cur_lane.seg->asset->speed_limit;
-	}
-	else if (state == PathState::NODE) {
-		float a = vehicle->state.cur_lane .seg->asset->speed_limit;
-		float b = vehicle->state.next_lane.seg->asset->speed_limit;
-		return min(a, b); // TODO: ??
-	}
-	else {
-		return 20 / KPH_PER_MS;
-	}
-}
-
-////
-enum class TrafficSignalState {
-	//OFF = 0,
-	RED = 0,
-	YELLOW,
-	GREEN,
-};
-
-struct TrafficLight {
-	static constexpr float yellow_time = 2.0f; // 1sec, TODO: make customizable or have it depend on duration of cycle?
-
-	float phase_go_duration = 10; // how long we have green/yellow
-	float phase_idle_duration = 2; // how long to hold red before next phase starts
-
-	float timer = 0;
-
-	int num_phases = 0;
-	// bitmasks of active lanes per phase, limit lanes in node to max 64
-	std::unique_ptr<uint64_t[]> phases = nullptr;
-
-	TrafficLight (Node* node);
-
-	void update (Node* node, float dt) {
-		timer += dt / (phase_go_duration + phase_idle_duration);
-		timer = fmodf(timer, (float)num_phases);
-	}
-
-	struct CurPhase {
-		uint64_t mask;
-		float green_remain;
-	};
-	CurPhase decode_phase () {
-		CurPhase res;
-
-		int phase_i = floori(timer);
-		float t = timer - (float)phase_i;
-		
-		float elapsed = t * (phase_go_duration + phase_idle_duration);
-
-		res.mask  = phases[phase_i];
-		res.green_remain = phase_go_duration - elapsed;
-		return res;
-	}
-	TrafficSignalState get_signal (CurPhase& cur_phase, int signal_slot) {
-		
-		if (cur_phase.mask & ((uint64_t)1 << signal_slot)) {
-			if (cur_phase.green_remain >= yellow_time)
-				return TrafficSignalState::GREEN;
-			if (cur_phase.green_remain >= 0.0f)
-				return TrafficSignalState::YELLOW;
-			// else green_remain < 0 -> phase_idle_duration, so everything red
-		}
-		return TrafficSignalState::RED;
-	}
-
-	// In order of segments, then in order of incoming lanes
-	template <typename T>
-	void push_signal_colors (Node* node, std::vector<T>& signal_colors) {
-		auto cur_phase = decode_phase();
-
-		int signal_slot = 0;
-		for (int seg_i=0; seg_i<(int)node->segments.size(); ++seg_i) {
-			auto& seg = node->segments[seg_i];
-			auto* light_asset = seg->asset->traffic_light_props.get();
-
-			for (auto in_lane : seg->in_lanes(node)) {
-				auto state = get_signal(cur_phase, signal_slot);
-
-				auto* colors = push_back(signal_colors, 1);
-				colors->colors[0] = state == TrafficSignalState::RED    ? light_asset->colors[0] : lrgb(0);
-				colors->colors[1] = state == TrafficSignalState::YELLOW ? light_asset->colors[1] : lrgb(0);
-				colors->colors[2] = state == TrafficSignalState::GREEN  ? light_asset->colors[2] : lrgb(0);
-
-				signal_slot++;
-			}
-		}
-	}
-
-	// usages probably should be optimized!
-	static int _find_signal_slot (Node* node, SegLane& lane) {
-		int signal_slot = 0;
-		for (int seg_i=0; seg_i<(int)node->segments.size(); ++seg_i) {
-			auto& seg = node->segments[seg_i];
-			for (auto in_lane : seg->in_lanes(node)) {
-				if (lane == in_lane)
-					return signal_slot;
-				signal_slot++;
-			}
-		}
-		assert(false);
-		return 0;
-	}
-};
-
-inline void setup_traffic_light_exclusive_segments (TrafficLight& light, Node* node) {
-	light.num_phases = (int)node->segments.size();
-	light.phases = std::make_unique<uint64_t[]>(light.num_phases);
-	
-	int signal_slot = 0;
-	for (int phase_i=0; phase_i<light.num_phases; ++phase_i) {
-		auto& seg = node->segments[phase_i];
-
-		uint64_t mask = 0;
-
-		for (auto in_lane : seg->in_lanes(node)) {
-			mask |= (uint64_t)1 << signal_slot;
-			signal_slot++;
-		}
-
-		light.phases[phase_i] = mask;
-	}
-}
-inline void setup_traffic_light_2phase (TrafficLight& light, Node* node) {
-	std::vector<uint64_t> phases;
-	phases.reserve(8);
-	auto create_phase = [&] (int active_seg1, int active_seg2) {
-		uint64_t mask = 0;
-		
-		int signal_slot = 0;
-		for (int seg_i=0; seg_i<(int)node->segments.size(); ++seg_i) {
-			auto& seg = node->segments[seg_i];
-
-			for (auto in_lane : seg->in_lanes(node)) {
-				if (seg_i == active_seg1 || seg_i == active_seg2)
-					mask |= (uint64_t)1 << signal_slot;
-				signal_slot++;
-			}
-		}
-
-		phases.push_back(mask);
-	};
-
-	std::vector<int> remain_segments;
-
-	for (int i=0; i<(int)node->segments.size(); ++i)
-		remain_segments.push_back(i);
-
-	while (!remain_segments.empty()) {
-		int seg = remain_segments[0];
-		remain_segments.erase(remain_segments.begin());
-		
-		// take_straight_seg
-		int straight_seg = -1;
-		for (int j=0; j<(int)remain_segments.size(); ++j) {
-			auto other_seg = remain_segments[j];
-
-			auto turn = classify_turn(node, node->segments[seg], node->segments[other_seg]);
-			if (turn == Turns::STRAIGHT) {
-				straight_seg = other_seg;
-				remain_segments.erase(remain_segments.begin()+j);
-				break;
-			}
-		}
-
-		create_phase(seg, straight_seg);
-	}
-
-	light.num_phases = (int)phases.size();
-	light.phases = std::make_unique<uint64_t[]>(light.num_phases);
-	memcpy(light.phases.get(), phases.data(), sizeof(phases[0])*light.num_phases);
-}
-
-inline TrafficLight::TrafficLight (Node* node) {
-	//setup_traffic_light_exclusive_segments(*this, node);
-	setup_traffic_light_2phase(*this, node);
-}
 
 } // namespace network
 using network::Network;

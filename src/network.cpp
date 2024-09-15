@@ -178,6 +178,58 @@ bool Network::pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle)
 }
 
 ////
+
+// Return first lane connector for next segment in path if avialable
+SegLane pick_stay_in_lane (SegLane& cur_lane, Segment* next_seg) {
+	for (auto& conn : cur_lane.get().connections) {
+		if (conn.seg == next_seg)
+			return conn;
+	}
+	return SegLane{};
+}
+// Pick random next lane that has correct turn arrow for segment later in the path
+SegLane pick_random_allowed_lane (Random& rand, Segment::LanesRange& next_lanes, Turns req_turn,
+		SegLane default_lane, bool exclude_default=false) {
+#if 0
+	auto choose = [&] (SegLane lane) {
+		return any_set(lane.get().allowed_turns, req_turn) &&
+			(exclude_default ? lane != default_lane : true);
+	};
+
+	int count = 0;
+	for (auto lane : next_lanes) {
+		if (choose(lane))
+			count++;
+	}
+		
+	if (count > 0) {
+		int choice = rand.uniformi(0, count);
+		int idx = 0;
+		for (auto lane : next_lanes) {
+			if (choose(lane) && idx++ == choice)
+				return lane;
+		}
+	}
+	// if no lanes were chosen for random pick either because exclude_default or missing allowed turn (pathfinding bug?)
+	return default_lane;
+#else
+	std::vector<SegLane> choices;
+	choices.reserve(8);
+
+	for (auto lane : next_lanes) {
+		if (any_set(lane.get().allowed_turns, req_turn) && (exclude_default ? lane != default_lane : true))
+			choices.push_back(lane);
+	}
+		
+	if (choices.size() > 0) {
+		int choice = rand.uniformi(0, (int)choices.size());
+		return choices[choice];
+	}
+	// if no lanes were chosen for random pick either because exclude_default or missing allowed turn (pathfinding bug?)
+	return default_lane;
+#endif
+};
+
 PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathState* prev_state = nullptr) {
 	PathState s = {};
 
@@ -190,65 +242,20 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 	//   Might still want to keep determinism based on car id + path progress int, just so reloading a save state results in the same behavior?
 	auto seeded_rand = Random(hash(idx, (uint64_t)vehicle));
 
-	// find next (non-straight) turn in next N nodes
-	// choose lane for segment before that
-	// backiterate and apply 'target' lane to each by 'staying on' lane backwards for M steps
-	// possibly have random
-
-	// figure out node between in and out segment
-	auto find_node = [&] (Segment* in, Segment* out) {
-		if (in->node_a == out->node_a || in->node_a == out->node_b)
-			return in->node_a;
-		else
-			return in->node_b;
-	};
-	
-	auto roll_random_lane_switch = [&] () {
-		return seeded_rand.chance(net._random_lane_switching_chance);
-	};
-	auto pick_random_allowed_lane = [&] (Segment::LanesRange& lanes, Turns turn, SegLane default_lane, bool exclude_default=false) {
-		auto choose = [&] (SegLane lane) {
-			return any_set(lane.get().allowed_turns, turn) &&
-				(exclude_default ? lane != default_lane : true);
-		};
+	auto pick_next_lane = [&] (SegLane& cur_lane, Segment* seg1, Node* next_node, Segment* seg2) {
+		auto turn = classify_turn(next_node, seg1, seg2);
+		auto next_lanes = seg1->in_lanes(next_node);
 		
-		int count = 0;
-		for (auto lane : lanes) {
-			if (choose(lane))
-				count++;
-		}
-		
-		if (count > 0) {
-			int choice = seeded_rand.uniformi(0, count);
-			int idx = 0;
-			for (auto lane : lanes) {
-				if (choose(lane) && idx++ == choice)
-					return lane;
-			}
-		}
-		// if no lanes were chosen for random pick either because exclude_default or missing allowed turn (pathfinding bug?)
-		return default_lane;
-	};
-	auto pick_stay_in_lane = [&] (Segment::LanesRange& next_lanes, SegLane& cur_lane) {
-		// stupid logic for now
-		auto lane = (laneid_t)clamp(cur_lane.lane, next_lanes.first, next_lanes.end_-1);
-		return SegLane{ next_lanes.seg, lane };
-	};
-
-	auto pick_next_lane = [&] (SegLane& cur_lane, Segment* in, Node* node, Segment* out) {
-		auto turn = classify_turn(node, in, out);
-		auto in_lanes = in->in_lanes(node);
-		
-		SegLane stay_lane = pick_stay_in_lane(in_lanes, cur_lane);
-		bool can_stay_in_lane = any_set(stay_lane.get().allowed_turns, turn);
+		SegLane stay_lane = pick_stay_in_lane(cur_lane, seg1);
+		bool can_stay_in_lane = stay_lane && any_set(stay_lane.get().allowed_turns, turn);
 
 		// if we can't stay in lane, pick random turn lane
 		if (!can_stay_in_lane)
-			return pick_random_allowed_lane(in_lanes, turn, stay_lane);
+			return pick_random_allowed_lane(seeded_rand, next_lanes, turn, stay_lane);
 
-		// randomly switch lanes, but never switch
-		if (roll_random_lane_switch())
-			return pick_random_allowed_lane(in_lanes, turn, stay_lane, true);
+		// randomly switch lanes
+		if (seeded_rand.chance(net._random_lane_switching_chance))
+			return pick_random_allowed_lane(seeded_rand, next_lanes, turn, stay_lane, true);
 
 		// otherwise stay in lane if allowed
 		return stay_lane;
@@ -281,7 +288,7 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 		s.state = PathState::EXIT_BUILDING;
 
 		Segment* start_seg = vehicle->path[0];
-		Node* next_node = num_seg > 1 ? find_node(start_seg, vehicle->path[1]) : nullptr;
+		Node* next_node = num_seg > 1 ? Node::between(start_seg, vehicle->path[1]) : nullptr;
 		LaneDir seg_dir = start_seg->get_dir_to_node(next_node); // null is ok
 
 		s.cur_lane = {};
@@ -315,8 +322,8 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 				Segment* seg1 = i+1 < num_seg ? vehicle->path[i+1] : nullptr; // next segment (after current node)
 				Segment* seg2 = i+2 < num_seg ? vehicle->path[i+2] : nullptr; // segment after that (after next node)
 		
-				s.cur_node      = seg1 ? find_node(seg0, seg1) : nullptr; // current/next segment -> current node
-				Node* next_node = seg2 ? find_node(seg1, seg2) : nullptr; // next/after that segment -> next node
+				s.cur_node      = seg1 ? Node::between(seg0, seg1) : nullptr; // current/next segment -> current node
+				Node* next_node = seg2 ? Node::between(seg1, seg2) : nullptr; // next/after that segment -> next node
 		
 				if (!seg1) {
 					// already on target lane (end of trip)
@@ -356,7 +363,7 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 			s.cur_lane = prev_state->cur_lane;
 			s.next_lane = prev_state->next_lane;
 			s.cur_turn = prev_state->cur_turn;
-			s.cur_node = find_node(s.cur_lane.seg, s.next_lane.seg);
+			s.cur_node = Node::between(s.cur_lane.seg, s.next_lane.seg);
 
 			//if (s.cur_node) assert(contains(s.cur_node->in_lanes , s.cur_lane ));
 			//if (s.cur_node) assert(contains(s.cur_node->out_lanes, s.next_lane));
@@ -374,6 +381,20 @@ PathState get_path_state (Network& net, ActiveVehicle* vehicle, int idx, PathSta
 	}
 
 	return s;
+}
+inline float get_cur_speed_limit (ActiveVehicle* vehicle) {
+	auto state = vehicle->state.state;
+	if (state == PathState::SEGMENT) {
+		return vehicle->state.cur_lane.seg->asset->speed_limit;
+	}
+	else if (state == PathState::NODE) {
+		float a = vehicle->state.cur_lane .seg->asset->speed_limit;
+		float b = vehicle->state.next_lane.seg->asset->speed_limit;
+		return min(a, b); // TODO: ??
+	}
+	else {
+		return 20 / KPH_PER_MS;
+	}
 }
 
 float _brake_for_dist (float obstacle_dist) {
@@ -1140,7 +1161,7 @@ void update_node (App& app, Node* node, float dt) {
 			auto signal_slot = node->traffic_light->_find_signal_slot(node, in_lane);
 			auto lane_signal = node->traffic_light->get_signal(cur_phase, signal_slot);
 
-			if (lane_signal == TrafficSignalState::RED) {
+			if (lane_signal == TrafficLight::RED) {
 				// anything other than red means GO
 				float dist = -v.front_k; // end of ingoing lane
 				brake_for_dist(v.vehicle, dist);

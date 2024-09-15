@@ -295,6 +295,7 @@
     <ClInclude Include="..\src\engine\text_render.hpp" />
     <ClInclude Include="..\src\engine\engine.hpp" />
     <ClInclude Include="..\src\game_camera.hpp" />
+    <ClCompile Include="..\src\network_defaults.cpp" />
     <ClInclude Include="..\src\opengl\bindless_textures.hpp" />
     <ClInclude Include="..\src\opengl\gl_dbgdraw.hpp" />
     <ClCompile Include="..\src\opengl\objects.cpp" />

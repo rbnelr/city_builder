@@ -85,6 +85,7 @@
     <ClCompile Include="..\src\opengl\ogl_render.cpp">
       <Filter>opengl</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\network_defaults.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="engine">

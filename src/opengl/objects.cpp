@@ -1,3 +1,4 @@
+#include "common.hpp"
 #include "objects.hpp"
 #include "ogl_render.hpp"
 

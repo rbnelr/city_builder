@@ -1,80 +1,47 @@
 //#include "common.glsl"
 
-vec3 bezier (vec3 a, vec3 b, vec3 c, vec3 d, float t, out vec3 grad) {
-	vec3 c0 = a;                     // a
-	vec3 c1 = 3.0 * (b - a);         // (-3a +3b)t
-	vec3 c2 = 3.0 * (a + c) - 6.0*b; // (3a -6b +3c)t^2
-	vec3 c3 = 3.0 * (b - c) - a + d; // (-a +3b -3c +d)t^.03
-
-	float t2 = t*t;
-	float t3 = t2*t;
-	
-	vec3 value = c3*t3       + c2*t2      + c1*t + c0; // f(t)
-	grad       = c3*(t2*3.0) + c2*(t*2.0) + c1;        // f'(t)
-	return value;
+float cross2d (vec2 l, vec2 r) {
+	return l.x * r.y - l.y * r.x;
 }
 
+// adapted from https://iquilezles.org/articles/ibilinear/
 bool uv_from_corners (vec2 a, vec2 b, vec2 c, vec2 d, vec2 p, out vec2 uv) {
-	vec2 ab = b - a;
-	vec2 ac = c - a;
-	vec2 ad = d - a;
-	
-	vec2 H = ad - ab - ac;
-	vec2 O = p - a;
-
-	float u, v;
-	{
-		float a = ab.y*H.x - ab.x*H.y;
-		float b = H.y*O.x - H.x*O.y + ab.y*ac.x - ab.x*ac.y;
-		float c = O.x*ac.y - O.y*ac.x;
-		if (abs(a) < 0.0001) { // b*u + c = 0
-			u = -c / b;
+	vec2 ab = b-a;
+	vec2 ac = c-a;
+	vec2 h = a-b+d-c;
+	vec2 pa = p-a;
 			
-			// No idea why this condition works, but doing this causes just the front side to be displayed!
-			if (c < 0.0 || b >= 0.0)
-				return false;
-		}
-		else { // a*u^2 + b*u + c = 0
-			float p = -0.5 * b / a;
-			float q = c / a;
+	float k2 = cross2d(h, ac);
+	float k1 = cross2d(ab, ac) + cross2d(pa, h);
+	float k0 = cross2d(pa, ab);
+	
+	float u;
+	float v;
+	
+	if (abs(k2) < 0.001) {
+		v = -k0 / k1;
+		u = (pa.x*k1 + ac.x*k0) / (ab.x*k1 - h.x*k0);
 
-			float sqr = p*p - q;
-			if (sqr < 0.0)
-				return false;
-			sqr = sqrt(sqr);
-			// No idea why this condition works, but doing this causes just the front side to be displayed!
-			u = a > 0.0 ? p - sqr : p + sqr;
-		}
-		if (u < 0.0 || u > 1.0)
+		// No idea why this condition works, but doing this causes just the front side to be displayed!
+		if (k0 > 0.0 || k1 <= 0.0)
 			return false;
 	}
-	{
-		// The fact that the conditions are flipped tells me a/b/c are probably flipped (the divisions cancel out the sign, but the condition flips)
-		// Seems like deriving and then trial&erroring the conditions caused the formula to be reversed with respect to all the substractions?
-		float a = ac.y*H.x - ac.x*H.y;
-		float b = H.y*O.x - H.x*O.y + ac.y*ab.x - ac.x*ab.y;
-		float c = O.x*ab.y - O.y*ab.x;
-
-		if (abs(a) < 0.0001) {
-			v = -c / b;
-			
-			if (c > 0.0 || b <= 0.0)
-				return false;
-		}
-		else {
-			float p = -0.5f * b / a;
-			float q = c / a;
-	
-			float sqr = p*p - q;
-			if (sqr < 0.0)
-				return false;
-			sqr = sqrt(sqr);
-
-			v = a < 0.0 ? p - sqr : p + sqr;
-		}
-		if (v < 0.0 || v > 1.0)
+	else {
+		float p = -0.5f * k1 / k2;
+		float q = k0 / k2;
+		
+		float sqr = p*p - q;
+		if (sqr < 0.0)
 			return false;
+		sqr = sqrt(sqr);
+
+		// No idea why this condition works, but doing this causes just the front side to be displayed!
+		v = k2 < 0.0 ? p - sqr : p + sqr;
+		u = (pa.x - ac.x*v) / (ab.x + h.x*v);
 	}
+	
+	if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0)
+		return false;
 	
 	uv = vec2(u,v);
 	return true;
@@ -90,17 +57,6 @@ bool uv_from_corners_with_height (vec3 a, vec3 b, vec3 c, vec3 d, float h, vec3 
 	}
 	return false;
 }
-
-/*
-struct Vertex {
-	vec3  pos;
-	vec3  right;
-	float height;
-	float uv;
-	float uv_len;
-	int   tex;
-	vec4  col;
-};*/
 
 VS2FS Vertex {
 	// corners of quad region

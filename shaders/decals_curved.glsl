@@ -21,7 +21,7 @@
 		
 		vec3 mark = textureAspectCorrected(uv).rgb;
 		
-	#if 1
+	#if 0
 		vec3  col = mix(0.07, 0.00, mark.r).xxx - mark.ggg*1.0;
 		float col_alpha = mix(mark.r, mark.b, 0.2) * 0.5;
 		

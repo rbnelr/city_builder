@@ -722,15 +722,55 @@ struct DecalRenderer {
 	}
 };
 struct CurvedDecalRenderGeom {
-	VertexBufferI vbo = vertex_bufferI<CurvedDecalVertex>("CurvedDecals.vbo");
+	//VertexBufferI vbo = vertex_bufferI<CurvedDecalVertex>("CurvedDecals.vbo");
+	//
+	//size_t indices = 0;
+	//
+	//void upload (CurvedDecals& decals, GLenum usage) {
+	//	indices = decals.indices.size();
+	//	vbo.stream(decals.vertices, decals.indices);
+	//}
+	//
+	//void draw (Shader* shad, StateManager& state, bool allow_wireframe=true) {
+	//	PipelineState s;
+	//	if (!(state.wireframe && allow_wireframe)) { // draw normal way for wireframe
+	//		// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
+	//		// unfortunately, this won't exclude volumes completely occluded by a wall, but this is better than no depth testing at all
+	//		// (The shader still manually intersect the volume to correctly exclude pixels)
+	//		s.depth_test = true;
+	//		s.depth_func = DEPTH_BEHIND;
+	//		s.depth_write = false; // depth write off!
+	//		s.cull_face = true;
+	//		s.front_face = CULL_FRONT; // draw backfaces to avoid camera in volume
+	//		s.blend_enable = true; // default blend mode (standard alpha)
+	//	}
+	//	if (allow_wireframe) state.set(s);
+	//	else                 state.set_no_override(s);
+	//
+	//	shad->set_uniform("wireframe", state.wireframe && allow_wireframe);
+	//	shad->set_uniform("wireframe_col", lrgba(1,0.75f,0.5f,0.75f));
+	//
+	//	if (indices > 0) {
+	//		glBindVertexArray(vbo.vao);
+	//		glDrawElements(GL_LINES, (GLsizei)indices, GL_UNSIGNED_INT, (void*)0);
+	//		glBindVertexArray(0);
+	//	}
+	//}
 	
-	size_t indices = 0;
+	VertexBufferInstancedI vbo = vertex_buffer_instancedI<VertexPos3, CurvedDecalVertex>("CurvedDecals.vbo");
+	
+	size_t instances = 0;
 
-	void upload (CurvedDecals& decals, GLenum usage) {
-		indices = decals.indices.size();
-		vbo.stream(decals.vertices, decals.indices);
+	CurvedDecalRenderGeom () {
+		vbo.upload_mesh(render::shapes::CUBE_VERTICES, ARRLEN(render::shapes::CUBE_VERTICES),
+		                render::shapes::CUBE_INDICES, ARRLEN(render::shapes::CUBE_INDICES));
 	}
-
+	
+	void upload (CurvedDecals& decals, GLenum usage) {
+		instances = decals.vertices.size();
+		vbo.stream_instances(decals.vertices);
+	}
+	
 	void draw (Shader* shad, StateManager& state, bool allow_wireframe=true) {
 		PipelineState s;
 		if (!(state.wireframe && allow_wireframe)) { // draw normal way for wireframe
@@ -746,20 +786,20 @@ struct CurvedDecalRenderGeom {
 		}
 		if (allow_wireframe) state.set(s);
 		else                 state.set_no_override(s);
-
+	
 		shad->set_uniform("wireframe", state.wireframe && allow_wireframe);
 		shad->set_uniform("wireframe_col", lrgba(1,0.75f,0.5f,0.75f));
-
-		if (indices > 0) {
+	
+		if (instances > 0) {
 			glBindVertexArray(vbo.vao);
-			glDrawElements(GL_LINES, (GLsizei)indices, GL_UNSIGNED_INT, (void*)0);
+			glDrawElementsInstanced(GL_TRIANGLES, ARRLEN(render::shapes::CUBE_INDICES), GL_UNSIGNED_SHORT, (void*)0, (GLsizei)instances);
 			glBindVertexArray(0);
 		}
 	}
 };
 
 struct CurvedDecalRender {
-	Shader* shad  = g_shaders.compile_geometry("decals_curved");
+	Shader* shad  = g_shaders.compile("decals_curved");
 
 	CurvedDecalRenderGeom geom;
 
@@ -783,7 +823,7 @@ struct CurvedDecalRender {
 	}
 };
 struct OverlayRender {
-	Shader* shad = g_shaders.compile_geometry("overlay");
+	Shader* shad = g_shaders.compile("overlay");
 	
 	CurvedDecalRenderGeom geom;
 

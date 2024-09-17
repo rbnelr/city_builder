@@ -5,10 +5,10 @@
 #ifdef _FRAGMENT
 	
 	vec4 textureAspectCorrected (vec2 uv) {
-		vec2 sz = vec2(textureSize(bindless_tex(g.tex, 0), 0));
+		vec2 sz = vec2(textureSize(bindless_tex(v.tex, 0), 0));
 		uv.y *= sz.x / sz.y;
 		
-		return texture(bindless_tex(g.tex, 0), flip_y(uv));
+		return texture(bindless_tex(v.tex, 0), flip_y(uv));
 	}
 	
 	GBUF_OUT
@@ -35,7 +35,7 @@
 		float rough_alpha = clamp((mark.r + mark.g) * 1.0, 0.0, 0.7);
 	#endif
 	
-		//vec2 sz = vec2(textureSize(bindless_tex(g.tex, 0), 0));
+		//vec2 sz = vec2(textureSize(bindless_tex(v.tex, 0), 0));
 		//uv.y *= sz.x / sz.y;
 		//col = vec3(fract(uv), 0);
 		

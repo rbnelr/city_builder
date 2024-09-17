@@ -15,8 +15,8 @@
 	vec4 pattern (vec2 uv, vec3 pos_world, int texid) {
 		const int TEXTURE_THICK_ARROW = 2;
 		
-		if (g.tex >= TEXTURE_THICK_ARROW) {
-			//uv.y /= g.uv_len;
+		if (v.tex >= TEXTURE_THICK_ARROW) {
+			//uv.y /= v.uv_len;
 			
 			float tex = texture(bindless_tex(base_texid + texid, 0), flip_y(uv)).r;
 			return vec4(1,1,1, tex);
@@ -30,7 +30,7 @@
 			vec4 col;
 			{ // draw outline
 				float distX = min(uv.x, 1.0 - uv.x); // dist to edge in meters
-				float distY = min(uv.y, g.uv_len - uv.y); // dist to edge in meters
+				float distY = min(uv.y, v.uv_len - uv.y); // dist to edge in meters
 				float edge = min(distX, distY);
 				
 				float edge0 = antialised(edge, 0.01, 2.0);
@@ -52,7 +52,7 @@
 		if (!curved_decal(uv, col, pos_world))
 			discard;
 		
-		col *= pattern(uv, pos_world, g.tex);
+		col *= pattern(uv, pos_world, v.tex);
 		
 		// use emissive (not multiplied by exposure factor like usual, so it stays constant brightness!)
 		// albedo, normal and pbr factors still get blended with constants and alpha,

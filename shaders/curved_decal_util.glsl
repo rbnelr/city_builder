@@ -91,6 +91,7 @@ bool uv_from_corners_with_height (vec3 a, vec3 b, vec3 c, vec3 d, float h, vec3 
 	return false;
 }
 
+/*
 struct Vertex {
 	vec3  pos;
 	vec3  right;
@@ -99,31 +100,9 @@ struct Vertex {
 	float uv_len;
 	int   tex;
 	vec4  col;
-};
+};*/
 
-#ifdef _VERTEX
-	layout(location = 0) in vec3  pos;
-	layout(location = 1) in vec3  right;
-	layout(location = 2) in float height;
-	layout(location = 3) in float uv;
-	layout(location = 4) in float uv_len;
-	layout(location = 5) in int   tex;
-	layout(location = 6) in vec4  col;
-
-	out Vertex v;
-
-	void main () {
-		v.pos    = pos   ;
-		v.right  = right ;
-		v.height = height;
-		v.uv     = uv    ;
-		v.uv_len = uv_len;
-		v.tex    = tex   ;
-		v.col    = col   ;
-	}
-#endif
-
-struct Geom {
+VS2FS Vertex {
 	// corners of quad region
 	flat vec3 a, b, c, d; // back left, back right, front left, front right
 	flat float height;
@@ -132,73 +111,49 @@ struct Geom {
 	flat int  tex;
 	flat vec4 col0;
 	flat vec4 col1;
-};
+} v;
 
-#ifdef _GEOMETRY
-	layout(lines) in;
-	layout(triangle_strip, max_vertices = 24) out; // 4*6
+#ifdef _VERTEX
+	layout(location =  0) in vec3  mesh_pos;
+	
+	layout(location =  1) in vec3  pos0;
+	layout(location =  2) in vec3  pos1;
+	layout(location =  3) in vec3  right0;
+	layout(location =  4) in vec3  right1;
+	layout(location =  5) in float height;
+	layout(location =  6) in float uv0;
+	layout(location =  7) in float uv1;
+	layout(location =  8) in float uv_len;
+	layout(location =  9) in int   tex;
+	layout(location = 10) in vec4  col0;
+	layout(location = 11) in vec4  col1;
 
-	in Vertex v[];
-	out Geom g;
-	
-	// D---C
-	// | / |
-	// A---B
-	// Specified as B,C,A,D for trangle strip
-	const int cube_indices[] = {
-		1,5,0,4,
-		2,6,1,5,
-		3,7,2,6,
-		0,4,3,7,
-		5,6,4,7,
-		2,1,3,0,
-	};
-	
 	void main () {
-		vec3 cube_verts[8];
-		vec2 cube_uvs[8];
+		vec3 up = vec3(0,0, height * 0.5);
 		
-		vec3 up = vec3(0,0, v[0].height * 0.5);
+		v.a = pos0 - right0 - up;
+		v.b = pos0 + right0 - up;
+		v.c = pos1 - right1 - up;
+		v.d = pos1 + right1 - up;
 		
-		Geom geom;
-		geom.a = v[0].pos - v[0].right - up;
-		geom.b = v[0].pos + v[0].right - up;
-		geom.c = v[1].pos - v[1].right - up;
-		geom.d = v[1].pos + v[1].right - up;
-		geom.height = v[0].height;
-		geom.local_uv_range = vec2(v[0].uv, v[1].uv);
-		geom.uv_len = v[0].uv_len;
-		geom.tex = v[0].tex;
-		geom.col0 = v[0].col;
-		geom.col1 = v[1].col;
+		v.height = height;
+		v.local_uv_range = vec2(uv0, uv1);
+		v.uv_len = uv_len;
+		v.tex    = tex   ;
+		v.col0   = col0  ;
+		v.col1   = col1  ;
 		
-		cube_verts[0] = geom.a;
-		cube_verts[1] = geom.b;
-		cube_verts[2] = geom.d;
-		cube_verts[3] = geom.c;
-		cube_verts[4] = geom.a + up*2.0;
-		cube_verts[5] = geom.b + up*2.0;
-		cube_verts[6] = geom.d + up*2.0;
-		cube_verts[7] = geom.c + up*2.0;
+		vec3 p0 = mix(v.a, v.b, mesh_pos.x);
+		vec3 p1 = mix(v.c, v.d, mesh_pos.x);
+		vec3 pos = mix(p0, p1, mesh_pos.y);
+		pos += mesh_pos.z * up*2.0;
 		
-		for (int face=0; face<6; ++face) {
-			for (int i=0; i<4; ++i) {
-				int idx = cube_indices[face*4 + i];
-				gl_Position = view.world2clip * vec4(cube_verts[idx], 1.0);
-				g = geom;
-				
-				EmitVertex();
-			}
-			EndPrimitive();
-		}
+		gl_Position = view.world2clip * vec4(pos, 1.0);
 	}
 #endif
-
 #ifdef _FRAGMENT
 	#define GBUF_IN 1
 	#include "gbuf.glsl"
-	
-	in Geom g;
 	
 	uniform float fade_strength = 0.5;
 	
@@ -207,14 +162,14 @@ struct Geom {
 			return false;
 		
 		vec3 local_coords;
-		if (!uv_from_corners_with_height(g.a, g.b, g.c, g.d, g.height, pos_world, local_coords))
+		if (!uv_from_corners_with_height(v.a, v.b, v.c, v.d, v.height, pos_world, local_coords))
 			return false;
 		
 		// uvs of current block, with V coming from vertex data
-		uv = vec2(local_coords.x, mix(g.local_uv_range.x, g.local_uv_range.y, local_coords.y));
+		uv = vec2(local_coords.x, mix(v.local_uv_range.x, v.local_uv_range.y, local_coords.y));
 		
 		// reconstruct color
-		col = mix(g.col0, g.col1, local_coords.y);
+		col = mix(v.col0, v.col1, local_coords.y);
 		
 		// fade out at top and bottom bounds of decal volume
 		float fade = smoothstep(0.0, 1.0, map(abs(local_coords.z * 2.0 - 1.0), 1.0, 0.999 - fade_strength));

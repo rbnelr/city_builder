@@ -48,8 +48,7 @@ struct Mesher {
 		clippings      .reserve(512);
 		decals         .reserve(4096);
 
-		decal_curves.vertices.reserve(2048);
-		decal_curves.indices .reserve(4096);
+		decal_curves.reserve(4096);
 	}
 	void upload () {
 		ZoneScoped;

@@ -422,7 +422,7 @@ void overlay_lane_vehicle (App& app, ActiveVehicle* vehicle, lrgba col, int tex)
 		// TODO: actually enable computing previous bezier!
 	}
 	
-	app.overlay.draw_bezier_portion(cur_bez, float2(t0,t1), float2(LANE_COLLISION_R*2, 1), col, tex);
+	app.overlay.curves.push_bezier(cur_bez, float2(LANE_COLLISION_R*2, 1), tex, col, float2(t0,t1));
 }
 
 void dbg_node_lane_alloc (App& app, Node* node) {
@@ -437,7 +437,7 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 		float bez_speed = length(bez.eval(t1).vel);
 		float t0 = t1 - a->car_len() / bez_speed; // TODO: cache accurate k in vehicle and eliminate this calculation!
 		
-		app.overlay.draw_bezier_portion(bez, float2(t0,t1), float2(LANE_COLLISION_R*2, 1), lrgba(a->cit->col, 0.8f), OverlayDraw::PATTERN_STRIPED);
+		app.overlay.curves.push_bezier(bez, float2(LANE_COLLISION_R*2, 1), OverlayDraw::PATTERN_STRIPED, lrgba(a->cit->col, 0.8f), float2(t0,t1));
 	};
 
 	for (auto& seg : node->segments) {
@@ -508,7 +508,7 @@ void debug_node (App& app, Node* node, View3D const& view) {
 			for (auto lane_in : seg->in_lanes(node)) {
 				for (auto lane_out : lane_in.get().connections) {
 					auto bez = node->calc_curve(lane_in, lane_out);
-					app.overlay.draw_bezier_portion(bez, float2(0,1), float2(3.5f, 1), col, OverlayDraw::TEXTURE_THIN_ARROW);
+					app.overlay.curves.push_arrow(bez, float2(3.5f, 1), OverlayDraw::TEXTURE_THIN_ARROW, col);
 				}
 			}
 		}
@@ -588,8 +588,8 @@ void debug_person (App& app, Person* person, View3D const& view) {
 				skip_next_node = false;
 			}
 			else {
-				app.overlay.draw_bezier_portion(s.bezier, float2(start_t, s.end_t),
-					float2(2, 1), lrgba(1,1,0,0.75f), OverlayDraw::TEXTURE_THIN_ARROW);
+				app.overlay.curves.push_arrow(s.bezier,
+					float2(2, 1), OverlayDraw::TEXTURE_THIN_ARROW, lrgba(1,1,0,0.75f), float2(start_t, s.end_t));
 			}
 
 			start_t = s.next_start_t;
@@ -795,7 +795,7 @@ bool dbg_conflicts (App& app, Node* node, ActiveVehicle* vehicle) {
 	};
 
 	// visualized vehicle's path through node as thick yellow arrow
-	app.overlay.draw_bezier_portion(a.conn.bezier, float2(0,1), sz, lrgba(0.9f,0.9f,0.1f, 0.9f), OverlayDraw::TEXTURE_THICK_ARROW);
+	app.overlay.curves.push_arrow(a.conn.bezier, sz, OverlayDraw::TEXTURE_THICK_ARROW, lrgba(0.9f,0.9f,0.1f, 0.9f));
 	
 	// loop over all previous cars (higher prio to yield for)
 	for (int j=0; j<idx; ++j) {
@@ -805,7 +805,7 @@ bool dbg_conflicts (App& app, Node* node, ActiveVehicle* vehicle) {
 		if (!has_conflict(node, a, b, conf)) continue;
 		
 		// conflict on visualized vehicle's path as red striped zone
-		app.overlay.draw_bezier_portion(a.conn.bezier, float2(conf.a_t0, conf.a_t1), sz, lrgba(1.0f,0.02f,0.02f, 1), OverlayDraw::PATTERN_STRIPED);
+		app.overlay.curves.push_bezier(a.conn.bezier, sz, OverlayDraw::PATTERN_STRIPED, lrgba(1.0f,0.02f,0.02f, 1), float2(conf.a_t0, conf.a_t1));
 	}
 
 	// draw red arrows last to overlap all striped regions (looks nicer)
@@ -816,7 +816,7 @@ bool dbg_conflicts (App& app, Node* node, ActiveVehicle* vehicle) {
 		if (!has_conflict(node, a, b, conf)) continue;
 		
 		// yielded-to vehicle's path through node as thin red arrow
-		app.overlay.draw_bezier_portion(b.conn.bezier, float2(0,1), sz, lrgba(1.0f,0.08f,0.08f, 0.9f), OverlayDraw::TEXTURE_THIN_ARROW);
+		app.overlay.curves.push_arrow(b.conn.bezier, sz, OverlayDraw::TEXTURE_THIN_ARROW, lrgba(1.0f,0.08f,0.08f, 0.9f));
 	}
 
 	return true;

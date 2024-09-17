@@ -34,6 +34,10 @@
 		float rough = 0.7 - (mark.r * 0.2 + mark.g * 0.6);
 		float rough_alpha = clamp((mark.r + mark.g) * 1.0, 0.0, 0.7);
 	#endif
+	
+		//vec2 sz = vec2(textureSize(bindless_tex(g.tex, 0), 0));
+		//uv.y *= sz.x / sz.y;
+		//col = vec3(fract(uv), 0);
 		
 		col_alpha *= base_col.a;
 		rough_alpha *= base_col.a;

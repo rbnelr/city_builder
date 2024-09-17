@@ -721,41 +721,17 @@ struct DecalRenderer {
 		}
 	}
 };
-struct CurvedDecals {
-	int res = 16;
-	struct Vertex {
-		float t;
-		
-		VERTEX_CONFIG(
-			ATTRIB(FLT,1, Vertex, t),
-		)
-	};
-
-	VertexBufferInstancedI vbo = vertex_buffer_instancedI<Vertex, BezierDecalInstance>("CurvedDecals.vbo");
+struct CurvedDecalRenderGeom {
+	VertexBufferI vbo = vertex_bufferI<CurvedDecalVertex>("CurvedDecals.vbo");
 	
-	CurvedDecals () {
-		std::vector<Vertex> verts;
-		std::vector<uint16_t> idxs;
+	int indices = 0;
 
-		for (int i=0; i<res+1; ++i) {
-			verts.push_back({ (float)i/(float)res });
-		}
-		for (int i=0; i<res; ++i) {
-			idxs.push_back(i);
-			idxs.push_back(i+1);
-		}
-
-		vbo.upload_mesh(verts, idxs);
+	void upload (CurvedDecals& decals, GLenum usage) {
+		indices = (int)decals.indices.size();
+		vbo.stream(decals.vertices, decals.indices);
 	}
 
-	int instances = 0;
-
-	void upload (std::vector<BezierDecalInstance> const& beziers, GLenum usage) {
-		instances = (int)beziers.size();
-		upload_buffer(GL_ARRAY_BUFFER, vbo.instances, beziers, usage);
-	}
-
-	void draw (Shader* shad, StateManager& state, bool allow_wireframe=false) {
+	void draw (Shader* shad, StateManager& state, bool allow_wireframe=true) {
 		PipelineState s;
 		if (!(state.wireframe && allow_wireframe)) { // draw normal way for wireframe
 			// depth test with DEPTH_BEHIND, causing backfaces that insersect with gbuffer to be drawn
@@ -774,9 +750,9 @@ struct CurvedDecals {
 		shad->set_uniform("wireframe", state.wireframe && allow_wireframe);
 		shad->set_uniform("wireframe_col", lrgba(1,0.75f,0.5f,0.75f));
 
-		if (instances > 0) {
+		if (indices > 0) {
 			glBindVertexArray(vbo.vao);
-			glDrawElementsInstanced(GL_LINES, res*2, GL_UNSIGNED_SHORT, (void*)0, (GLsizei)instances);
+			glDrawElements(GL_LINES, indices, GL_UNSIGNED_SHORT, (void*)0);
 			glBindVertexArray(0);
 		}
 	}
@@ -785,12 +761,16 @@ struct CurvedDecals {
 struct CurvedDecalRender {
 	Shader* shad  = g_shaders.compile_geometry("decals_curved");
 
-	CurvedDecals beziers;
+	CurvedDecalRenderGeom geom;
 
-	void upload (std::vector<BezierDecalInstance>& decals) {
-		beziers.upload(decals, GL_STATIC_DRAW);
+	void upload (CurvedDecals& decals) {
+		geom.upload(decals, GL_STATIC_DRAW);
 	}
 	void render (StateManager& state, Gbuffer& gbuf) {
+		static bool draw_curved_decals = true;
+		ImGui::Checkbox("draw_curved_decals", &draw_curved_decals);
+		if (!draw_curved_decals) return;
+
 		ZoneScoped;
 		OGL_TRACE("CurvedDecalRender");
 		glUseProgram(shad->prog);
@@ -799,15 +779,19 @@ struct CurvedDecalRender {
 			{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
 		});
 
-		beziers.draw(shad, state, true);
+		geom.draw(shad, state, true);
 	}
 };
 struct OverlayRender {
 	Shader* shad = g_shaders.compile_geometry("overlay");
-
-	CurvedDecals beziers;
+	
+	CurvedDecalRenderGeom geom;
 
 	void render (StateManager& state, Gbuffer& gbuf, App& app, Textures& texs) {
+		static bool draw_overlays = true;
+		ImGui::Checkbox("draw_overlays", &draw_overlays);
+		if (!draw_overlays) return;
+
 		ZoneScoped;
 		OGL_TRACE("OverlayRender");
 		glUseProgram(shad->prog);
@@ -816,14 +800,12 @@ struct OverlayRender {
 			{ "gbuf_depth", gbuf.depth, gbuf.sampler }, // allowed to read depth because we are not writing to it
 		});
 
-		int pattern_base_texid = texs.bindless_textures["misc/patterns/solid"];
-		int overlay_base_texid = texs.bindless_textures["misc/patterns/thick_arrow"];
+		int base_texid = texs.bindless_textures["misc/patterns/solid"];
 
-		shad->set_uniform("pattern_base_texid", pattern_base_texid);
-		shad->set_uniform("overlay_base_texid", overlay_base_texid);
+		shad->set_uniform("base_texid", base_texid);
 
-		beziers.upload(app.overlay.beziers, GL_STREAM_DRAW);
-		beziers.draw(shad, state);
+		geom.upload(app.overlay.curves, GL_STREAM_DRAW);
+		geom.draw(shad, state);
 	}
 };
 

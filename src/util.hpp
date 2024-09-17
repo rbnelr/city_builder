@@ -56,35 +56,7 @@ struct Options {
 	}
 };
 
-#ifdef _WIN32
-#include "engine/kisslib/clean_windows_h.hpp"
-#include <psapi.h>
-
-inline void imgui_process_stats (bool* open) {
-	if (!ImGui::Begin("Process Stats", open)) return;
-
-	auto hproc = GetCurrentProcess();
-
-	PROCESS_MEMORY_COUNTERS pmc = {};
-	if (GetProcessMemoryInfo(hproc, &pmc, sizeof(pmc))) {
-#define FMT(x) ((float)x / (1024.f*1024.f))
-
-		ImGui::Text( "PageFaultCount:             %08llu",        pmc.PageFaultCount              );
-		ImGui::Text( "PeakWorkingSetSize:         %08.3f MB", FMT(pmc.PeakWorkingSetSize        ) );
-		ImGui::Text( "WorkingSetSize:             %08.3f MB", FMT(pmc.WorkingSetSize            ) );
-		ImGui::Text( "QuotaPeakPagedPoolUsage:    %08.3f MB", FMT(pmc.QuotaPeakPagedPoolUsage   ) );
-		ImGui::Text( "QuotaPagedPoolUsage:        %08.3f MB", FMT(pmc.QuotaPagedPoolUsage       ) );
-		ImGui::Text( "QuotaPeakNonPagedPoolUsage: %08.3f MB", FMT(pmc.QuotaPeakNonPagedPoolUsage) );
-		ImGui::Text( "QuotaNonPagedPoolUsage:     %08.3f MB", FMT(pmc.QuotaNonPagedPoolUsage    ) );
-		ImGui::Text( "PagefileUsage:              %08.3f MB", FMT(pmc.PagefileUsage             ) ); 
-		ImGui::Text( "PeakPagefileUsage:          %08.3f MB", FMT(pmc.PeakPagefileUsage         ) );
-
-		// TODO: Cpu use?
-	}
-
-	ImGui::End();
-}
-#endif
+void imgui_process_stats (bool* open);
 
 // Argably, rotating like this is a mistake, since I use it to get right from forward vectors
 // which either should be with z=0 or needs to be rethought!
@@ -432,71 +404,150 @@ struct MinHeapFunc {
 	}
 };
 
-struct BezierDecalInstance {
-	float3 a;
-	float3 b;
-	float3 c;
-	float3 d;
-	float4 size; // t0, t1, width, height
-	float4 uv_remap; // u0,v0, u1,v1
-	float4 col0;
-	float4 col1;
+struct CurvedDecalVertex {
+	float3 pos;
+	float3 right; // right vector for decal boxes
+	float  height; // height for decal boxes
+	float  uv;
+	float  uv_len; // needed for pattern rendering
 	int    tex;
+	float4 tint;
 
 	VERTEX_CONFIG(
-		ATTRIB(FLT,3, BezierDecalInstance, a),
-		ATTRIB(FLT,3, BezierDecalInstance, b),
-		ATTRIB(FLT,3, BezierDecalInstance, c),
-		ATTRIB(FLT,3, BezierDecalInstance, d),
-		ATTRIB(FLT,4, BezierDecalInstance, size),
-		ATTRIB(FLT,4, BezierDecalInstance, uv_remap),
-		ATTRIB(FLT,4, BezierDecalInstance, col0),
-		ATTRIB(FLT,4, BezierDecalInstance, col1),
-		ATTRIB(INT,1, BezierDecalInstance, tex),
+		ATTRIB(FLT,3, CurvedDecalVertex, pos),
+		ATTRIB(FLT,3, CurvedDecalVertex, right),
+		ATTRIB(FLT,1, CurvedDecalVertex, height),
+		ATTRIB(FLT,1, CurvedDecalVertex, uv),
+		ATTRIB(FLT,1, CurvedDecalVertex, uv_len),
+		ATTRIB(INT,1, CurvedDecalVertex, tex),
+		ATTRIB(FLT,4, CurvedDecalVertex, tint),
 	)
-
-	static BezierDecalInstance from_bezier_portion (Bezier3 const& bez, float2 t_range,
-			float2 size, lrgba col0, lrgba col1, int tex) {
-		float len = bez.approx_len(16) * (t_range.y - t_range.x);
-		float v1 = len / size.x;
-		
-		BezierDecalInstance i;
-		i.a = bez.a;
-		i.b = bez.b;
-		i.c = bez.c;
-		i.d = bez.d;
-		i.size = float4(t_range.x, t_range.y, size.x, size.y);
-		i.uv_remap = float4(0,0,1,v1);
-		i.col0 = col0;
-		i.col1 = col1;
-		i.tex = tex;
-		return i;
+};
+struct CurvedDecals {
+	std::vector<CurvedDecalVertex> vertices;
+	std::vector<uint16_t>          indices;
+	
+	void clear () {
+		vertices.clear();
+		indices.clear();
+		vertices.shrink_to_fit();
+		indices.shrink_to_fit();
 	}
-	static BezierDecalInstance from_bezier_portion (Bezier3 const& bez, float2 t_range, float2 size, lrgba col, int tex) {
-		return from_bezier_portion(bez, t_range, size, col, col, tex);
+
+	void _push_bezier (Bezier3 const& bez, float2 size, int tex,
+			lrgba col0, lrgba col1, float2 t_range, float2 uv_range, int res) {
+		auto idx = (uint16_t)vertices.size();
+		auto* verts = push_back(vertices, res+1);
+		auto* indxs = push_back(indices , res*2);
+
+		for (int i=0; i <= res; ++i) {
+			float curve_t = (float)i * (1.0f / (float)res);
+			auto val = bez.eval(lerp(t_range.x, t_range.y, curve_t));
+
+			float3 forw = normalizesafe(val.vel);
+			float3 right = rotate90_right(forw) * (size.x*0.5f);
+
+			verts->pos = val.pos;
+			verts->right = right;
+			verts->height = size.y;
+			verts->uv = lerp(uv_range.x, uv_range.y, curve_t); // scales texture
+			verts->uv_len = uv_range.y - uv_range.x;
+			verts->tex = tex;
+			verts->tint = lerp(col0, col1, curve_t); // lerp color for lane wear weighting
+			verts++;
+		}
+		for (int i=0; i<res; ++i) {
+			*indxs++ = idx++;
+			*indxs++ = idx;
+		}
+	}
+
+	void push_arrow (Bezier3 const& bez, float2 size, int tex, lrgba col, float2 t_range=float2(0,1), int res=16) {
+		float len = bez.approx_len(res) * (t_range.y - t_range.x);
+		float uv_aspect = 2.0f * size.x / len; // 1:2 aspect ratio texture
+		
+		// keep tip and tail of arrow correct aspect ratio, and stretch the straight part
+		const float tail_uv = 0.1f;
+		const float tip_uv  = 0.3f;
+
+		const int tips_n = 2;
+		const int middle_n = 14;
+		const int total_n = middle_n + tips_n*2;
+
+		// uv spots of tail/tip
+		float uv0 = tail_uv;
+		float uv1 = 1.0f - tip_uv;
+
+		// corrected to keep uvs aspect ratio constant
+		float t0 = tail_uv * uv_aspect;
+		float t1 = 1.0f - tip_uv * uv_aspect;
+
+		if (t1 - t0 < 0.01f) {
+			// straight section is 0 length, need to shrink tail/tip!
+			t0 = t1 = tail_uv / tip_uv;
+		}
+		
+
+		auto idx = (uint16_t)vertices.size();
+		auto* verts = push_back(vertices, total_n+1);
+		auto* indxs = push_back(indices , total_n*2);
+		
+		auto push = [&] (float t0, float t1, float uv0, float uv1, int count, bool last=false) {
+			// last vertex of cur section is first of next section unless last section
+			for (int i=0; i < (last ? count+1 : count); ++i) {
+				float section_t = (float)i * (1.0f / (float)count);
+				float adjusted_t = lerp(t0, t1, section_t);
+
+				auto val = bez.eval(lerp(t_range.x, t_range.y, adjusted_t));
+
+				float3 forw = normalizesafe(val.vel);
+				float3 right = rotate90_right(forw) * (size.x*0.5f);
+
+				verts->pos = val.pos;
+				verts->right = right;
+				verts->height = size.y;
+				verts->uv = lerp(uv0, uv1, section_t);
+				verts->uv_len = 1;
+				verts->tex = tex;
+				verts->tint = col;
+				verts++;
+			}
+		};
+
+		push( 0, t0,    0, uv0,  tips_n);
+		push(t0, t1,  uv0, uv1,  middle_n); // degenerate in the shrink case!
+		push(t1,  1,  uv1,   1,  tips_n, true);
+		
+		for (int i=0; i<total_n; ++i) {
+			*indxs++ = idx++;
+			*indxs++ = idx;
+		}
+	}
+
+	void push_bezier_color_lerp (Bezier3 const& bez, float2 size, int tex,
+			lrgba col0, lrgba col1, float2 t_range=float2(0,1), int res=12) {
+		float len = bez.approx_len(res) * (t_range.y - t_range.x);
+		float uv_len = len / size.x; // scale uv aspect to fit length (shader will adjust for texture aspect)
+		
+		_push_bezier(bez, size, tex, col0, col1, t_range, float2(0, uv_len), res);
+	}
+	void push_bezier (Bezier3 const& bez, float2 size, int tex,
+			lrgba col, float2 t_range=float2(0,1), int res=12) {
+		push_bezier_color_lerp(bez, size, tex, col, col, t_range, res);
 	}
 };
 
 struct OverlayDraw {
-	std::vector<BezierDecalInstance> beziers;
+	CurvedDecals curves;
 
 	enum BezierOverlayPattern : int {
-		PATTERN_SOLID=-1,
-		PATTERN_STRIPED=-2,
-	};
-	enum BezierOverlayTexture : int {
-		TEXTURE_THICK_ARROW=0,
-		TEXTURE_THIN_ARROW=1,
+		PATTERN_SOLID=0,
+		PATTERN_STRIPED,
+		TEXTURE_THICK_ARROW,
+		TEXTURE_THIN_ARROW,
 	};
 
 	void begin () {
-		beziers.clear();
-		beziers.shrink_to_fit();
-	}
-
-	// set uv_remap to U[0,1] and V[0,K] such that K causes correct UV aspect ratio (ie. V is unbounded = [0,inf])
-	// shader can do V1 / uv_remap.w to get UV[0,1] back!
-	void draw_bezier_portion (Bezier3 const& bez, float2 t_range, float2 size, lrgba col, int tex) {
-		beziers.push_back( BezierDecalInstance::from_bezier_portion(bez, t_range, size, col, tex) );
+		curves.clear();
 	}
 };

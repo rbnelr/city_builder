@@ -393,7 +393,7 @@ struct BezierBuilder {
 			if (sel)
 				obj.bez.dbg_draw(128, lrgba(1,0,0,0.25f));
 			
-			overlay.draw_bezier_portion(obj.bez, float2(0,1), float2(obj.width, 1), obj.col, OverlayDraw::PATTERN_SOLID);
+			overlay.curves.push_bezier(obj.bez, float2(obj.width, 1), OverlayDraw::PATTERN_SOLID, obj.col);
 
 			if (sel && I.buttons[KEY_DELETE].went_down) {
 				to_delete = it;

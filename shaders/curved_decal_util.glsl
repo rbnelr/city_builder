@@ -92,48 +92,43 @@ bool uv_from_corners_with_height (vec3 a, vec3 b, vec3 c, vec3 d, float h, vec3 
 }
 
 struct Vertex {
-	vec3 pos;
-	vec3 right;
-	float k; // dist along curve (not bezier t!)
+	vec3  pos;
+	vec3  right;
 	float height;
-	vec4 uv_remap;
-	vec4 col;
-	int tex;
+	float uv;
+	float uv_len;
+	int   tex;
+	vec4  col;
 };
 
 #ifdef _VERTEX
-	layout(location = 0) in float mesh_t;
-	layout(location = 1) in vec3 inst_bez_a;
-	layout(location = 2) in vec3 inst_bez_b;
-	layout(location = 3) in vec3 inst_bez_c;
-	layout(location = 4) in vec3 inst_bez_d;
-	layout(location = 5) in vec4 inst_size;
-	layout(location = 6) in vec4 inst_uv_remap;
-	layout(location = 7) in vec4 inst_col0;
-	layout(location = 8) in vec4 inst_col1;
-	layout(location = 9) in int  inst_tex;
+	layout(location = 0) in vec3  pos;
+	layout(location = 1) in vec3  right;
+	layout(location = 2) in float height;
+	layout(location = 3) in float uv;
+	layout(location = 4) in float uv_len;
+	layout(location = 5) in int   tex;
+	layout(location = 6) in vec4  col;
 
 	out Vertex v;
 
 	void main () {
-		float t = mix(inst_size.x, inst_size.y, mesh_t);
-		vec3 bez_grad;
-		v.pos = bezier(inst_bez_a, inst_bez_b, inst_bez_c, inst_bez_d, t, bez_grad);
-		v.right = normalize(vec3(bez_grad.y, -bez_grad.x, bez_grad.z)) * inst_size.z * 0.5;
-		v.k = mesh_t;
-		v.height = inst_size.w;
-		v.uv_remap = inst_uv_remap;
-		v.col = mix(inst_col0, inst_col1, mesh_t);
-		v.tex = inst_tex;
+		v.pos    = pos   ;
+		v.right  = right ;
+		v.height = height;
+		v.uv     = uv    ;
+		v.uv_len = uv_len;
+		v.tex    = tex   ;
+		v.col    = col   ;
 	}
 #endif
 
 struct Geom {
-	vec2 k_range;
 	// corners of quad region
 	flat vec3 a, b, c, d; // back left, back right, front left, front right
 	flat float height;
-	flat vec4 uv_remap;
+	flat vec2 local_uv_range;
+	flat float uv_len;
 	flat int  tex;
 	flat vec4 col0;
 	flat vec4 col1;
@@ -166,16 +161,16 @@ struct Geom {
 		vec3 up = vec3(0,0, v[0].height * 0.5);
 		
 		Geom geom;
-		geom.k_range = vec2(v[0].k, v[1].k);
 		geom.a = v[0].pos - v[0].right - up;
 		geom.b = v[0].pos + v[0].right - up;
 		geom.c = v[1].pos - v[1].right - up;
 		geom.d = v[1].pos + v[1].right - up;
 		geom.height = v[0].height;
-		geom.uv_remap = v[0].uv_remap;
+		geom.local_uv_range = vec2(v[0].uv, v[1].uv);
+		geom.uv_len = v[0].uv_len;
+		geom.tex = v[0].tex;
 		geom.col0 = v[0].col;
 		geom.col1 = v[1].col;
-		geom.tex = v[0].tex;
 		
 		cube_verts[0] = geom.a;
 		cube_verts[1] = geom.b;
@@ -215,10 +210,8 @@ struct Geom {
 		if (!uv_from_corners_with_height(g.a, g.b, g.c, g.d, g.height, pos_world, local_coords))
 			return false;
 		
-		// map current block into correct distance along curve, and use that as uv
-		uv = vec2(local_coords.x, mix(g.k_range.x, g.k_range.y, local_coords.y));
-		// apply uv remap for this curve
-		uv = mix(g.uv_remap.xy, g.uv_remap.zw, uv);
+		// uvs of current block, with V coming from vertex data
+		uv = vec2(local_coords.x, mix(g.local_uv_range.x, g.local_uv_range.y, local_coords.y));
 		
 		// reconstruct color
 		col = mix(g.col0, g.col1, local_coords.y);

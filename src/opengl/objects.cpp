@@ -37,7 +37,7 @@ struct Mesher {
 	std::vector<ClippingRenderer::Instance> clippings;
 
 	std::vector<DecalRenderer::Instance>    decals;
-	std::vector<BezierDecalInstance>        curved_decals;
+	CurvedDecals                            decal_curves;
 	
 	void reserve () {
 		buildings      .reserve(4096);
@@ -47,7 +47,9 @@ struct Mesher {
 		lights         .reserve(4096);
 		clippings      .reserve(512);
 		decals         .reserve(4096);
-		curved_decals  .reserve(4096);
+
+		decal_curves.vertices.reserve(2048);
+		decal_curves.indices .reserve(4096);
 	}
 	void upload () {
 		ZoneScoped;
@@ -62,7 +64,7 @@ struct Mesher {
 		
 		network_render     .upload(network_mesh);
 		decal_render       .upload(decals);
-		curved_decal_render.upload(curved_decals);
+		curved_decal_render.upload(decal_curves);
 		clip_render        .upload(clippings);
 	}
 
@@ -164,7 +166,7 @@ struct Mesher {
 	int asphalt_tex_id;
 	int curb_tex_id;
 	int sidewalk_tex_id;
-	int road_wear_tex_id;
+	int lane_wear_tex_id;
 
 	float2 curb_tex_tiling = float2(2,0);
 
@@ -175,14 +177,13 @@ struct Mesher {
 	float3 norm_up = float3(0,0,1);
 	float3 tang_up = float3(1,0,0);
 
-	void push_road_wear (Bezier3 const& bez, float alpha0=1, float alpha1=1) {
+	void push_lane_wear (Bezier3 const& bez, float alpha0=1, float alpha1=1) {
 		float width = 3.5f; // Road wear texture desiged for fixed width tire spacing currently
 
 		lrgba col0 = lrgba(1,1,1, alpha0);
 		lrgba col1 = lrgba(1,1,1, alpha1);
 
-		curved_decals.push_back(BezierDecalInstance::from_bezier_portion(bez,
-			float2(0,1), float2(width, 1), col0, col1, road_wear_tex_id));
+		decal_curves.push_bezier_color_lerp(bez, float2(width, 1), lane_wear_tex_id, col0, col1);
 	}
 
 	void mesh_segment (network::Segment& seg) {
@@ -277,7 +278,7 @@ struct Mesher {
 			auto& lane_obj = lane.get();
 			auto& lane_asset = lane.get_asset();
 
-			push_road_wear(lane._bezier());
+			push_lane_wear(lane._bezier());
 			
 			// TODO: This code is stale, needs to be reworked once segments can curve at the latest!
 
@@ -362,7 +363,7 @@ struct Mesher {
 		}
 	}
 
-	void push_node_road_wear (network::Node* node) {
+	void push_node_lane_wear (network::Node* node) {
 		// Multiple road wear decals overlap on nodes, which causes sharp changes in intensity between seg & node!
 		// Fix this by computing the number of segments that overlap at each end and weighting the alpha at the decal start and ends!
 
@@ -384,7 +385,7 @@ struct Mesher {
 					float alpha0 = 1.0f / (float)conn_counts[lane_in];
 					float alpha1 = 1.0f / (float)conn_counts[lane_out];
 
-					push_road_wear(node->calc_curve(lane_in, lane_out), alpha0, alpha1);
+					push_lane_wear(node->calc_curve(lane_in, lane_out), alpha0, alpha1);
 				}
 			}
 		}
@@ -444,7 +445,7 @@ struct Mesher {
 			network_mesh.push_tri(seg0, seg1, nodeCenter);
 		}
 
-		push_node_road_wear(node);
+		push_node_lane_wear(node);
 		
 		if (node->traffic_light) {
 			for (auto& seg : node->segments) {
@@ -492,7 +493,7 @@ struct Mesher {
 		asphalt_tex_id   = -textures.bindless_textures[textures.asphalt];
 		sidewalk_tex_id  = -textures.bindless_textures[textures.pavement];
 		curb_tex_id      =  textures.bindless_textures[textures.curb];
-		road_wear_tex_id =  textures.bindless_textures["misc/road_wear"];
+		lane_wear_tex_id =  textures.bindless_textures["misc/lane_wear"];
 
 		push_buildings();
 

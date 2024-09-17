@@ -352,7 +352,7 @@ struct Textures {
 		texture<srgba8>(j, "misc/grid2.png");
 		texture<srgb8 >(j, "ground/Rock_Moss.jpg");
 		texture<srgb8 >(j, "misc/cracks.png");
-		texture<srgb8 >(j, "misc/road_wear.png");
+		texture<srgb8 >(j, "misc/lane_wear.png");
 
 		texture<srgba8>(j, "misc/line.png"       );
 		texture<srgba8>(j, "misc/stripe.png"     );

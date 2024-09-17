@@ -69,7 +69,6 @@ struct Test2 {
 			float X = (x+0.5f) / 10;
 			float Y = (y+0.5f) / 10;
 
-		#if 0
 			float2 O = float2(X,Y) - (float2)a;
 
 			float u, v;
@@ -125,47 +124,6 @@ struct Test2 {
 				if (v <= 0.0f || v >= 1.0f)
 					continue;
 			}
-		#else
-			float2 p = float2(X,Y);
-
-			float2 ab = b-a;
-			float2 ac = c-a;
-			float2 h = a-b+d-c;
-			float2 pa = p-a;
-		
-			float k2 = cross(h, ac);
-			float k1 = cross(ab, ac) + cross(pa, h);
-			float k0 = cross(pa, ab);
-	
-			float u;
-			float v;
-			
-			// if edges are parallel, this is a linear equation
-			if (abs(k2) < 0.001f) {
-				v = -k0 / k1;
-				u = (pa.x*k1 + ac.x*k0) / (ab.x*k1 - h.x*k0);
-
-				// No idea why this condition works, but doing this causes just the front side to be displayed!
-				if (k0 > 0.0 || k1 <= 0.0)
-					continue;
-			}
-			// otherwise, it's a quadratic
-			else {
-				float p = -0.5f * k1 / k2;
-				float q = k0 / k2;
-				
-				float sqr = p*p - q;
-				if (sqr < 0.0f)
-					continue;
-				sqr = sqrt(sqr);
-
-				v = k2 < 0.0f ? p - sqr : p + sqr;
-				u = (pa.x - ac.x*v) / (ab.x + h.x*v);
-			}
-	
-			if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f)
-				continue;
-		#endif
 			
 			g_dbgdraw.point(float3(X,Y,0), 0.025f, lrgba(u,v,0,1));
 		}
@@ -1044,7 +1002,7 @@ public:
 		
 	//// Testing stuff
 		//test.update(input, view);
-		test2.update(input, view);
+		//test2.update(input, view);
 
 		test_bez.imgui(input, view);
 		test_bez.update(input, view, overlay);

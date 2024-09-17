@@ -55,8 +55,6 @@ VS2FS Vertex {
 		vec3 norm = normal_map(v.norm, v.tang,
 		           bindless_tex_scaled(v.tex_id, 1, v.uv).rgb );
 		
-		//col.rgb *= 2.0 * vec3(1.0, 0.85, 0.8);
-		
 		frag_col   = vec4(col, 1.0);
 		frag_emiss = vec4(0,0,0,1);
 		frag_norm  = vec4(norm, 1.0);

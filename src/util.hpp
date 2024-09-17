@@ -424,8 +424,10 @@ struct CurvedDecalVertex {
 	)
 };
 struct CurvedDecals {
+	typedef uint32_t IDX_T;
+
 	std::vector<CurvedDecalVertex> vertices;
-	std::vector<uint16_t>          indices;
+	std::vector<IDX_T>             indices;
 	
 	void clear () {
 		vertices.clear();
@@ -436,7 +438,8 @@ struct CurvedDecals {
 
 	void _push_bezier (Bezier3 const& bez, float2 size, int tex,
 			lrgba col0, lrgba col1, float2 t_range, float2 uv_range, int res) {
-		auto idx = (uint16_t)vertices.size();
+
+		size_t idx = vertices.size();
 		auto* verts = push_back(vertices, res+1);
 		auto* indxs = push_back(indices , res*2);
 
@@ -446,19 +449,22 @@ struct CurvedDecals {
 
 			float3 forw = normalizesafe(val.vel);
 			float3 right = rotate90_right(forw) * (size.x*0.5f);
-
-			verts->pos = val.pos;
-			verts->right = right;
-			verts->height = size.y;
-			verts->uv = lerp(uv_range.x, uv_range.y, curve_t); // scales texture
-			verts->uv_len = uv_range.y - uv_range.x;
-			verts->tex = tex;
-			verts->tint = lerp(col0, col1, curve_t); // lerp color for lane wear weighting
-			verts++;
+			
+			auto& v = *verts++;
+			v.pos = val.pos;
+			v.right = right;
+			v.height = size.y;
+			v.uv = lerp(uv_range.x, uv_range.y, curve_t); // scales texture
+			v.uv_len = uv_range.y - uv_range.x;
+			v.tex = tex;
+			v.tint = lerp(col0, col1, curve_t); // lerp color for lane wear weighting
 		}
+
 		for (int i=0; i<res; ++i) {
-			*indxs++ = idx++;
-			*indxs++ = idx;
+			*indxs++ = (IDX_T)idx++;
+			*indxs++ = (IDX_T)idx;
+
+			assert(std::in_range<IDX_T>(idx));
 		}
 	}
 
@@ -488,10 +494,11 @@ struct CurvedDecals {
 		}
 		
 
-		auto idx = (uint16_t)vertices.size();
+		size_t idx = vertices.size();
 		auto* verts = push_back(vertices, total_n+1);
 		auto* indxs = push_back(indices , total_n*2);
 		
+		int prev_idx = -1;
 		auto push = [&] (float t0, float t1, float uv0, float uv1, int count, bool last=false) {
 			// last vertex of cur section is first of next section unless last section
 			for (int i=0; i < (last ? count+1 : count); ++i) {
@@ -503,14 +510,14 @@ struct CurvedDecals {
 				float3 forw = normalizesafe(val.vel);
 				float3 right = rotate90_right(forw) * (size.x*0.5f);
 
-				verts->pos = val.pos;
-				verts->right = right;
-				verts->height = size.y;
-				verts->uv = lerp(uv0, uv1, section_t);
-				verts->uv_len = 1;
-				verts->tex = tex;
-				verts->tint = col;
-				verts++;
+				auto& v = *verts++;
+				v.pos = val.pos;
+				v.right = right;
+				v.height = size.y;
+				v.uv = lerp(uv0, uv1, section_t);
+				v.uv_len = 1;
+				v.tex = tex;
+				v.tint = col;
 			}
 		};
 
@@ -519,8 +526,10 @@ struct CurvedDecals {
 		push(t1,  1,  uv1,   1,  tips_n, true);
 		
 		for (int i=0; i<total_n; ++i) {
-			*indxs++ = idx++;
-			*indxs++ = idx;
+			*indxs++ = (IDX_T)idx++;
+			*indxs++ = (IDX_T)idx;
+			
+			assert(std::in_range<IDX_T>(idx));
 		}
 	}
 

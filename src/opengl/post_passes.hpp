@@ -123,6 +123,8 @@ struct BloomRenderer {
 	}
 
 	void resize (int2 lighting_res) {
+		assert(lighting_res.x > 8 && lighting_res.y > 8); // code kinda breaks with 1x1 render res!
+
 		full_res = max(lighting_res / 2, 1);
 		max_mips = calc_mipmaps(full_res);
 		mips = clamp(max_mips - low_mip, 1, max_mips);

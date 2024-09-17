@@ -724,10 +724,10 @@ struct DecalRenderer {
 struct CurvedDecalRenderGeom {
 	VertexBufferI vbo = vertex_bufferI<CurvedDecalVertex>("CurvedDecals.vbo");
 	
-	int indices = 0;
+	size_t indices = 0;
 
 	void upload (CurvedDecals& decals, GLenum usage) {
-		indices = (int)decals.indices.size();
+		indices = decals.indices.size();
 		vbo.stream(decals.vertices, decals.indices);
 	}
 
@@ -752,7 +752,7 @@ struct CurvedDecalRenderGeom {
 
 		if (indices > 0) {
 			glBindVertexArray(vbo.vao);
-			glDrawElements(GL_LINES, indices, GL_UNSIGNED_SHORT, (void*)0);
+			glDrawElements(GL_LINES, (GLsizei)indices, GL_UNSIGNED_INT, (void*)0);
 			glBindVertexArray(0);
 		}
 	}

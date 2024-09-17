@@ -373,6 +373,9 @@ struct Mesher {
 		for (auto* seg : node->segments) {
 			for (auto lane_in : seg->in_lanes(node)) {
 				for (auto lane_out : lane_in.get().connections) {
+					//int _idx = indexof(node->segments, lane_out.seg);
+					//assert(_idx >= 0 && node->segments[_idx]->out_lanes(node).contains(lane_out));
+
 					conn_counts.get_or_default(lane_in)++;
 					conn_counts.get_or_default(lane_out)++;
 				}

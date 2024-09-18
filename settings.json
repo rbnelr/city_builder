@@ -121,19 +121,7 @@
 						"direction": "BACKWARD"
 					}
 				],
-				"line_markings": [
-					{
-						"type": "LINE",
-						"shift": [
-							0.0,
-							0.0
-						],
-						"scale": [
-							0.5,
-							2.0
-						]
-					}
-				],
+				"line_markings": [],
 				"streetlights": [
 					{
 						"shift": [
@@ -460,7 +448,9 @@
 	},
 	"test_map_builder": {
 		"_grid_n": 20,
-		"_persons_n": 500
+		"_persons_n": 500,
+		"_intersection_radius": 0.5,
+		"_connection_chance": 0.699999988079071
 	},
 	"test_bez": {
 		"beziers": [

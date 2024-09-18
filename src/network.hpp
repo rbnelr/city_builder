@@ -354,6 +354,8 @@ struct Node {
 	Bezier3 calc_curve (SegLane& in, SegLane& out);
 	
 	static Node* between (Segment* in, Segment* out);
+
+	int get_node_class ();
 };
 
 struct Lane {
@@ -521,6 +523,13 @@ inline Node* Node::between (Segment* in, Segment* out) {
 		assert(in->node_b == out->node_a || in->node_b == out->node_b);
 		return in->node_b;
 	}
+}
+inline int Node::get_node_class () {
+	int cls = 0;
+	for (auto& seg : segments) {
+		cls = max(cls, seg->asset->road_class);
+	}
+	return cls;
 }
 
 inline Lane& SegLane::get () {

@@ -66,8 +66,8 @@ VS2FS Vertex {
 		uv *= v.uv_scale;
 		
 		// TODO: could use xyz.z to blend decal in out out at the vertical edges
-		vec4 col = texture(bindless_tex(v.tex_id, 0), uv) * v.col;
-		////col.a = 1.0;
+		vec4 col = v.col;
+		col.a *= texture(bindless_tex(v.tex_id, 0), uv).r;
 		
 		float alpha = col.a;
 		alpha *= texture(cracks, gbuf_pos_world.xy * 0.2).r;

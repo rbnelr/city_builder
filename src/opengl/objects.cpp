@@ -182,10 +182,13 @@ struct Mesher {
 		lrgba col0 = lrgba(1,1,1, alpha0);
 		lrgba col1 = lrgba(1,1,1, alpha1);
 
-		decal_curves.push_bezier_color_lerp(bez, float2(width, 1), lane_wear_tex_id, col0, col1);
+		decal_curves.push_bezier_color_lerp(bez, float2(width, 0.5f), lane_wear_tex_id, col0, col1);
 	}
 
 	void mesh_segment (network::Segment& seg) {
+		int node_a_cls = seg.node_a->get_node_class();
+		int node_b_cls = seg.node_b->get_node_class();
+
 		float width = seg.asset->width;
 		
 		float3 dir = seg.node_b->pos - seg.node_a->pos;
@@ -288,7 +291,7 @@ struct Mesher {
 			float ang = angle2d((float2)forw) - deg(90);
 
 			{ // push turn arrow
-				float2 size = float2(1, 1.5f) * lane_asset.width;
+				float2 size = float2(.8f, 2.5f) * lane_asset.width;
 
 				float3 pos = lbez.d;
 				pos -= forw * size.y*0.75f;
@@ -300,7 +303,7 @@ struct Mesher {
 					DecalRenderer::Instance decal;
 					decal.pos = pos;
 					decal.rot = ang;
-					decal.size = float3(size, 1);
+					decal.size = float3(size, 0.5f);
 					decal.tex_id = tex_id;
 					decal.uv_scale = 1;
 					decal.col = 1;
@@ -314,14 +317,14 @@ struct Mesher {
 					
 				float width = type ? stopline_width*1.5f : stopline_width; // Why is this done?
 				float length = r - l;
-					
+				
 				float uv_len = length / (width*2); // 2 since texture has 1-2 aspect ratio
 				uv_len = max(round(uv_len), 1.0f); // round to avoid stopping in middle of stripe
 
 				DecalRenderer::Instance decal;
 				decal.pos = base_pos + float3(right * ((r+l)*0.5f), 0);
 				decal.rot = angle2d(right) + deg(90) * (dir == 0 ? -1 : +1);
-				decal.size = float3(width, length, 1);
+				decal.size = float3(width, length, 0.5f);
 				decal.tex_id = tex_id;
 				decal.uv_scale = float2(1, uv_len);
 				decal.col = 1;
@@ -332,15 +335,41 @@ struct Mesher {
 				float l = lane_asset.shift - lane_asset.width*0.5f;
 				float r = lane_asset.shift + lane_asset.width*0.5f;
 
-				stop_line(seg.pos_b, l, r, 0);
+				if (node_b_cls > 0) stop_line(seg.pos_b, l, r, 0);
 			}
 			else {
 				float l = -lane_asset.shift - lane_asset.width*0.5f;
 				float r = -lane_asset.shift + lane_asset.width*0.5f;
 
-				stop_line(seg.pos_a, l, r, 1);
+				if (node_a_cls > 0) stop_line(seg.pos_a, l, r, 1);
 			}
 		}
+		
+		auto crosswalk = [&] (int dir) {
+			int tex_id = textures.bindless_textures["misc/crosswalk"];
+				
+			float length = abs(seg.asset->sidewalkR - seg.asset->sidewalkL);
+			float width = 2.5f;
+
+			float3 pos = dir == 0 ? seg.pos_a : seg.pos_b;
+			pos -= (dir == 0 ? seg.tangent_a() : seg.tangent_b()) * (width * 0.5f + 0.5f);
+			
+			float y_tiling = 4.0f; // decoupled from length
+			float uv_len = length / y_tiling;
+			uv_len = max(round(uv_len*4)/4, 1.0f); // snap to some uv length to avoid stopping in middle of stripe
+
+			DecalRenderer::Instance decal;
+			decal.pos = pos;
+			decal.rot = angle2d(right) + deg(90);
+			decal.size = float3(width, length, 0.5f);
+			decal.tex_id = tex_id;
+			decal.uv_scale = float2(1, uv_len);
+			decal.col = 1;
+			decals.push_back(decal);
+		};
+
+		if (node_a_cls > 0) crosswalk(0);
+		if (node_b_cls > 0) crosswalk(1);
 		
 		{ // clipping
 			float3 forw = normalizesafe(seg.pos_b - seg.pos_a);

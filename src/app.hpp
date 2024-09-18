@@ -543,7 +543,7 @@ inline void cone_test (View3D& view) {
 };
 
 struct TestMapBuilder {
-	SERIALIZE(TestMapBuilder, _grid_n, _persons_n)
+	SERIALIZE(TestMapBuilder, _grid_n, _persons_n, _intersection_radius, _connection_chance)
 	
 	int _grid_n = 10;
 	int _persons_n = 600;
@@ -605,7 +605,11 @@ struct TestMapBuilder {
 				bool type2_0 = wrap(pos[axis]-5, 0,10) <= 1;
 				bool type2_1 = wrap(pos[axis]-5, 0,10) >= 8;
 
-				if (type1) {
+				//bool at_edge = pos.x <= (axis ? 4 : 4) || pos.y <= (axis ? 4 : 4) ||
+				//	pos.x >= _grid_n-(axis ? 4 : 4) || pos.y >= _grid_n-(axis ? 4 : 4);
+				bool at_edge = false;
+
+				if (type1 && !at_edge) {
 					if (type2_0 || type2_1) {
 						if (flip) *flip = type2_0;
 						return medium_road_asym;

@@ -333,6 +333,8 @@ struct Textures {
 		ZoneScoped;
 		bindless_textures.clear();
 
+		// NOTE: no 1 or 2 channel formats with srgb in opengl!
+
 		// TODO: encode this in assets json somehow, part of this is already specified in assets as tex_filename
 		// the others could be a generic list of misc texture
 		// then need to consider if we simply want to automatically detect .norm .pbr etc in asset folder and load them?
@@ -344,8 +346,8 @@ struct Textures {
 		texture_norm<srgba8>(j, "skybox/moon.png");
 		cubemap     <srgba8>(j, "skybox/night_sky/%s.dds", true, &night_sky);
 		
-		texture<srgb8 >(j, "misc/patterns/solid.png", true);
-		texture<srgb8 >(j, "misc/patterns/striped.png", true);
+		texture<srgb8 >(j, "misc/patterns/solid.png");
+		texture<srgb8 >(j, "misc/patterns/striped.png");
 		texture<srgb8 >(j, "misc/patterns/thick_arrow.png");
 		texture<srgb8 >(j, "misc/patterns/thin_arrow.png");
 
@@ -357,6 +359,7 @@ struct Textures {
 		texture<srgba8>(j, "misc/line.png"       );
 		texture<srgba8>(j, "misc/stripe.png"     );
 		texture<srgba8>(j, "misc/shark_teeth.png");
+		texture<srgb8 >(j, "misc/crosswalk.png");
 		for (auto& fn : turn_arrows)
 			texture<srgba8>(j, concat(fn, ".png"));
 		

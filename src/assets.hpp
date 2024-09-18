@@ -266,7 +266,8 @@ struct TrafficLightPropsAsset : public Asset {
 };
 
 struct NetworkAsset : public Asset {
-	SERIALIZE(NetworkAsset, road_class, width, sidewalkL, sidewalkR, lanes, line_markings, streetlights, traffic_light_props, traffic_light_shift, sidewalkL, sidewalkR, speed_limit)
+	SERIALIZE(NetworkAsset, road_class, width, sidewalkL, sidewalkR,
+		lanes, line_markings, streetlights, traffic_light_props, traffic_light_shift, sidewalkL, sidewalkR, speed_limit)
 
 	struct Lane {
 		SERIALIZE(Lane, shift, width, direction)
@@ -309,7 +310,7 @@ struct NetworkAsset : public Asset {
 	std::vector<Lane> lanes;
 
 	std::vector<LineMarking> line_markings;
-	
+
 	std::vector<Streetlight> streetlights;
 	
 	AssetPtr<TrafficLightPropsAsset> traffic_light_props = dummy_asset<TrafficLightPropsAsset>();

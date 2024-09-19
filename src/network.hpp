@@ -55,9 +55,10 @@ struct SegLane {
 	inline bool operator!= (SegLane const& r) const {
 		return seg != r.seg || lane != r.lane;
 	}
-
+	
 	bool valid_seg () const { return seg != nullptr; }
-	bool valid     () const { return seg != nullptr && lane != (laneid_t)-1; }
+	bool valid_lane () const { return lane != (laneid_t)-1; }
+	bool valid     () const { return valid_seg() && valid_lane(); }
 
 	Lane& get ();
 	NetworkAsset::Lane& get_asset ();

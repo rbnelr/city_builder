@@ -17,6 +17,7 @@ inline constexpr float SAFETY_DIST = 1.0f;
 // sidewalk is at 0, road actually gets lowered! TODO: config per road asset lane
 inline constexpr float ROAD_Z = -0.15f;
 
+struct Network;
 struct Node;
 struct Segment;
 struct Lane;
@@ -44,6 +45,10 @@ struct SegLane {
 	Segment* seg = nullptr;
 	laneid_t lane = (laneid_t)-1;
 
+	SegLane () {}
+	SegLane (Segment* seg): seg{seg} {}
+	SegLane (Segment* seg, laneid_t lane): seg{seg}, lane{lane} {}
+
 	inline bool operator== (SegLane const& r) const {
 		return seg == r.seg && lane == r.lane;
 	}
@@ -51,7 +56,8 @@ struct SegLane {
 		return seg != r.seg || lane != r.lane;
 	}
 
-	operator bool () const { return seg != nullptr; }
+	bool valid_seg () const { return seg != nullptr; }
+	bool valid     () const { return seg != nullptr && lane != (laneid_t)-1; }
 
 	Lane& get ();
 	NetworkAsset::Lane& get_asset ();
@@ -153,92 +159,6 @@ struct VehicleList { // TODO: optimize vehicles in lane to only look at vehicle 
 			}
 		}
 	}
-};
-
-struct PathState {
-	enum State { EXIT_BUILDING, ENTER_BUILDING, SEGMENT, NODE };
-
-	State state; // type of motion
-	float end_t = 1.0f;
-	float next_start_t = 0.0f;
-	Bezier3 bezier;
-
-	VehicleList<ActiveVehicle*>* cur_vehicles = nullptr;
-	VehicleList<ActiveVehicle*>* next_vehicles = nullptr;
-
-	Node* cur_node = nullptr;
-	SegLane cur_lane = {}; // always valid
-	SegLane next_lane = {}; // only valid if cur_node != null
-
-	Turns cur_turn = Turns::NONE;
-};
-
-struct ActiveVehicle {
-//// Constants for entire trip (decided by game logic)
-	Person* cit; // TODO: rename, later allow for cars with multiple passangers, in which case this would make sense anyway?
-
-	// start and destination buildings
-	Building* start = nullptr;
-	Building* end   = nullptr;
-	
-//// Pathfinding result based on trip
-	// all segments returned by pathfinding, without choosing lanes
-	// TODO: later this might have lane info (SegLane instead of Segment*) to allow for lane selection into the future
-	// lane info is 1byte at most, so we can afford to store -1 for unchosen and 0-254 for chosen lanes
-	// this enables tracking past lanes, which is good for tracking long vehicles that might cover more than 2 segments correctly (+ nodes inbetween)
-	std::vector<Segment*> path;
-
-//// Path following variables
-	// current path sequence number (complicated, ideally this could be a generator function)
-	// 0: start building -> road segment
-	// 1: first segment, 2: first node, 3: next segment...
-	// n-1: road segment -> end building
-	int   idx = 0;
-
-	float bez_t = 0; // [0,1] bezier parameter for current segment/node curve
-
-	float brake = 1; // set by controlled conflict logic, to brake smoothly
-	float speed = 0; // worldspace speed controlled by acceleration and brake
-
-	// speed (delta position) / delta beizer t
-	// INF to force no movement on initial tick (rather than div by 0)
-	float bez_speed = INF; // set after timestep based on current bezier eval, to approx correct worldspace step size along bezier in next tick
-
-	// cached info about current and future path following
-	PathState state;
-	
-//// Movement sim variables for visuals
-	float3 front_pos; // car front
-	float3 rear_pos; // car rear
-
-	// another velocity parameter, this time for the center of the car, to implement suspension
-	// TODO: this should not exist, OR be the only velocity paramter
-	float3 center_vel = 0;
-	// suspension (ie. car wobble) angles based on car acceleration on forward and sideways axes (computed seperately)
-	float3 suspension_ang = 0; // angle in radians, X: sideways (rotation on local X), Y: forwards
-	float3 suspension_ang_vel = 0; // angular velocity in radians
-	
-	// curvature, ie. 1/turn_radius, positive means left
-	float turn_curv = 0;
-	float wheel_roll = 0;
-
-	float blinker = 0;
-	float blinker_timer = 0; // could get eliminated (a fixed number of blinker timers indexed using vehicle id hash)
-	float brake_light = 0;
-
-	bool update_blinker (float rand_num, float dt) {
-		constexpr float blinker_freq_min = 1.6f;
-		constexpr float blinker_freq_max = 1.2f;
-
-		blinker_timer += dt * lerp(blinker_freq_min, blinker_freq_max, rand_num);
-		blinker_timer = fmodf(blinker_timer, 1.0f);
-		return blinker_timer > 0.5f;
-	}
-
-	float3 center () { return (front_pos + rear_pos)*0.5; };
-	
-	float car_len ();
-	void calc_pos (float3* pos, float* ang);
 };
 
 // TODO: Might be able to eliminate this entirely! This would probably help perf and reduce complexity
@@ -350,7 +270,7 @@ struct Node {
 		return { pos, _radius, lrgb(0.04f, 0.04f, 1) };
 	}
 
-	Bezier3 calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0=0, float2 shiftXZ_1=0);
+	Bezier3 calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0, float2 shiftXZ_1);
 	Bezier3 calc_curve (SegLane& in, SegLane& out);
 	
 	static Node* between (Segment* in, Segment* out);
@@ -400,6 +320,7 @@ struct Segment { // better name? Keep Path and call path Route?
 	laneid_t num_lanes () { return (laneid_t)lanes.size(); }
 
 	Node* get_other_node (Node* node) {
+		assert(node && (node == node_a || node == node_b));
 		return node_a == node ? node_b : node_a;
 	}
 	Node* get_node_in_dir (LaneDir dir) {
@@ -407,9 +328,11 @@ struct Segment { // better name? Keep Path and call path Route?
 	}
 	
 	LaneDir get_dir_to_node (Node* node) {
+		assert(node && (node == node_a || node == node_b));
 		return node_a != node ? LaneDir::FORWARD : LaneDir::BACKWARD;
 	}
 	LaneDir get_dir_from_node (Node* node) {
+		assert(node && (node == node_a || node == node_b));
 		return node_a == node ? LaneDir::FORWARD : LaneDir::BACKWARD;
 	}
 	
@@ -533,12 +456,15 @@ inline int Node::get_node_class () {
 }
 
 inline Lane& SegLane::get () {
+	assert(valid());
 	return seg->lanes[lane];
 }
 inline NetworkAsset::Lane& SegLane::get_asset () {
+	assert(valid());
 	return seg->asset->lanes[lane];
 }
 inline LaneVehicles& SegLane::vehicles () {
+	assert(valid());
 	return seg->vehicles.lanes[lane];
 }
 
@@ -555,6 +481,8 @@ inline Bezier3 Segment::_bezier_shifted (float2 shiftXZ) {
 // This math is dodgy because technically you can't offset a bezier by it's normal!
 // TODO: implement curved segments and test this further!, perhaps a simple rule works good enough
 inline Bezier3 SegLane::_bezier () {
+	assert(valid());
+
 	float shift = get_asset().shift;
 	auto bez = seg->_bezier_shifted(float2(shift, ROAD_Z));
 	if (get_asset().direction == LaneDir::BACKWARD)
@@ -637,6 +565,129 @@ inline Turns classify_turn (Node* node, Segment* in, Segment* out) {
 inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowed) {
 	return (classify_turn(node, in, out) & allowed) != Turns::NONE;
 }
+
+////
+struct VehiclePath {
+	// start and destination buildings
+	Building* start = nullptr;
+	Building* end   = nullptr;
+	
+//// Pathfinding result based on trip
+	// all segments returned by pathfinding, without choosing lanes
+	// TODO: later this might have lane info (SegLane instead of Segment*) to allow for lane selection into the future
+	// lane info is 1byte at most, so we can afford to store -1 for unchosen and 0-254 for chosen lanes
+	// this enables tracking past lanes, which is good for tracking long vehicles that might cover more than 2 segments correctly (+ nodes inbetween)
+	std::vector<SegLane> path;
+
+////
+	enum MotionType { EXIT_BUILDING, ENTER_BUILDING, SEGMENT, NODE };
+	
+	struct State {
+		// current path sequence number (complicated, ideally this could be a generator function)
+		// 0: start building -> road segment
+		// 1: first segment, 2: first node, 3: next segment...
+		// n-1: road segment -> end building
+		int idx = -1;
+	
+		MotionType motion;
+
+		float end_t = 1.0f;
+		float next_start_t = 0.0f;
+		Bezier3 bezier;
+
+		VehicleList<ActiveVehicle*>* cur_vehicles = nullptr;
+		VehicleList<ActiveVehicle*>* next_vehicles = nullptr;
+	};
+	State s;
+	
+	// get_lane(0): lane currenly on or incoming lane if in node
+	// get_lane(-1): prev   get_lane(+1): next
+	// returns invalid SegLane for start or end of path
+	SegLane* get_lane (int rel_idx=0) {
+		int i = (s.idx-1)/2 + rel_idx;
+		if (i >= 0 && i < (int)path.size())
+			return &path[i];
+		return nullptr;
+	}
+	// get_node(0): node currently on or node if on incoming lane (and if will actually cross node)
+	// get_node(-1): prev   get_node(+1): next
+	Node* get_node (int rel_idx=0, Connection* out_conn=nullptr) {
+		auto in  = get_lane(rel_idx);
+		auto out = get_lane(rel_idx+1);
+		if (in && out) {
+			auto* node = Node::between(in->seg, out->seg);
+			if (out_conn) {
+				assert(in->valid() && out->valid());
+				*out_conn = { *in, *out };
+			}
+			return node;
+		}
+		return nullptr;
+	}
+
+	void visualize (App& app, ActiveVehicle* vehicle, bool skip_next_node);
+
+	State _step (Network& net, ActiveVehicle* vehicle, int idx, State* prev_state);
+
+	void init (Network& net, ActiveVehicle* vehicle) { // TODO: make more rigid via ctor?
+		assert(s.idx = -1);
+		s.idx = 0;
+		s = _step(net, vehicle, 0, nullptr); // increment from -1 -> 0
+	}
+	void step (Network& net, ActiveVehicle* vehicle) {
+		s = _step(net, vehicle, s.idx + 1, &s);
+	}
+};
+
+struct ActiveVehicle {
+//// Constants for entire trip (decided by game logic)
+	Person* cit; // TODO: rename, later allow for cars with multiple passangers, in which case this would make sense anyway?
+
+////
+	float bez_t = 0; // [0,1] bezier parameter for current segment/node curve
+
+	float brake = 1; // set by controlled conflict logic, to brake smoothly
+	float speed = 0; // worldspace speed controlled by acceleration and brake
+
+	// speed (delta position) / delta beizer t
+	// INF to force no movement on initial tick (rather than div by 0)
+	float bez_speed = INF; // set after timestep based on current bezier eval, to approx correct worldspace step size along bezier in next tick
+
+	VehiclePath path;
+	
+//// Movement sim variables for visuals
+	float3 front_pos; // car front
+	float3 rear_pos; // car rear
+
+	// another velocity parameter, this time for the center of the car, to implement suspension
+	// TODO: this should not exist, OR be the only velocity paramter
+	float3 center_vel = 0;
+	// suspension (ie. car wobble) angles based on car acceleration on forward and sideways axes (computed seperately)
+	float3 suspension_ang = 0; // angle in radians, X: sideways (rotation on local X), Y: forwards
+	float3 suspension_ang_vel = 0; // angular velocity in radians
+	
+	// curvature, ie. 1/turn_radius, positive means left
+	float turn_curv = 0;
+	float wheel_roll = 0;
+
+	float blinker = 0;
+	float blinker_timer = 0; // could get eliminated (a fixed number of blinker timers indexed using vehicle id hash)
+	float brake_light = 0;
+
+	bool update_blinker (float rand_num, float dt) {
+		constexpr float blinker_freq_min = 1.6f;
+		constexpr float blinker_freq_max = 1.2f;
+
+		blinker_timer += dt * lerp(blinker_freq_min, blinker_freq_max, rand_num);
+		blinker_timer = fmodf(blinker_timer, 1.0f);
+		return blinker_timer > 0.5f;
+	}
+
+	float3 center () { return (front_pos + rear_pos)*0.5; };
+	
+	float car_len ();
+	void calc_pos (float3* pos, float* ang);
+};
 
 ////
 struct TrafficLight {
@@ -840,8 +891,6 @@ struct Network {
 		ImGui::SliderFloat("random_lane_switching_chance", &_random_lane_switching_chance, 0, 1);
 		_random_lane_switching_chance = clamp(_random_lane_switching_chance, 0.0f, 1.0f);
 	}
-
-	bool pathfind (Segment* start, Segment* target, ActiveVehicle* vehicle);
 
 	int pathing_count;
 

@@ -154,9 +154,9 @@ public:
 				data.get(x,y) = (pixel_t)roundi(clamp(val, 0.0f, (float)UINT16_MAX));
 			}
 
-			delete copy;
-			delete passX;
-			delete passY;
+			delete[] copy;
+			delete[] passX;
+			delete[] passY;
 
 			if (hi.x > lo.x && hi.y > lo.y)
 				dirty_rect.add(RectInt{ lo, hi-1 });

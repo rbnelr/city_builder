@@ -327,6 +327,7 @@ struct ExposureControl {
 	void auto_exposure_readback (Render_Texture& tex, int2 full_res, float dt) {
 		ZoneScoped;
 
+		// Exposure readback is not working, not async for whatever reason, kills fps!
 		return;
 
 		lrgb avg_exposed_rgb;

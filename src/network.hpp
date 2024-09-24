@@ -61,11 +61,11 @@ struct SegLane {
 	bool valid     () const { return valid_seg() && valid_lane(); }
 
 	Lane& get ();
-	NetworkAsset::Lane& get_asset ();
+	NetworkAsset::Lane& get_asset () const;
 
-	Bezier3 _bezier ();
+	Bezier3 _bezier () const;
 	
-	LaneVehicles& vehicles ();
+	LaneVehicles& vehicles () const;
 };
 VALUE_HASHER(SegLane, t.seg, t.lane);
 
@@ -295,44 +295,44 @@ struct Segment { // better name? Keep Path and call path Route?
 	float3 pos_a;
 	float3 pos_b;
 
-	float3 control_a () {
+	float3 control_a () const {
 		return lerp(pos_a, pos_b, 0.33333f); // TODO: implement curved segments!
 	}
-	float3 control_b () {
+	float3 control_b () const {
 		return lerp(pos_b, pos_a, 0.33333f);
 	}
-	float3 tangent_a () { // return reverse of this, ie forward vector?
+	float3 tangent_a () const { // return reverse of this, ie forward vector?
 		return normalizesafe(control_a() - pos_a);
 	}
-	float3 tangent_b () {
+	float3 tangent_b () const {
 		return normalizesafe(control_b() - pos_b);
 	}
 
-	Bezier3 bezier () {
+	Bezier3 bezier () const {
 		return Bezier3{ pos_a, control_a(), control_b(), pos_b };
 	}
-	Bezier3 _bezier_shifted (float2 shiftXZ);
+	Bezier3 _bezier_shifted (float2 shiftXZ) const;
 
 	float _length = 0;
 
 	SegVehicles vehicles;
 
 	std::vector<Lane> lanes;
-	laneid_t num_lanes () { return (laneid_t)lanes.size(); }
+	laneid_t num_lanes () const { return (laneid_t)lanes.size(); }
 
-	Node* get_other_node (Node* node) {
+	Node* get_other_node (Node const* node) const {
 		assert(node && (node == node_a || node == node_b));
 		return node_a == node ? node_b : node_a;
 	}
-	Node* get_node_in_dir (LaneDir dir) {
+	Node* get_node_in_dir (LaneDir dir) const {
 		return dir == LaneDir::FORWARD ? node_b : node_a;
 	}
 	
-	LaneDir get_dir_to_node (Node* node) {
+	LaneDir get_dir_to_node (Node const* node) const {
 		assert(node && (node == node_a || node == node_b));
 		return node_a != node ? LaneDir::FORWARD : LaneDir::BACKWARD;
 	}
-	LaneDir get_dir_from_node (Node* node) {
+	LaneDir get_dir_from_node (Node const* node) const {
 		assert(node && (node == node_a || node == node_b));
 		return node_a == node ? LaneDir::FORWARD : LaneDir::BACKWARD;
 	}
@@ -423,10 +423,10 @@ struct Segment { // better name? Keep Path and call path Route?
 	LanesRange lanes_in_dir (LaneDir dir) {
 		return dir == LaneDir::FORWARD ? lanes_forward() : lanes_backwards();
 	}
-	LanesRange in_lanes (Node* node) {
+	LanesRange in_lanes (Node const* node) {
 		return lanes_in_dir(get_dir_to_node(node));
 	}
-	LanesRange out_lanes (Node* node) {
+	LanesRange out_lanes (Node const* node) {
 		return lanes_in_dir(get_dir_from_node(node));
 	}
 	LanesRange all_lanes () {
@@ -460,16 +460,16 @@ inline Lane& SegLane::get () {
 	assert(valid());
 	return seg->lanes[lane];
 }
-inline NetworkAsset::Lane& SegLane::get_asset () {
+inline NetworkAsset::Lane& SegLane::get_asset () const {
 	assert(valid());
 	return seg->asset->lanes[lane];
 }
-inline LaneVehicles& SegLane::vehicles () {
+inline LaneVehicles& SegLane::vehicles () const {
 	assert(valid());
 	return seg->vehicles.lanes[lane];
 }
 
-inline Bezier3 Segment::_bezier_shifted (float2 shiftXZ) {
+inline Bezier3 Segment::_bezier_shifted (float2 shiftXZ) const {
 	Bezier3 bez = bezier();
 	float3 r0 = rotate90_right(tangent_a()); // This probably shouldn't include Z!
 	float3 r1 = rotate90_right(-tangent_b());
@@ -481,7 +481,7 @@ inline Bezier3 Segment::_bezier_shifted (float2 shiftXZ) {
 }
 // This math is dodgy because technically you can't offset a bezier by it's normal!
 // TODO: implement curved segments and test this further!, perhaps a simple rule works good enough
-inline Bezier3 SegLane::_bezier () {
+inline Bezier3 SegLane::_bezier () const {
 	assert(valid());
 
 	float shift = get_asset().shift;

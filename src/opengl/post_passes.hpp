@@ -217,14 +217,13 @@ struct BloomRenderer {
 };
 
 struct ExposureReadback {
-	int buffers = 2;
+	int buffers = 3;
 	int counter = 0;
 	std::vector<DownloadPbo> pbos;
 
 	ExposureReadback () {
-		pbos.resize(buffers);
 		for (int i=0; i<buffers; ++i) {
-			pbos[i] = DownloadPbo{prints("ExposureReadback[%d]", i)};
+			pbos.push_back( DownloadPbo{prints("ExposureReadback[%d]", i)} );
 		}
 		counter = 0;
 	}
@@ -237,7 +236,7 @@ struct ExposureReadback {
 		OGL_TRACE("exposure readback");
 		
 		int cur_buf = counter;
-		counter = wrap(counter+1, buffers);
+		counter = (counter + 1) % buffers;
 		int oldest_buf = counter;
 
 		int mips = calc_mipmaps(full_res);
@@ -245,11 +244,15 @@ struct ExposureReadback {
 		auto res = calc_mip_res(full_res, mip);
 
 		int size = res.x * res.y * sizeof(lrgb);
+
+		printf("--------\n");
+		printf("glGetTexImage %d\n", cur_buf);
 	
 		{ // Trigger read into current pbo
 			ZoneScopedN("glGetTexImage");
 			OGL_TRACE("glGetTexImage");
 			
+			glInvalidateBufferData(pbos[cur_buf]);
 			glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos[cur_buf]);
 			glBufferData(GL_PIXEL_PACK_BUFFER, size, nullptr, GL_STREAM_DRAW); // TODO: avoid reallocating?
 		
@@ -266,7 +269,9 @@ struct ExposureReadback {
 			glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos[oldest_buf]);
 
 			auto* mapped = (lrgb*)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
-			if (mapped) {
+			if (mapped) { // returns null for first few frames
+				printf("glMapBuffer %d\n", oldest_buf);
+				
 				lrgb total = 0;
 				float total_weight = 0;
 

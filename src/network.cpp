@@ -265,25 +265,6 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 	//   Might still want to keep determinism based on car id + path progress int, just so reloading a save state results in the same behavior?
 	auto seeded_rand = Random(hash(idx, (uint64_t)vehicle));
 
-	auto pick_next_lane = [&] (SegLane& cur_lane, Segment* seg1, Node* next_node, Segment* seg2) {
-		auto turn = classify_turn(next_node, seg1, seg2);
-		auto next_lanes = seg1->in_lanes(next_node);
-		
-		SegLane stay_lane = pick_stay_in_lane(cur_lane, seg1);
-		bool can_stay_in_lane = stay_lane.valid() && any_set(stay_lane.get().allowed_turns, turn);
-
-		// if we can't stay in lane, pick random turn lane
-		if (!can_stay_in_lane)
-			return pick_random_allowed_lane(seeded_rand, next_lanes, turn, stay_lane);
-
-		// randomly switch lanes
-		if (seeded_rand.chance(net._random_lane_switching_chance))
-			return pick_random_allowed_lane(seeded_rand, next_lanes, turn, stay_lane, true);
-
-		// otherwise stay in lane if allowed
-		return stay_lane;
-	};
-
 	// do lane selection such that path[start_seg] has decided lane
 	auto do_lane_selection_for = [&] (int start_seg) {
 		assert(start_seg >= 0 && start_seg < num_seg);
@@ -309,8 +290,14 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 				auto& prev_lane = path[start_seg-1];
 				auto& cur_lane  = path[start_seg];
 
+				Node* next_node = Node::between(prev_lane.seg, cur_lane.seg);
+
 				// try to follow cur lane into next lane if default lane connection works
-				cur_lane = pick_stay_in_lane(prev_lane, cur_lane.seg);
+				auto lane = pick_stay_in_lane(prev_lane, cur_lane.seg);
+				if (!lane.valid_seg()) {
+					lane = cur_lane.seg->in_lanes(next_node).outer();
+				}
+				cur_lane = lane;
 			}
 			assert(path[start_seg].valid());
 		}
@@ -328,6 +315,7 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 			auto lane = pick_stay_in_lane(prev_lane, cur_lane.seg);
 			if (lane.valid_seg()) {
 				cur_lane = lane;
+				assert(cur_lane.valid());
 			}
 			else {
 				// else the cur lane has to be changed instead
@@ -336,6 +324,7 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 				// pick lane with correct turn arrow (prev_lane.outer() as fallback, but if this happens we might have a pathfinding bug)
 				auto prev_lanes = prev_lane.seg->in_lanes(node);
 				prev_lane = pick_random_allowed_lane(seeded_rand, prev_lanes, turn, prev_lanes.outer());
+				assert(prev_lane.valid());
 				break;
 			}
 		}
@@ -367,6 +356,7 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 			auto lane = follow_connection_backwards(prev_lane.seg, cur_lane);
 			if (lane.valid_seg()) {
 				prev_lane = lane;
+				assert(prev_lane.valid());
 			}
 			else {
 				break; // TODO: ?
@@ -375,8 +365,22 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 		
 		assert(path[start_seg].valid());
 	};
+	
+	auto pick_next_lane = [&] (SegLane& cur_lane, SegLane& next_lane) {
+		
+		SegLane lane = pick_stay_in_lane(cur_lane, next_lane.seg);
+		bool switch_lanes = !lane.valid_seg();
+		switch_lanes = switch_lanes || seeded_rand.chance(net._random_lane_switching_chance);
 
-	auto building_enter_bezier = [&] (SegLane& lane, Building* build, float* out_t) {
+		if (switch_lanes) {
+			// if can't stay in lane any more, or random roll happened, switch to lane selected by do_lane_selection_for()
+			lane = next_lane;
+		}
+		assert(lane.valid());
+		return lane;
+	};
+
+	auto building_enter_bezier = [&] (SegLane const& lane, Building* build, float* out_t) {
 		auto lane_bez = lane._bezier();
 		float len = lane_bez.approx_len(4);
 		float t = max(0.5f - 5 / len, 0.0f); // curve such that the endpoint is 5m earlier on the lane than the middle point
@@ -387,7 +391,7 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 		*out_t = t;
 		return Bezier3(end, ctrl, ctrl, build->pos);
 	};
-	auto building_exit_bezier = [&] (SegLane& lane, Building* build, float* out_t) {
+	auto building_exit_bezier = [&] (SegLane const& lane, Building* build, float* out_t) {
 		auto lane_bez = lane._bezier();
 		float len = lane_bez.approx_len(4);
 		float t = min(0.5f + 5 / len, 1.0f);
@@ -403,7 +407,7 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 		s.motion = MotionType::EXIT_BUILDING;
 		
 		do_lane_selection_for(0);
-		auto& next_lane = path[0];
+		auto next_lane = path[0];
 
 		s.next_vehicles = &next_lane.vehicles().list;
 		s.bezier = building_exit_bezier(next_lane, start, &s.next_start_t);
@@ -411,7 +415,7 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 	else if (idx == num_moves-1) {
 		s.motion = MotionType::ENTER_BUILDING;
 
-		auto& prev_lane = path.back();
+		auto prev_lane = path.back();
 
 		float t;
 		s.bezier = building_enter_bezier(prev_lane, end, &t);
@@ -422,49 +426,46 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 
 
 		// Can't use get_lane() because index is not correct (esp during visualize)
-		auto* cur_lane      = &path[i];
-		auto* next_lane     = i+1 < num_seg ? &path[i+1] : nullptr;
-		auto* seg_past_next = i+2 < num_seg ? path[i+2].seg : nullptr;
+		auto cur_lane   = path[i];
+		auto* next_lane = i+1 < num_seg ? &path[i+1] : nullptr;
+		
+		Node* cur_node  = next_lane ? Node::between(cur_lane.seg, next_lane->seg) : nullptr;
 		
 		               do_lane_selection_for(i);
 		if (next_lane) do_lane_selection_for(i+1);
-		// seg_past_next needs no lane
-		
-		Node* cur_node  = next_lane                  ? Node::between(cur_lane ->seg, next_lane->seg) : nullptr;
-		Node* next_node = next_lane && seg_past_next ? Node::between(next_lane->seg, seg_past_next) : nullptr;
 
 		if ((idx-1) % 2 == 0) {
 			s.motion = MotionType::SEGMENT;
 
-			if (!next_lane) {
-				// already on target lane
-				building_enter_bezier(*cur_lane, end, &s.end_t);
+			if (idx+1 == num_moves-1) {
+				// already on target lane, need end_t
+				building_enter_bezier(cur_lane, end, &s.end_t);
 			}
-			else if (!seg_past_next) {
+			else if (idx+2 == num_moves-1) {
 				assert(next_lane && cur_node);
 				// lane after node is target lane, can't pick normally
 				*next_lane = next_lane->seg->out_lanes(cur_node).outer(); // end on outermost lane
 			}
-		//	else {
-		//		assert(next_lane && next_node && lane2);
-		//		// still has next node, pick lane after cur_node based on required lane for turn at next_node
-		//		*next_lane = pick_next_lane(*cur_lane, next_lane->seg, next_node, lane2->seg);
-		//	}
-		
-			s.cur_vehicles  = &cur_lane->vehicles().list;
+			else {
+				assert(next_lane);
+				// still has next node, pick lane
+				*next_lane = pick_next_lane(cur_lane, *next_lane);
+			}
+
+			s.cur_vehicles  = &cur_lane.vehicles().list;
 			s.next_vehicles = cur_node ? &cur_node->vehicles.free : nullptr;
 			
-			s.bezier = cur_lane->_bezier();
+			s.bezier = cur_lane._bezier();
 		}
 		else {
 			s.motion = MotionType::NODE;
-
-			assert(cur_lane && cur_node && next_lane);
+			
+			assert(cur_lane.valid() && cur_node && next_lane);
 			
 			s.cur_vehicles  = &cur_node->vehicles.free;
 			s.next_vehicles = &next_lane->vehicles().list;
 			
-			s.bezier = cur_node->calc_curve(*cur_lane, *next_lane);
+			s.bezier = cur_node->calc_curve(cur_lane, *next_lane);
 		}
 	}
 
@@ -1556,7 +1557,7 @@ void Network::simulate (App& app) {
 	};
 	
 	// to avoid debugging overlays only showing while not paused, only skip moving the car when paused, later actually skip sim steps
-	bool force_update_for_dbg = true;
+	bool force_update_for_dbg = false;
 	if (dt > 0.0f || force_update_for_dbg) {
 		Metrics::Var met;
 		

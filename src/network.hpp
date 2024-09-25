@@ -46,7 +46,6 @@ struct SegLane {
 	laneid_t lane = (laneid_t)-1;
 
 	SegLane () {}
-	SegLane (Segment* seg): seg{seg} {}
 	SegLane (Segment* seg, laneid_t lane): seg{seg}, lane{lane} {}
 
 	inline bool operator== (SegLane const& r) const {
@@ -56,11 +55,12 @@ struct SegLane {
 		return seg != r.seg || lane != r.lane;
 	}
 	
-	bool valid_seg () const { return seg != nullptr; }
-	bool valid_lane () const { return lane != (laneid_t)-1; }
-	bool valid     () const { return valid_seg() && valid_lane(); }
+	operator bool () const {
+		if (seg != nullptr) assert(lane >= 0);
+		return seg != nullptr;
+	}
 
-	Lane& get ();
+	Lane& get () const;
 	NetworkAsset::Lane& get_asset () const;
 
 	Bezier3 _bezier () const;
@@ -274,7 +274,7 @@ struct Node {
 	Bezier3 calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0, float2 shiftXZ_1);
 	Bezier3 calc_curve (SegLane& in, SegLane& out);
 	
-	static Node* between (Segment* in, Segment* out);
+	static Node* between (Segment const* in, Segment const* out);
 
 	int get_node_class ();
 };
@@ -439,7 +439,7 @@ struct Segment { // better name? Keep Path and call path Route?
 		_length = distance(pos_a, pos_b);
 	}
 };
-inline Node* Node::between (Segment* in, Segment* out) {
+inline Node* Node::between (Segment const* in, Segment const* out) {
 	if (in->node_a == out->node_a || in->node_a == out->node_b) {
 		return in->node_a;
 	}
@@ -456,16 +456,16 @@ inline int Node::get_node_class () {
 	return cls;
 }
 
-inline Lane& SegLane::get () {
-	assert(valid());
+inline Lane& SegLane::get () const {
+	assert(seg);
 	return seg->lanes[lane];
 }
 inline NetworkAsset::Lane& SegLane::get_asset () const {
-	assert(valid());
+	assert(seg);
 	return seg->asset->lanes[lane];
 }
 inline LaneVehicles& SegLane::vehicles () const {
-	assert(valid());
+	assert(seg);
 	return seg->vehicles.lanes[lane];
 }
 
@@ -482,7 +482,7 @@ inline Bezier3 Segment::_bezier_shifted (float2 shiftXZ) const {
 // This math is dodgy because technically you can't offset a bezier by it's normal!
 // TODO: implement curved segments and test this further!, perhaps a simple rule works good enough
 inline Bezier3 SegLane::_bezier () const {
-	assert(valid());
+	assert(seg);
 
 	float shift = get_asset().shift;
 	auto bez = seg->_bezier_shifted(float2(shift, ROAD_Z));
@@ -578,7 +578,7 @@ struct VehiclePath {
 	// TODO: later this might have lane info (SegLane instead of Segment*) to allow for lane selection into the future
 	// lane info is 1byte at most, so we can afford to store -1 for unchosen and 0-254 for chosen lanes
 	// this enables tracking past lanes, which is good for tracking long vehicles that might cover more than 2 segments correctly (+ nodes inbetween)
-	std::vector<SegLane> path;
+	std::vector<Segment*> path;
 
 ////
 	enum MotionType { EXIT_BUILDING, ENTER_BUILDING, SEGMENT, NODE };
@@ -596,39 +596,23 @@ struct VehiclePath {
 		float next_start_t = 0.0f;
 		Bezier3 bezier;
 
+		SegLane cur_lane;
+		SegLane next_lane;
+
+		Node* get_cur_node () {
+			if (cur_lane && next_lane)
+				return Node::between(cur_lane.seg, next_lane.seg);
+			return nullptr;
+		}
+
 		VehicleList<ActiveVehicle*>* cur_vehicles = nullptr;
 		VehicleList<ActiveVehicle*>* next_vehicles = nullptr;
 	};
 	State s;
 	
-	// get_lane(0): lane currenly on or incoming lane if in node
-	// get_lane(-1): prev   get_lane(+1): next
-	// returns invalid SegLane for start or end of path
-	SegLane* get_lane (int rel_idx=0) {
-		int i = (s.idx-1)/2 + rel_idx;
-		if (i >= 0 && i < (int)path.size())
-			return &path[i];
-		return nullptr;
-	}
-	// get_node(0): node currently on or node if on incoming lane (and if will actually cross node)
-	// get_node(-1): prev   get_node(+1): next
-	Node* get_node (int rel_idx=0, Connection* out_conn=nullptr) {
-		auto in  = get_lane(rel_idx);
-		auto out = get_lane(rel_idx+1);
-		if (in && out) {
-			auto* node = Node::between(in->seg, out->seg);
-			if (out_conn) {
-				assert(in->valid() && out->valid());
-				*out_conn = { *in, *out };
-			}
-			return node;
-		}
-		return nullptr;
-	}
-
 	void visualize (App& app, ActiveVehicle* vehicle, bool skip_next_node);
 
-	State _step (Network& net, ActiveVehicle* vehicle, int idx, State* prev_state);
+	State _step (Network& net, ActiveVehicle* vehicle, int idx, State* prev_state) const;
 
 	void init (Network& net, ActiveVehicle* vehicle) { // TODO: make more rigid via ctor?
 		assert(s.idx = -1);
@@ -883,14 +867,14 @@ struct Network {
 	int _dijk_iter_lanes = 0;
 
 	// Just an experiment for now
-	float _random_lane_switching_chance = 0.15f;
+	float _lane_switch_chance = 0.15f;
 
 	void imgui () {
 		metrics.imgui();
 		settings.imgui();
 
-		ImGui::SliderFloat("random_lane_switching_chance", &_random_lane_switching_chance, 0, 1);
-		_random_lane_switching_chance = clamp(_random_lane_switching_chance, 0.0f, 1.0f);
+		ImGui::SliderFloat("lane_switch_chance", &_lane_switch_chance, 0, 1);
+		_lane_switch_chance = clamp(_lane_switch_chance, 0.0f, 1.0f);
 	}
 
 	int pathing_count;

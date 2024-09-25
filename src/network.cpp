@@ -10,7 +10,10 @@ namespace network {
 
 // Pathfinding ignores lanes other than checking if any lane allows the turn to a node being visited
 // Note: lane selection happens later during car path follwing, a few segments into the future
-bool pathfind (Network& net, Segment* start, Segment* target, std::vector<SegLane>* result_path) {
+// TODO: rewrite this with segments as the primary item? Make sure to handle start==target
+//  and support roads with median, ie no enter or exit buildings with left turn -> which might cause uturns so that segments get visited twice
+//  supporting this might require keeping entries for both directions of segments
+bool pathfind (Network& net, Segment* start, Segment* target, std::vector<Segment*>* result_path) {
 	ZoneScoped;
 	// use dijkstra
 
@@ -171,7 +174,7 @@ bool pathfind (Network& net, Segment* start, Segment* target, std::vector<SegLan
 	assert(reverse_segments.size() >= 1);
 
 	for (int i=(int)reverse_segments.size()-1; i>=0; --i) {
-		result_path->push_back(SegLane( reverse_segments[i] ));
+		result_path->push_back(reverse_segments[i]);
 	}
 
 	return true;
@@ -200,8 +203,8 @@ void VehiclePath::visualize (App& app, ActiveVehicle* vehicle, bool skip_next_no
 }
 
 // Return first lane connector for next segment in path if available
-SegLane pick_stay_in_lane (SegLane& cur_lane, Segment* next_seg) {
-	assert(cur_lane.valid());
+SegLane pick_stay_in_lane (SegLane const& cur_lane, Segment const* next_seg) {
+	assert(cur_lane);
 	for (auto& conn : cur_lane.get().connections) {
 		if (conn.seg == next_seg) {
 			return conn;
@@ -210,7 +213,7 @@ SegLane pick_stay_in_lane (SegLane& cur_lane, Segment* next_seg) {
 	return SegLane{};
 }
 // Pick random next lane that has correct turn arrow for segment later in the path
-SegLane pick_random_allowed_lane (Random& rand, Segment::LanesRange& next_lanes, Turns req_turn,
+SegLane pick_random_lane (Random& rand, Segment::LanesRange& avail_lanes, Segment* target_seg,
 		SegLane default_lane, bool exclude_default=false) {
 #if 0
 	auto choose = [&] (SegLane lane) {
@@ -238,9 +241,13 @@ SegLane pick_random_allowed_lane (Random& rand, Segment::LanesRange& next_lanes,
 	std::vector<SegLane> choices;
 	choices.reserve(8);
 
-	for (auto lane : next_lanes) {
-		if (any_set(lane.get().allowed_turns, req_turn) && (exclude_default ? lane != default_lane : true))
-			choices.push_back(lane);
+	for (auto lane : avail_lanes) {
+		for (auto& conn : lane.get().connections) {
+			if (conn.seg == target_seg && (exclude_default ? lane != default_lane : true)) {
+				choices.push_back(lane);
+				break; // only push each lane once
+			}
+		}
 	}
 		
 	if (choices.size() > 0) {
@@ -252,7 +259,7 @@ SegLane pick_random_allowed_lane (Random& rand, Segment::LanesRange& next_lanes,
 #endif
 };
 
-VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int idx, State* prev_state) {
+VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int idx, State* prev_state) const {
 	State s = {};
 	s.idx = idx;
 
@@ -266,117 +273,127 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 	auto seeded_rand = Random(hash(idx, (uint64_t)vehicle));
 
 	// do lane selection such that path[start_seg] has decided lane
-	auto do_lane_selection_for = [&] (int start_seg) {
-		assert(start_seg >= 0 && start_seg < num_seg);
-		// only works if previous lanes are decided!
-		for (int i=0; i<start_seg; ++i)
-			assert(path[i].valid());
-		// segment lane already decided
-		if (path[start_seg].valid_lane()) {
-			assert(path[start_seg].valid());
-			return;
-		}
-
-		{ // follow lane for start seg, this must work or logic breaks!
-		  // if do_lane_selection_for(start_seg-1) was called, this should be guaranteed
-			if (start_seg == 0) {
-				// special case for start of path
-				auto& next_lane = path[0];
-				Node* next_node = 1 < num_seg ? Node::between(path[0].seg, path[1].seg) : nullptr;
-		
-				next_lane = next_lane.seg->in_lanes(next_node).outer();
-			}
-			else {
-				auto& prev_lane = path[start_seg-1];
-				auto& cur_lane  = path[start_seg];
-
-				Node* next_node = Node::between(prev_lane.seg, cur_lane.seg);
-
-				// try to follow cur lane into next lane if default lane connection works
-				auto lane = pick_stay_in_lane(prev_lane, cur_lane.seg);
-				if (!lane.valid_seg()) {
-					lane = cur_lane.seg->in_lanes(next_node).outer();
-				}
-				cur_lane = lane;
-			}
-			assert(path[start_seg].valid());
-		}
+	auto pick_lane = [&] (int seg_i, SegLane prev_lane) -> SegLane {
+		assert(seg_i >= 0 && seg_i < num_seg);
 
 		// forward iteration, try to follow lane until we have to switch lanes to make turn (or end of path is reached)
 		int end_seg = -1;
-		for (int i=start_seg+1; i<num_seg; ++i) {
-			auto& prev_lane = path[i-1];
-			auto& cur_lane  = path[i];
-			auto* node = Node::between(prev_lane.seg, cur_lane.seg);
 
-			auto turn = classify_turn(node, prev_lane.seg, cur_lane.seg);
+		std::vector<SegLane> stay_lanes;
+		std::vector<SegLane> prediced_lanes;
+
+		for (int i=seg_i; i<num_seg; ++i) {
+			end_seg = i;
+
+			auto* cur_seg  = path[i];
+			auto* next_seg = i+1 < num_seg ? path[i+1] : nullptr;
 			
-			// try to follow cur lane into next lane if default lane connection works
-			auto lane = pick_stay_in_lane(prev_lane, cur_lane.seg);
-			if (lane.valid_seg()) {
-				cur_lane = lane;
-				assert(cur_lane.valid());
+			// Find avail lanes for current path segment
+			Segment::LanesRange cur_lanes;
+			if (next_seg) {
+				auto* node = Node::between(cur_seg, next_seg);
+				cur_lanes = cur_seg->in_lanes(node);
 			}
 			else {
-				// else the cur lane has to be changed instead
-				end_seg = i-1;
-
-				// pick lane with correct turn arrow (prev_lane.outer() as fallback, but if this happens we might have a pathfinding bug)
-				auto prev_lanes = prev_lane.seg->in_lanes(node);
-				prev_lane = pick_random_allowed_lane(seeded_rand, prev_lanes, turn, prev_lanes.outer());
-				assert(prev_lane.valid());
+				SegLane lane = SegLane{ cur_seg, 0 };
+				// no next lane, end of path default to outer
+				if (prev_lane) {
+					auto* node = Node::between(prev_lane.seg, cur_seg);
+					lane = cur_seg->out_lanes(node).outer();
+				}
+				else {
+					assert(false); // uhhh
+				}
+				
+				stay_lanes.push_back(lane);
 				break;
 			}
+			
+			// Pick cur lane based on previous lane
+			SegLane lane;
+			if (prev_lane) {
+				// try to stay on previous lane
+				lane = pick_stay_in_lane(prev_lane, cur_seg);
+			}
+			else {
+				// no previous lane, default to outer
+				lane = cur_lanes.outer();
+			}
+			
+			if (lane) {
+				// check if lane also lets us stay in lane for next seg
+				SegLane lane1 = pick_stay_in_lane(lane, next_seg);
+				if (lane1) {
+					prev_lane = lane;
+					stay_lanes.push_back(lane);
+					continue;
+				}
+			}
+			
+			// couldn't stay in lane from prev -> next, pick any available
+			lane = pick_random_lane(seeded_rand, cur_lanes, next_seg, cur_lanes.outer());
+			stay_lanes.push_back(lane);
+			break;
 		}
-		if (end_seg < 0) {
-			assert(path[start_seg].valid());
-			return; // end of path is reached
-		}
-		assert(end_seg >= start_seg);
-
-		// now lanes are selected such that latest possible lane switch is made
 
 		// backwards iteration, try to follow lanes backwards from lane we had to switch to
 		auto follow_connection_backwards = [] (Segment* prev, SegLane& cur) {
 			auto* node = Node::between(prev, cur.seg);
 			auto lanes = prev->in_lanes(node);
-		
+			
+			SegLane best_lane = SegLane{};
+			int best_diff = INT_MAX;
+
+			// try to find prev lane that has connection to cur lane
 			for (auto lane : lanes) {
 				for (auto& conn : lane.get().connections) {
+					// TODO: could be handled via best_lane as well (diff=0)
 					if (conn == cur)
-						return lane;
+						return lane; // first lane that connects to cur lane found
+
+					if (conn.seg == cur.seg) {
+						// lane does not connect to cur lane, but to right segment
+						int diff = abs(conn.lane - cur.lane);
+						if (diff < best_diff) {
+							best_lane = lane;
+							best_diff = diff;
+						}
+					}
 				}
 			}
-			return SegLane{};
+
+			// else use closest connection if found
+			return best_lane;
 		};
-		for (int i=end_seg; i>start_seg; --i) {
-			auto& prev_lane = path[i-1];
-			auto& cur_lane  = path[i];
+
+		prediced_lanes.resize(stay_lanes.size());
+		prediced_lanes.back() = stay_lanes.back();
+
+		for (int i=end_seg; i>seg_i; --i) {
+			auto* prev_seg = path[i-1];
+			auto cur_lane = prediced_lanes[i -seg_i];
 			
-			auto lane = follow_connection_backwards(prev_lane.seg, cur_lane);
-			if (lane.valid_seg()) {
-				prev_lane = lane;
-				assert(prev_lane.valid());
+			auto lane = follow_connection_backwards(prev_seg, cur_lane);
+			if (lane) {
+				prediced_lanes[i-1 -seg_i] = lane;
 			}
 			else {
-				break; // TODO: ?
+				break; // no backwards connection found, will stay in current lane and switch later (?)
 			}
 		}
 		
-		assert(path[start_seg].valid());
-	};
-	
-	auto pick_next_lane = [&] (SegLane& cur_lane, SegLane& next_lane) {
-		
-		SegLane lane = pick_stay_in_lane(cur_lane, next_lane.seg);
-		bool switch_lanes = !lane.valid_seg();
-		switch_lanes = switch_lanes || seeded_rand.chance(net._random_lane_switching_chance);
+		//
+		auto stay_lane     = stay_lanes.front();
+		auto prediced_lane = prediced_lanes.front();
 
-		if (switch_lanes) {
-			// if can't stay in lane any more, or random roll happened, switch to lane selected by do_lane_selection_for()
-			lane = next_lane;
+		assert(stay_lane && stay_lane.seg == path[seg_i]);
+		if (prediced_lane)
+			assert(prediced_lane.seg == path[seg_i]);
+
+		auto lane = stay_lane;
+		if (prediced_lane && seeded_rand.chance(net._lane_switch_chance)) {
+			lane = prediced_lane;
 		}
-		assert(lane.valid());
 		return lane;
 	};
 
@@ -406,16 +423,18 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 	if (idx == 0) {
 		s.motion = MotionType::EXIT_BUILDING;
 		
-		do_lane_selection_for(0);
-		auto next_lane = path[0];
+		s.cur_lane = {};
+		s.next_lane = pick_lane(0, SegLane{});
+		s.next_vehicles = &s.next_lane.vehicles().list;
 
-		s.next_vehicles = &next_lane.vehicles().list;
-		s.bezier = building_exit_bezier(next_lane, start, &s.next_start_t);
+		s.bezier = building_exit_bezier(s.next_lane, start, &s.next_start_t);
 	}
 	else if (idx == num_moves-1) {
 		s.motion = MotionType::ENTER_BUILDING;
 
-		auto prev_lane = path.back();
+		auto prev_lane = prev_state->cur_lane;
+		s.cur_lane = {};
+		s.next_lane = {};
 
 		float t;
 		s.bezier = building_enter_bezier(prev_lane, end, &t);
@@ -423,49 +442,45 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 	else {
 		int i = (s.idx-1)/2;
 		assert(i >= 0 && i < num_seg);
-
-
-		// Can't use get_lane() because index is not correct (esp during visualize)
-		auto cur_lane   = path[i];
-		auto* next_lane = i+1 < num_seg ? &path[i+1] : nullptr;
 		
-		Node* cur_node  = next_lane ? Node::between(cur_lane.seg, next_lane->seg) : nullptr;
+		Segment* cur_seg = path[i];
+		Segment* next_seg = i+1 < num_seg ? path[i+1] : nullptr;
+		Node* cur_node  = next_seg ? Node::between(cur_seg, next_seg) : nullptr;
 		
-		               do_lane_selection_for(i);
-		if (next_lane) do_lane_selection_for(i+1);
-
 		if ((idx-1) % 2 == 0) {
 			s.motion = MotionType::SEGMENT;
 
+			// prev call already determinted next_lane
+			s.cur_lane = prev_state->next_lane;
+
 			if (idx+1 == num_moves-1) {
 				// already on target lane, need end_t
-				building_enter_bezier(cur_lane, end, &s.end_t);
-			}
-			else if (idx+2 == num_moves-1) {
-				assert(next_lane && cur_node);
-				// lane after node is target lane, can't pick normally
-				*next_lane = next_lane->seg->out_lanes(cur_node).outer(); // end on outermost lane
+				building_enter_bezier(s.cur_lane, end, &s.end_t);
 			}
 			else {
-				assert(next_lane);
-				// still has next node, pick lane
-				*next_lane = pick_next_lane(cur_lane, *next_lane);
+				s.next_lane = pick_lane(i+1, s.cur_lane);
 			}
 
-			s.cur_vehicles  = &cur_lane.vehicles().list;
+			s.cur_vehicles  = &s.cur_lane.vehicles().list;
 			s.next_vehicles = cur_node ? &cur_node->vehicles.free : nullptr;
 			
-			s.bezier = cur_lane._bezier();
+			s.bezier = s.cur_lane._bezier();
 		}
 		else {
 			s.motion = MotionType::NODE;
 			
-			assert(cur_lane.valid() && cur_node && next_lane);
+			// lanes were already determined in prev call
+			s.cur_lane = prev_state->cur_lane;
+			s.next_lane = prev_state->next_lane;
+			assert(s.cur_lane && s.next_lane);
+			Node* cur_node  = next_seg ? Node::between(cur_seg, next_seg) : nullptr;
+
+			assert(cur_node && next_seg);
 			
 			s.cur_vehicles  = &cur_node->vehicles.free;
-			s.next_vehicles = &next_lane->vehicles().list;
+			s.next_vehicles = &s.next_lane.vehicles().list;
 			
-			s.bezier = cur_node->calc_curve(cur_lane, *next_lane);
+			s.bezier = cur_node->calc_curve(s.cur_lane, s.next_lane);
 		}
 	}
 
@@ -474,14 +489,15 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 inline float get_cur_speed_limit (ActiveVehicle* vehicle) {
 	auto state = vehicle->path.s.motion;
 	if (state == VehiclePath::SEGMENT) {
-		return vehicle->path.get_lane(0)->seg->asset->speed_limit;
+		assert(vehicle->path.s.cur_lane);
+		return vehicle->path.s.cur_lane.seg->asset->speed_limit;
 	}
 	else if (state == VehiclePath::NODE) {
-		Connection conn;
-		auto* node = vehicle->path.get_node(0, &conn);
+		assert(vehicle->path.s.cur_lane);
+		assert(vehicle->path.s.next_lane);
 
-		float a = conn.a.seg->asset->speed_limit;
-		float b = conn.b.seg->asset->speed_limit;
+		float a = vehicle->path.s.cur_lane .seg->asset->speed_limit;
+		float b = vehicle->path.s.next_lane.seg->asset->speed_limit;
 		return min(a, b); // TODO: ??
 	}
 	else {
@@ -665,7 +681,8 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		overlay_lane_vehicle(app, person->vehicle.get(), lrgba(person->col, 1), OverlayDraw::PATTERN_SOLID);
 	
 	bool did_viz_conflicts = false;
-	auto* cur_node = person->vehicle->path.get_node(0);
+
+	auto* cur_node = person->vehicle->path.s.get_cur_node();
 	if (visualize_conflicts && cur_node) {
 		did_viz_conflicts = dbg_conflicts(app, cur_node, person->vehicle.get());
 	}
@@ -870,7 +887,8 @@ bool dbg_conflicts (App& app, Node* node, ActiveVehicle* vehicle) {
 	};
 
 	// visualized vehicle's path through node as thick yellow arrow
-	app.overlay.curves.push_arrow(a.conn.bezier, sz, OverlayDraw::TEXTURE_THICK_ARROW, lrgba(0.9f,0.9f,0.1f, 0.9f));
+	float bez_t = a.front_k < 0 ? 0.0f : clamp(a.vehicle->bez_t, 0.0f, 1.0f);
+	app.overlay.curves.push_arrow(a.conn.bezier, sz, OverlayDraw::TEXTURE_THICK_ARROW, lrgba(0.9f,0.9f,0.1f, 0.9f), float2(bez_t, 1));
 	
 	// loop over all previous cars (higher prio to yield for)
 	for (int j=0; j<idx; ++j) {
@@ -1157,15 +1175,14 @@ void update_node (App& app, Node* node, float dt) {
 				float dist = (1.0f - v->bez_t) * v->bez_speed;
 				if (dist > 10.0f) break;
 
-				Connection conn;
-				auto* n = v->path.get_node(0, &conn);
+				auto* n = v->path.s.get_cur_node();
 				if (n == node) {
 					NodeVehicle vehicle;
 					vehicle.vehicle = v;
 					vehicle.node_idx = v->path.s.idx+1;
 					vehicle.wait_time = 0;
-					vehicle.conn.conn = conn;
-					vehicle.conn.bezier = node->calc_curve(conn.a, conn.b);
+					vehicle.conn.conn = { v->path.s.cur_lane, v->path.s.next_lane };
+					vehicle.conn.bezier = node->calc_curve(vehicle.conn.conn.a, vehicle.conn.conn.b);
 					vehicle.conn.bez_len = vehicle.conn.bezier.approx_len(COLLISION_STEPS);
 					
 					auto bez2d = (Bezier2)vehicle.conn.bezier;

@@ -58,8 +58,8 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 	//  (ie. don't allow crossing the road middle)
 	{ // handle the two start nodes
 		// pretend start point is at center of start segment for now
-		start->node_a->_cost = start->_length / 0.5f / start->asset->speed_limit;
-		start->node_b->_cost = start->_length / 0.5f / start->asset->speed_limit;
+		start->node_a->_cost = (start->_length * 0.5f) / start->asset->speed_limit;
+		start->node_b->_cost = (start->_length * 0.5f) / start->asset->speed_limit;
 
 		start->node_a->_pred_seg = start;
 		start->node_b->_pred_seg = start;
@@ -107,8 +107,8 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 
 		// Get all allowed turns for incoming segment
 		Turns allowed = Turns::NONE;
-		for (auto& lane : cur_node->_pred_seg->lanes) {
-			allowed |= lane.allowed_turns;
+		for (auto lane : cur_node->_pred_seg->in_lanes(cur_node)) {
+			allowed |= lane.get().allowed_turns;
 		}
 
 		// update neighbours with new minimum cost
@@ -155,8 +155,8 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 	float dist_from_a = 0.5f;
 	float dist_from_b = 0.5f;
 
-	float a_cost = target->node_a->_cost + dist_from_a;
-	float b_cost = target->node_b->_cost + dist_from_b;
+	float a_cost = target->node_a->_cost + dist_from_a / target->asset->speed_limit;
+	float b_cost = target->node_b->_cost + dist_from_b / target->asset->speed_limit;
 	// choose end node that end up fastest
 	Node* end_node = a_cost < b_cost ? target->node_a : target->node_b;
 
@@ -185,36 +185,74 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 bool VehiclePath::pathfind (Network& net, ActiveVehicle* vehicle, Building* start, Building* target) {
 	assert(path.empty());
 
-	bool success = Pathfinding::pathfind(net, start->connected_segment, target->connected_segment, &path);
-	if (success) {
-		this->start = start;
-		this->target = target;
-
-		s.idx = 0;
-		s = _step(net, vehicle, 0, nullptr); // increment from -1 -> 0
-	}
-	return success;
-}
-
-void VehiclePath::visualize (App& app, ActiveVehicle* vehicle, bool skip_next_node) {
-	State copy = s;
-	float start_t = vehicle->bez_t;
+	if (!Pathfinding::pathfind(net, start->connected_segment, target->connected_segment, &path))
+		return false;
 	
-	for (;;) {
-		if (skip_next_node && copy.motion == NODE) {
-			skip_next_node = false;
+	this->start = start;
+	this->target = target;
+
+	s = _step(net, vehicle, 0, nullptr);
+	return true;
+}
+bool VehiclePath::repath (Network& net, ActiveVehicle* vehicle, Building* new_target) {
+	if (s.motion == ENTER_BUILDING)
+		return false;
+	
+	int num_seg = (int)path.size();
+	int num_moves = num_seg + (num_seg-1) + 2;
+
+	int i = (s.idx-1)/2;
+	assert(s.idx < num_moves);
+	assert(i < num_seg);
+
+	VehiclePath new_path;
+	new_path.target = new_target;
+	
+	Segment* pathfind_start = nullptr;
+	State dummy_state;
+	State* pdummy_state = nullptr;
+	int new_idx;
+
+	if (s.motion == EXIT_BUILDING) {
+		assert(s.next_lane);
+		
+		new_path.start = start;
+		pathfind_start = start->connected_segment;
+
+		new_idx = 0; // Start at EXIT_BUILDING
+	}
+	else {
+		assert(i+1 < num_seg);
+		assert(s.cur_lane);
+		
+		new_path.start = nullptr;
+		new_path.path.push_back(path[i]);
+		pathfind_start = path[i+1];
+		
+		if (s.motion == SEGMENT) {
+			dummy_state.next_lane = s.cur_lane; // sets cur_lane currectly
+
+			new_idx = 1; // Start at SEGMENT
 		}
 		else {
-			app.overlay.curves.push_arrow(copy.bezier,
-				float2(2, 1), OverlayDraw::TEXTURE_THIN_ARROW, lrgba(1,1,0,0.75f), float2(start_t, copy.end_t));
+			assert(s.motion == NODE);
+			assert(s.next_lane);
+			
+			dummy_state.cur_lane  = s.cur_lane; // sets cur_lane currectly
+			dummy_state.next_lane = s.next_lane; // sets next_lane currectly
+
+			new_idx = 2; // Start at NODE
 		}
-		
-		start_t = copy.next_start_t;
-		if (copy.motion == ENTER_BUILDING) break;
-		
-		// call step for visualize, this might be a bad idea if it modifies path (chosen lanes)
-		copy = _step(app.network, vehicle, copy.idx + 1, &copy);
+		pdummy_state = &dummy_state;
 	}
+
+	if (!Pathfinding::pathfind(net, pathfind_start, new_target->connected_segment, &new_path.path))
+		return false;
+
+	new_path.s = new_path._step(net, vehicle, new_idx, &dummy_state);
+
+	std::swap(*this, new_path);
+	return true;
 }
 
 // Return first lane connector for next segment in path if available
@@ -501,6 +539,28 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 
 	return s;
 }
+
+void VehiclePath::visualize (App& app, ActiveVehicle* vehicle, bool skip_next_node) {
+	State copy = s;
+	float start_t = vehicle->bez_t;
+	
+	for (;;) {
+		if (skip_next_node && copy.motion == NODE) {
+			skip_next_node = false;
+		}
+		else {
+			app.overlay.curves.push_arrow(copy.bezier,
+				float2(2, 1), OverlayDraw::TEXTURE_THIN_ARROW, lrgba(1,1,0,0.75f), float2(start_t, copy.end_t));
+		}
+		
+		start_t = copy.next_start_t;
+		if (copy.motion == ENTER_BUILDING) break;
+		
+		// call step for visualize, this might be a bad idea if it modifies path (chosen lanes)
+		copy = _step(app.network, vehicle, copy.idx + 1, &copy);
+	}
+}
+
 inline float get_cur_speed_limit (ActiveVehicle* vehicle) {
 	auto s = vehicle->path.get_state();
 	if (s.motion == VehiclePath::SEGMENT) {
@@ -577,7 +637,8 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 	
 	// allocate space in priority order and remember blocked cars
 	for (auto& v : node->vehicles.test.list) {
-		if (v.vehicle->path.get_state().idx > v.node_idx) {
+		auto& state = v.vehicle->path.get_state();
+		if (state.get_cur_node() != node) {
 			// already in outgoing lane
 			continue;
 		}
@@ -1195,7 +1256,6 @@ void update_node (App& app, Node* node, float dt) {
 				if (n == node) {
 					NodeVehicle vehicle;
 					vehicle.vehicle = v;
-					vehicle.node_idx = state.idx+1;
 					vehicle.wait_time = 0;
 					vehicle.conn.conn = { state.cur_lane, state.next_lane };
 					vehicle.conn.bezier = node->calc_curve(vehicle.conn.conn.a, vehicle.conn.conn.b);
@@ -1211,35 +1271,28 @@ void update_node (App& app, Node* node, float dt) {
 		}
 	}
 	node->vehicles.test.remove_if([&] (NodeVehicle& v) {
-		auto& state = v.vehicle->path.get_state();
-		if (state.idx > v.node_idx+1)
-			return true; // past outgoing lane
-		if (state.idx == v.node_idx+1) {
-			// in outgoing lane
-			float dist = v.vehicle->bez_t * v.vehicle->bez_speed;
-			
-			if (dist > v.vehicle->car_len())
-				return true;
-		}
-		return false;
+		float dist = v.front_k - v.conn.bez_len;
+		return dist > v.vehicle->car_len();
 	});
 	
 	auto update_ks = [&] (NodeVehicle& v) {
 		auto& state = v.vehicle->path.get_state();
 
-		// ingoing lane
-		if (state.idx == v.node_idx-1) {
-			// extrapolate and map from negative to 0
-			v.front_k = (v.vehicle->bez_t - 1.0f) * v.vehicle->bez_speed;
+		if (state.get_cur_node() == node) {
+			// ingoing lane
+			if (state.motion == VehiclePath::SEGMENT) {
+				// extrapolate and map from negative to 0
+				v.front_k = (v.vehicle->bez_t - 1.0f) * v.vehicle->bez_speed;
+			}
+			// on node
+			else {
+				assert(state.motion == VehiclePath::NODE);
+				// approximate by just mapping t (which is wrong)
+				v.front_k = v.vehicle->bez_t * v.conn.bez_len;
+			}
 		}
-		// on node
-		else if (state.idx == v.node_idx) {
-			// approximate by just mapping t (which is wrong)
-			v.front_k = v.vehicle->bez_t * v.conn.bez_len;
-		}
-		// outgoing lane
+		// assume outgoing lane (update should never move vehicle by more than one segment per tick!)
 		else {
-			assert(state.idx == v.node_idx+1);
 			// extrapolate and map from negative to 0
 			v.front_k = v.vehicle->bez_t * v.vehicle->bez_speed + v.conn.bez_len;
 		}
@@ -1256,12 +1309,14 @@ void update_node (App& app, Node* node, float dt) {
 		v.blocked = false;
 		v.wait_time += dt;
 
-		if (state.idx > v.node_idx) {
+		if (state.get_cur_node() != node) {
 			// already in outgoing lane (don't need to wait and avoid counting avail space twice)
 			continue;
 		}
 
-		if (state.idx < v.node_idx && node->traffic_light) {
+		bool incoming_lane = state.motion == VehiclePath::SEGMENT;
+		if (incoming_lane && node->traffic_light) {
+			assert(v.front_k < 0.001f);
 			// still in front of intersection, respect traffic lights
 			auto in_lane = v.conn.conn.a;
 
@@ -1282,10 +1337,9 @@ void update_node (App& app, Node* node, float dt) {
 		auto& avail_space = v.conn.conn.b.vehicles().avail_space;
 
 		bool space_left = avail_space >= v.vehicle->car_len();
-		bool already_on_node = state.idx >= v.node_idx;
 
 		// reserve space either if already on node or if on incoming lane and not blocked by traffic light
-		if (already_on_node || (space_left && !v.blocked)) {
+		if (!incoming_lane || (space_left && !v.blocked)) {
 			// still reserve space even if none is avail if already on node
 			avail_space -= v.vehicle->car_len() + SAFETY_DIST;
 		}

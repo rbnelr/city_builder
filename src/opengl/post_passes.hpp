@@ -333,7 +333,8 @@ struct ExposureControl {
 		ZoneScoped;
 
 		// Exposure readback is not working, not async for whatever reason, kills fps!
-		return;
+		if (!auto_exposure)
+			return;
 
 		lrgb avg_exposed_rgb;
 		if (backreader.readback(tex, full_res, &avg_exposed_rgb)) {

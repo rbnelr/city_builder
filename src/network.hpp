@@ -166,10 +166,6 @@ struct VehicleList { // TODO: optimize vehicles in lane to only look at vehicle 
 struct NodeVehicle {
 	ActiveVehicle* vehicle; // unnecessary
 
-	// unnecessary since it's just used to check of car on incoming outgoing lane or node
-	// use PathState::cur_lane/next_lane -> segment -> node!
-	int node_idx;
-		
 	// k == (approx) distance along node curve
 	// where before node : k negative where abs(k) is dist to node
 	// in node: k in [0, conn_len]
@@ -557,11 +553,11 @@ inline Turns classify_turn (Node* node, Segment* in, Segment* out) {
 	rel.y = dot(-out_dir, in_dir);
 	rel.x = dot(-out_dir, rotate90(-in_dir));
 
-	// TODO: track uturns?
-	if      (rel.y > abs(rel.x))  return Turns::STRAIGHT;
-	else if (rel.y < -abs(rel.x)) return Turns::UTURN;
-	else if (rel.x < 0.0f)        return Turns::LEFT;
-	else                          return Turns::RIGHT;
+	float absX = abs(rel.x);
+	if      ( rel.y > absX) return Turns::STRAIGHT;
+	else if (-rel.y > absX) return Turns::UTURN;
+	else if (rel.x < 0.0f)  return Turns::LEFT;
+	else                    return Turns::RIGHT;
 }
 inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowed) {
 	return (classify_turn(node, in, out) & allowed) != Turns::NONE;
@@ -590,9 +586,12 @@ public:
 		float next_start_t = 0.0f;
 		Bezier3 bezier;
 
+		// if vehicle front either in incoming lane before node or in node:
+		// cur_lane: incoming, next_lane: outgoing lane
 		SegLane cur_lane;
 		SegLane next_lane;
 
+		// if vehicle front either in incoming lane before node or in node, else null
 		Node* get_cur_node () const {
 			if (cur_lane && next_lane)
 				return Node::between(cur_lane.seg, next_lane.seg);
@@ -623,7 +622,8 @@ public:
 	State const& get_state () const { return s; }
 
 	bool pathfind (Network& net, ActiveVehicle* vehicle, Building* start, Building* target);
-	
+	bool repath (Network& net, ActiveVehicle* vehicle, Building* new_target);
+
 	void step (Network& net, ActiveVehicle* vehicle) {
 		s = _step(net, vehicle, s.idx + 1, &s);
 	}

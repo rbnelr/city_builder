@@ -10,6 +10,15 @@ struct Building {
 	float  rot = 0;
 
 	network::Segment* connected_segment = nullptr;
+	
+	bool selectable () {
+		return true;
+	}
+	SelCircle get_sel_shape () {
+		auto sz = asset->mesh.aabb.size();
+		float radius = max(sz.x, sz.y) * 0.5f;
+		return { pos, radius*0.5f, lrgb(1, 0.04f, 0.04f) };
+	}
 };
 
 struct Person {
@@ -72,7 +81,7 @@ struct Person {
 		// can only select while driving currently
 		return vehicle != nullptr;
 	}
-	SelCircle get_sel_shape () {
+	SelCircle get_sel_shape () { // TODO: move part of this to active vehicle?
 		auto c = lrgb(0.04f, 1, 0.04f);
 		if (vehicle)
 			return { vehicle->center(), vehicle->car_len()*0.5f, c };
@@ -89,4 +98,4 @@ struct Entities {
 	bool buildings_changed = true;
 };
 
-typedef NullableVariant<Person*, network::Node*> sel_ptr;
+typedef NullableVariant<Building*, Person*, network::Node*> sel_ptr;

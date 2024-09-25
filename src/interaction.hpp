@@ -92,6 +92,15 @@ struct Interaction {
 	void update_inspect (Entities& entities, Network& net, View3D& view, Input& input) {
 		find_hover(entities, net, view, input, false);
 
+		if (selection.get<Person*>() && hover.get<Building*>()) {
+			if (input.buttons[MOUSE_BUTTON_RIGHT].went_down) {
+				auto* pers = selection.get<Person*>();
+				if (pers->vehicle) {
+					pers->vehicle->path.repath(net, pers->vehicle.get(), hover.get<Building*>());
+				}
+			}
+		}
+		
 		if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
 			selection = hover;
 		}
@@ -137,6 +146,15 @@ struct Interaction {
 						hover = person.get();
 						dist = hit_dist;
 					}
+				}
+			}
+
+			for (auto& building : entities.buildings) {
+				auto shape = building->get_sel_shape();
+				float hit_dist;
+				if (shape.test(ray, &hit_dist) && hit_dist < dist) {
+					hover = building.get();
+					dist = hit_dist;
 				}
 			}
 		}

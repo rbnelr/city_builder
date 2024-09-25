@@ -568,21 +568,15 @@ inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowe
 }
 
 ////
-struct VehiclePath {
-	// start and destination buildings
-	Building* start = nullptr;
-	Building* end   = nullptr;
-	
-//// Pathfinding result based on trip
-	// all segments returned by pathfinding, without choosing lanes
-	// TODO: later this might have lane info (SegLane instead of Segment*) to allow for lane selection into the future
-	// lane info is 1byte at most, so we can afford to store -1 for unchosen and 0-254 for chosen lanes
-	// this enables tracking past lanes, which is good for tracking long vehicles that might cover more than 2 segments correctly (+ nodes inbetween)
-	std::vector<Segment*> path;
+class Pathfinding {
+public:
+	static bool pathfind (Network& net, Segment* start, Segment* target, std::vector<Segment*>* result_path);
+};
 
-////
+class VehiclePath {
+public:
 	enum MotionType { EXIT_BUILDING, ENTER_BUILDING, SEGMENT, NODE };
-	
+
 	struct State {
 		// current path sequence number (complicated, ideally this could be a generator function)
 		// 0: start building -> road segment
@@ -599,7 +593,7 @@ struct VehiclePath {
 		SegLane cur_lane;
 		SegLane next_lane;
 
-		Node* get_cur_node () {
+		Node* get_cur_node () const {
 			if (cur_lane && next_lane)
 				return Node::between(cur_lane.seg, next_lane.seg);
 			return nullptr;
@@ -608,20 +602,33 @@ struct VehiclePath {
 		VehicleList<ActiveVehicle*>* cur_vehicles = nullptr;
 		VehicleList<ActiveVehicle*>* next_vehicles = nullptr;
 	};
-	State s;
+
+private:
+	// start and destination buildings
+	Building* start  = nullptr;
+	Building* target = nullptr;
 	
-	void visualize (App& app, ActiveVehicle* vehicle, bool skip_next_node);
+	// all segments returned by pathfinding, without choosing lanes
+	// TODO: later this might have lane info (SegLane instead of Segment*) to allow for lane selection into the future
+	// lane info is 1byte at most, so we can afford to store -1 for unchosen and 0-254 for chosen lanes
+	// this enables tracking past lanes, which is good for tracking long vehicles that might cover more than 2 segments correctly (+ nodes inbetween)
+	std::vector<Segment*> path;
+	
+	State s;
 
 	State _step (Network& net, ActiveVehicle* vehicle, int idx, State* prev_state) const;
 
-	void init (Network& net, ActiveVehicle* vehicle) { // TODO: make more rigid via ctor?
-		assert(s.idx = -1);
-		s.idx = 0;
-		s = _step(net, vehicle, 0, nullptr); // increment from -1 -> 0
-	}
+public:
+	Building* get_target () const { return target; }
+	State const& get_state () const { return s; }
+
+	bool pathfind (Network& net, ActiveVehicle* vehicle, Building* start, Building* target);
+	
 	void step (Network& net, ActiveVehicle* vehicle) {
 		s = _step(net, vehicle, s.idx + 1, &s);
 	}
+	
+	void visualize (App& app, ActiveVehicle* vehicle, bool skip_next_node);
 };
 
 struct ActiveVehicle {
@@ -867,7 +874,7 @@ struct Network {
 	int _dijk_iter_lanes = 0;
 
 	// Just an experiment for now
-	float _lane_switch_chance = 0.15f;
+	float _lane_switch_chance = 0.25f;
 
 	void imgui () {
 		metrics.imgui();

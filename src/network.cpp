@@ -124,10 +124,7 @@ bool Pathfinding::pathfind (Network& net, SegDirs start, Segment* target, std::v
 	}
 	
 	//// make path out of dijkstra graph
-	//if (target->node_a->_pred == nullptr && target->node_b->_pred == nullptr)
-	if (target->node_a->_pred_seg == nullptr && target->node_b->_pred_seg == nullptr)
-		return false; // no path found
-		
+	
 	// additional distances from a and b of the target segment
 	float dist_from_a = 0.5f;
 	float dist_from_b = 0.5f;
@@ -137,16 +134,20 @@ bool Pathfinding::pathfind (Network& net, SegDirs start, Segment* target, std::v
 	float b_cost = target->node_b->_cost + dist_from_b / target->asset->speed_limit;
 
 	// do not count final node if coming from target segment, to correctly handle start == target
-	if (target->node_a->_pred_seg != target) {
+	if (target->node_a->_pred_seg && target->node_a->_pred_seg != target) {
 		end_node = target->node_a;
 	}
-	if (target->node_b->_pred_seg != target) {
+	if (target->node_b->_pred_seg && target->node_b->_pred_seg != target) {
 		// if both nodes count, choose end node that end up fastest
 		if (!end_node || b_cost < a_cost) {
 			end_node = target->node_b;
 		}
 	}
-	assert(end_node && end_node->_cost < INF);
+
+	if (!end_node)
+		return false; // no path found
+		
+	assert(end_node->_cost < INF);
 
 	std::vector<Segment*> reverse_segments;
 	reverse_segments.push_back(target);

@@ -566,7 +566,13 @@ inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowe
 ////
 class Pathfinding {
 public:
-	static bool pathfind (Network& net, Segment* start, Segment* target, std::vector<Segment*>* result_path);
+	// Able to pathfind while restricting the starting directions for example for repathing
+	struct SegDirs {
+		Segment* seg = nullptr;
+		bool forw = true, backw = true;
+	};
+
+	static bool pathfind (Network& net, SegDirs start, Segment* target, std::vector<Segment*>* result_path);
 };
 
 class VehiclePath {
@@ -628,7 +634,8 @@ public:
 		s = _step(net, vehicle, s.idx + 1, &s);
 	}
 	
-	void visualize (App& app, ActiveVehicle* vehicle, bool skip_next_node);
+	void visualize (OverlayDraw& overlay, Network& net, ActiveVehicle* vehicle,
+		bool skip_next_node, lrgba col=lrgba(1,1,0,0.75f));
 };
 
 struct ActiveVehicle {

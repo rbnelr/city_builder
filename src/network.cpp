@@ -13,22 +13,11 @@ namespace network {
 // TODO: rewrite this with segments as the primary item? Make sure to handle start==target
 //  and support roads with median, ie no enter or exit buildings with left turn -> which might cause uturns so that segments get visited twice
 //  supporting this might require keeping entries for both directions of segments
-bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::vector<Segment*>* result_path) {
+bool Pathfinding::pathfind (Network& net, SegDirs start, Segment* target, std::vector<Segment*>* result_path) {
 	ZoneScoped;
 	// use dijkstra
 
 	// TODO: why did I create an optimization and then not use it? it it working? did I want to defer to when I can have more features?
-#define DIJK_OPT 0
-#if DIJK_OPT
-	std::vector<Node*> heap_vec;
-	heap_vec.reserve(512);
-
-	auto get_key = [] (Node* node) -> float { return node->_cost; };
-	auto get_idx = [] (Node* node) -> int& {  return node->_q_idx; };
-	MinHeapFunc<Node*, decltype(get_key), decltype(get_idx)> min_heap = {
-		heap_vec, get_key, get_idx
-	};
-#else
 	struct Queued {
 		Node* node;
 		float cost;
@@ -43,7 +32,6 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 		}
 	};
 	std::priority_queue<Queued, std::vector<Queued>, Comparer> unvisited;
-#endif
 
 	// prepare all nodes
 	for (auto& node : net.nodes) {
@@ -54,49 +42,41 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 		node->_pred_seg = nullptr;
 	}
 
-	// TODO: could actually start only on the lane facing the target building
-	//  (ie. don't allow crossing the road middle)
-	{ // handle the two start nodes
-		// pretend start point is at center of start segment for now
-		start->node_a->_cost = (start->_length * 0.5f) / start->asset->speed_limit;
-		start->node_b->_cost = (start->_length * 0.5f) / start->asset->speed_limit;
-
-		start->node_a->_pred_seg = start;
-		start->node_b->_pred_seg = start;
+	// FAILSAFE, TODO: fix!
+	// Currently if start == target and forw,backw == true
+	//  either pathinding glitches and returns uturn (due to both start nodes being the target nodes)
+	//  or (with _pred_seg != target) check, both nodes fail, so rather than fail pathing, just arbitrarily restrict direction
+	if (start.seg == target && start.forw && start.backw)
+		start.backw = false;
+	
+	// handle the two start nodes
+	// pretend start point is at center of start segment for now
+	// forw/backw can restrict the direction allowed for the start segment
+	
+	if (start.forw) {
+		start.seg->node_b->_cost = (start.seg->_length * 0.5f) / start.seg->asset->speed_limit;
+		start.seg->node_b->_pred_seg = start.seg;
+		unvisited.push({ start.seg->node_b, start.seg->node_b->_cost });
 	}
-
-#if DIJK_OPT
-	min_heap.push(start->node_a);
-	min_heap.push(start->node_b);
-#else
-	unvisited.push({ start->node_a, start->node_a->_cost });
-	unvisited.push({ start->node_b, start->node_b->_cost });
-#endif
+	if (start.backw) {
+		start.seg->node_a->_cost = (start.seg->_length * 0.5f) / start.seg->asset->speed_limit;
+		start.seg->node_a->_pred_seg = start.seg;
+		unvisited.push({ start.seg->node_a, start.seg->node_a->_cost });
+	}
 
 	net._dijk_iter = 0;
 	net._dijk_iter_dupl = 0;
 	net._dijk_iter_lanes = 0;
 	
-#if DIJK_OPT
-	while (!min_heap.items.empty()) {
-#else
 	while (!unvisited.empty()) {
-#endif
 		net._dijk_iter_dupl++;
 		
-	#if DIJK_OPT
-		// visit node with min cost
-		Node* cur_node = min_heap.pop();
-
-		assert(!cur_node->_visited);
-	#else
 		// visit node with min cost
 		auto _cur_node = unvisited.top();
 		Node* cur_node = _cur_node.node;
 		unvisited.pop();
 
 		if (cur_node->_visited) continue;
-	#endif
 		cur_node->_visited = true;
 
 		net._dijk_iter++;
@@ -113,7 +93,7 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 
 		// update neighbours with new minimum cost
 		for (auto& seg : cur_node->segments) {
-			for (auto lane : seg->in_lanes(cur_node)) {
+			for (auto lane : seg->in_lanes(cur_node)) { // This is dumb and makes no sense, TODO: fix it!
 				Node* other_node = seg->get_other_node(cur_node);
 
 				// check if turn to this node is actually allowed
@@ -135,11 +115,7 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 					other_node->_cost      = new_cost;
 					//assert(!other_node->_visited); // dijstra with positive costs should prevent this
 
-				#if DIJK_OPT
-					min_heap.push_or_decrease(other_node);
-				#else
 					unvisited.push({ other_node, other_node->_cost }); // push updated neighbour (duplicate)
-				#endif
 				}
 
 				net._dijk_iter_lanes++;
@@ -148,19 +124,29 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 	}
 	
 	//// make path out of dijkstra graph
-	if (target->node_a->_pred == nullptr && target->node_b->_pred == nullptr)
+	//if (target->node_a->_pred == nullptr && target->node_b->_pred == nullptr)
+	if (target->node_a->_pred_seg == nullptr && target->node_b->_pred_seg == nullptr)
 		return false; // no path found
 		
 	// additional distances from a and b of the target segment
 	float dist_from_a = 0.5f;
 	float dist_from_b = 0.5f;
 
+	Node* end_node = nullptr;
 	float a_cost = target->node_a->_cost + dist_from_a / target->asset->speed_limit;
 	float b_cost = target->node_b->_cost + dist_from_b / target->asset->speed_limit;
-	// choose end node that end up fastest
-	Node* end_node = a_cost < b_cost ? target->node_a : target->node_b;
 
-	assert(end_node->_cost < INF);
+	// do not count final node if coming from target segment, to correctly handle start == target
+	if (target->node_a->_pred_seg != target) {
+		end_node = target->node_a;
+	}
+	if (target->node_b->_pred_seg != target) {
+		// if both nodes count, choose end node that end up fastest
+		if (!end_node || b_cost < a_cost) {
+			end_node = target->node_b;
+		}
+	}
+	assert(end_node && end_node->_cost < INF);
 
 	std::vector<Segment*> reverse_segments;
 	reverse_segments.push_back(target);
@@ -171,7 +157,8 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 		reverse_segments.push_back(cur->_pred_seg);
 		cur = cur->_pred;
 	}
-	assert(reverse_segments.size() >= 1);
+	assert(reverse_segments.size() >= 2); // code currently can't handle single segment path
+	// TODO: make that possible and then handle make driving into building on other side of road possible? Or should we just have it drive around the block for this?
 
 	for (int i=(int)reverse_segments.size()-1; i>=0; --i) {
 		result_path->push_back(reverse_segments[i]);
@@ -179,13 +166,48 @@ bool Pathfinding::pathfind (Network& net, Segment* start, Segment* target, std::
 
 	return true;
 }
+void debug_last_pathfind (Network& net, View3D& view) {
+	
+	static bool visualize = false;
+	if (imgui_Header("debug_last_pathfind", true)) {
+		ImGui::Checkbox("visualize", &visualize);
+		ImGui::PopID();
+	}
+	
+	if (!visualize) return;
+	
+	float max_cost = 0;
+	for (auto& node : net.nodes) {
+		if (node->_visited) {
+			max_cost = max(max_cost, node->_cost);
+		}
+	}
+
+	for (auto& node : net.nodes) {
+		if (node->_visited) {
+			float cost_a = node->_cost / max_cost;
+			lrgba col = lerp(lrgba(1,0,1,1), lrgba(1,0,0,1), clamp(cost_a, 0.0f, 1.0f));
+
+			g_dbgdraw.wire_circle(node->pos, node->_radius, col);
+
+			g_dbgdraw.text.draw_text(prints("%.0f", node->_cost), 30,
+				1, g_dbgdraw.text.map_text(node->pos, view));
+
+			if (node->_pred_seg) {
+				float3 pos = (node->_pred_seg->pos_a + node->_pred_seg->pos_b) * 0.5f;
+
+				g_dbgdraw.arrow(view, pos, node->pos - pos, 5, lrgba(0,1,1,1));
+			}
+		}
+	}
+}
 
 ////
 
 bool VehiclePath::pathfind (Network& net, ActiveVehicle* vehicle, Building* start, Building* target) {
 	assert(path.empty());
 
-	if (!Pathfinding::pathfind(net, start->connected_segment, target->connected_segment, &path))
+	if (!Pathfinding::pathfind(net, { start->connected_segment }, target->connected_segment, &path))
 		return false;
 	
 	this->start = start;
@@ -208,26 +230,42 @@ bool VehiclePath::repath (Network& net, ActiveVehicle* vehicle, Building* new_ta
 	VehiclePath new_path;
 	new_path.target = new_target;
 	
-	Segment* pathfind_start = nullptr;
+	Pathfinding::SegDirs pathfind_start;
 	State dummy_state;
 	State* pdummy_state = nullptr;
 	int new_idx;
 
 	if (s.motion == EXIT_BUILDING) {
 		assert(s.next_lane);
-		
+		assert(num_seg >= 2);
+
+		auto* node = Node::between(path[0], path[1]);
+		LaneDir dir = path[0]->get_dir_to_node(node);
+
 		new_path.start = start;
-		pathfind_start = start->connected_segment;
+		pathfind_start.seg = start->connected_segment;
+		pathfind_start.forw  = dir == LaneDir::FORWARD;
+		pathfind_start.backw = dir != LaneDir::FORWARD;
 
 		new_idx = 0; // Start at EXIT_BUILDING
 	}
 	else {
+		// there is no next segment because we are on the target segment
+		// This case should be safe, if handles specially, but just disallow repathing
+		if (i+1 >= num_seg)
+			return false;
+		
 		assert(i+1 < num_seg);
 		assert(s.cur_lane);
 		
+		auto* node = Node::between(path[i], path[i+1]);
+		LaneDir dir = path[i+1]->get_dir_from_node(node);
+
 		new_path.start = nullptr;
 		new_path.path.push_back(path[i]);
-		pathfind_start = path[i+1];
+		pathfind_start.seg = path[i+1];
+		pathfind_start.forw  = dir == LaneDir::FORWARD;
+		pathfind_start.backw = dir != LaneDir::FORWARD;
 		
 		if (s.motion == SEGMENT) {
 			dummy_state.next_lane = s.cur_lane; // sets cur_lane currectly
@@ -540,7 +578,7 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 	return s;
 }
 
-void VehiclePath::visualize (App& app, ActiveVehicle* vehicle, bool skip_next_node) {
+void VehiclePath::visualize (OverlayDraw& overlay, Network& net, ActiveVehicle* vehicle, bool skip_next_node, lrgba col) {
 	State copy = s;
 	float start_t = vehicle->bez_t;
 	
@@ -549,15 +587,15 @@ void VehiclePath::visualize (App& app, ActiveVehicle* vehicle, bool skip_next_no
 			skip_next_node = false;
 		}
 		else {
-			app.overlay.curves.push_arrow(copy.bezier,
-				float2(2, 1), OverlayDraw::TEXTURE_THIN_ARROW, lrgba(1,1,0,0.75f), float2(start_t, copy.end_t));
+			overlay.curves.push_arrow(copy.bezier,
+				float2(2, 1), OverlayDraw::TEXTURE_THIN_ARROW, col, float2(start_t, copy.end_t));
 		}
 		
 		start_t = copy.next_start_t;
 		if (copy.motion == ENTER_BUILDING) break;
 		
 		// call step for visualize, this might be a bad idea if it modifies path (chosen lanes)
-		copy = _step(app.network, vehicle, copy.idx + 1, &copy);
+		copy = _step(net, vehicle, copy.idx + 1, &copy);
 	}
 }
 
@@ -764,7 +802,7 @@ void debug_person (App& app, Person* person, View3D const& view) {
 	}
 
 	if (visualize_path) {
-		person->vehicle->path.visualize(app, person->vehicle.get(), did_viz_conflicts);
+		person->vehicle->path.visualize(app.overlay, app.network, person->vehicle.get(), did_viz_conflicts);
 	}
 
 	if (visualize_bones) {
@@ -1711,6 +1749,7 @@ void Network::simulate (App& app) {
 void Network::draw_debug (App& app, View3D& view) {
 	debug_node(app, app.interact.selection.get<Node*>(), view);
 	debug_person(app, app.interact.selection.get<Person*>(), view);
+	debug_last_pathfind(app.network, view);
 }
 
 } // namespace network

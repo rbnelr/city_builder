@@ -114,6 +114,10 @@ void set_default_lane_options (Node& node, bool fully_dedicated, int node_class)
 		
 		//set_lane_arrows();
 		set_connections();
+		
+		for (auto lane : in_lanes) {
+			lane.get().yield = default_lane_yield(node_class, *seg);
+		}
 	}
 }
 

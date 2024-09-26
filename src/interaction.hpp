@@ -1,5 +1,6 @@
 #pragma once
 #include "common.hpp"
+#include "util.hpp"
 #include "network.hpp"
 #include "entities.hpp"
 
@@ -70,10 +71,11 @@ struct Interaction {
 		ImGui::PopID();
 	}
 
-	void update (Heightmap& heightmap, Entities& entities, Network& net, View3D& view, Input& input) {
+	void update (View3D& view, Input& input, OverlayDraw& overlay,
+			Heightmap& heightmap, Entities& entities, Network& net) {
 		switch (cur_mode) {
 			case INSPECT:
-				update_inspect(entities, net, view, input);
+				update_inspect(overlay, entities, net, view, input);
 			break;
 			case BUILD:
 				update_build(entities, net, view, input);
@@ -89,14 +91,24 @@ struct Interaction {
 		highlight_hover_sel();
 	}
 
-	void update_inspect (Entities& entities, Network& net, View3D& view, Input& input) {
+	void update_inspect (OverlayDraw& overlay, Entities& entities, Network& net, View3D& view, Input& input) {
 		find_hover(entities, net, view, input, false);
 
 		if (selection.get<Person*>() && hover.get<Building*>()) {
-			if (input.buttons[MOUSE_BUTTON_RIGHT].went_down) {
-				auto* pers = selection.get<Person*>();
-				if (pers->vehicle) {
-					pers->vehicle->path.repath(net, pers->vehicle.get(), hover.get<Building*>());
+			auto* pers = selection.get<Person*>();
+			auto* build = hover.get<Building*>();
+			if (pers->vehicle) {
+				auto* veh = pers->vehicle.get();
+
+				if (input.buttons[MOUSE_BUTTON_RIGHT].went_down) {
+					veh->path.repath(net, veh, build);
+				}
+				else {
+					// copy and preview repath
+					network::VehiclePath tmp_path = veh->path;
+					if (tmp_path.repath(net, veh, build)) {
+						tmp_path.visualize(overlay, net, veh, false, lrgba(1,1,1,0.4f));
+					}
 				}
 			}
 		}

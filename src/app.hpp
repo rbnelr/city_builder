@@ -1000,7 +1000,7 @@ public:
 		View3D view = update_camera();
 		
 		// select after updating positions
-		interact.update(heightmap, entities, network, view, input);
+		interact.update(view, input, overlay, heightmap, entities, network);
 
 		network.draw_debug(*this, view); // TODO: move to interact?
 		

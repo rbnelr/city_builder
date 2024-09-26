@@ -314,7 +314,7 @@ struct Mesher {
 			auto stop_line = [&] (float3 base_pos, float l, float r, int dir) {
 				bool type = lane_obj.yield;
 				int tex_id = textures.bindless_textures[type ? "misc/shark_teeth" : "misc/line"];
-					
+				
 				float width = type ? stopline_width*1.5f : stopline_width; // Why is this done?
 				float length = r - l;
 				

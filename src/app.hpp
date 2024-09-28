@@ -571,6 +571,13 @@ struct TestMapBuilder {
 		aggress_dist.plot_distribution("vehicle topspeed_accel_mul",
 			(int)entities.persons.size(), [&] (int i) { return entities.persons[i]->topspeed_accel_mul(); },
 			0.5f, 1.6f, false);
+		
+		if (persons) {
+			interact.clear_sel<Person*>();
+
+			entities.persons.clear();
+			entities.persons.resize(_persons_n);
+		}
 
 		if (buildings) {
 			ZoneScopedN("spawn buildings");
@@ -734,7 +741,7 @@ struct TestMapBuilder {
 
 			// remove references
 			for (auto& node : net.nodes) {
-				node->vehicles.free.list.clear();
+				//node->vehicles.free.list.clear();
 				node->vehicles.test.list.clear();
 			}
 			for (auto& seg : net.segments) {
@@ -919,8 +926,8 @@ public:
 	int dbg_lodcull = 0;
 
 	Heightmap heightmap;
-	Entities entities;
 	Network network;
+	Entities entities; // Entities after network, because entities refer to network and else dtors break! This needs to be fixed!
 
 	float sim_dt () {
 		return time.pause_sim ? 0 : input.real_dt * time.target_gamespeed;

@@ -81,7 +81,7 @@ struct Interaction {
 				update_build(entities, net, view, input);
 			break;
 			case BULLDOZE:
-				update_bulldoze();
+				update_bulldoze(entities, net, view, input);
 			break;
 			case TERRAFORM:
 				terraform.update(heightmap, view, input);
@@ -134,8 +134,22 @@ struct Interaction {
 		}
 	}
 
-	void update_bulldoze () {
+	void update_bulldoze (Entities& entities, Network& net, View3D& view, Input& input) {
 		selection = nullptr;
+		
+		find_hover(entities, net, view, input, false);
+		
+		if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+			if (hover.get<Person*>()) {
+				auto* pers = hover.get<Person*>();
+				// actually delete vehicle instead!
+			
+				pers->vehicle->cit->cur_building = pers->vehicle->path.get_start();
+				pers->vehicle->cit->vehicle = nullptr;
+
+				hover = nullptr;
+			}
+		}
 	}
 
 ////

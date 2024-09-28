@@ -142,11 +142,20 @@ struct VehicleList { // TODO: optimize vehicles in lane to only look at vehicle 
 		assert(!contains(vehicle));
 		list.push_back(vehicle);
 	}
+	
 	template <typename U>
 	void remove (U const& vehicle) {
 		auto it = std::find(list.begin(), list.end(), vehicle);
 		assert(it != list.end());
 		list.erase(it);
+	}
+	template <typename U>
+	bool try_remove (U const& vehicle) {
+		auto it = std::find(list.begin(), list.end(), vehicle);
+		if (it == list.end())
+			return false;
+		list.erase(it);
+		return true;
 	}
 
 	template <typename FUNC>
@@ -212,8 +221,7 @@ struct SegVehicles {
 };
 
 struct NodeVehicles {
-	VehicleList<ActiveVehicle*> free;
-
+	//VehicleList<ActiveVehicle*> free;
 	VehicleList<NodeVehicle> test;
 
 	// TODO: switch to that one flat hashmap i added to the project and profile?
@@ -624,6 +632,7 @@ private:
 	State _step (Network& net, ActiveVehicle* vehicle, int idx, State* prev_state) const;
 
 public:
+	Building* get_start () const { return start; }
 	Building* get_target () const { return target; }
 	State const& get_state () const { return s; }
 
@@ -636,6 +645,16 @@ public:
 	
 	void visualize (OverlayDraw& overlay, Network& net, ActiveVehicle* vehicle,
 		bool skip_next_node, lrgba col=lrgba(1,1,0,0.75f));
+
+	// HACK: to fix problem with node vehicle tracking
+	void _clear_nodes (ActiveVehicle* vehicle) {
+		int num_seg = (int)path.size();
+		
+		for (int i=0; i<num_seg-1; ++i) {
+			auto* node = Node::between(path[i], path[i+1]);
+			node->vehicles.test.try_remove(vehicle);
+		}
+	}
 };
 
 struct ActiveVehicle {
@@ -686,6 +705,15 @@ struct ActiveVehicle {
 	
 	float car_len ();
 	void calc_pos (float3* pos, float* ang);
+
+	~ActiveVehicle () {
+		auto& s = path.get_state();
+		if (s.cur_vehicles)  path.get_state().cur_vehicles->try_remove(this);
+		if (s.next_vehicles) assert(!s.next_vehicles->contains(this));
+
+
+		path._clear_nodes(this);
+	}
 };
 
 ////

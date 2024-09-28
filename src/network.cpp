@@ -554,7 +554,8 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 			}
 
 			s.cur_vehicles  = &s.cur_lane.vehicles().list;
-			s.next_vehicles = cur_node ? &cur_node->vehicles.free : nullptr;
+			//s.next_vehicles = cur_node ? &cur_node->vehicles.free : nullptr;
+			s.next_vehicles = nullptr;
 			
 			s.bezier = s.cur_lane._bezier();
 		}
@@ -569,7 +570,8 @@ VehiclePath::State VehiclePath::_step (Network& net, ActiveVehicle* vehicle, int
 
 			assert(cur_node && next_seg);
 			
-			s.cur_vehicles  = &cur_node->vehicles.free;
+			//s.cur_vehicles  = &cur_node->vehicles.free;
+			s.cur_vehicles  = nullptr;
 			s.next_vehicles = &s.next_lane.vehicles().list;
 			
 			s.bezier = cur_node->calc_curve(s.cur_lane, s.next_lane);
@@ -697,10 +699,12 @@ void debug_node (App& app, Node* node, View3D const& view) {
 	static bool debug_priority_order = false;
 	static bool debug_node_lane_alloc = false;
 	static bool show_lane_connections = false;
+	static bool debug_vehicle_lists = false;
 	if (imgui_Header("debug_node", true)) {
 		ImGui::Checkbox("debug_priority_order", &debug_priority_order);
 		ImGui::Checkbox("debug_node_lane_alloc", &debug_node_lane_alloc);
 		ImGui::Checkbox("show_lane_connections", &show_lane_connections);
+		ImGui::Checkbox("debug_vehicle_lists", &debug_vehicle_lists);
 
 		ImGui::Text("%d conflicts cached", (int)node->vehicles.conflict_cache.size());
 
@@ -732,6 +736,38 @@ void debug_node (App& app, Node* node, View3D const& view) {
 				for (auto lane_out : lane_in.get().connections) {
 					auto bez = node->calc_curve(lane_in, lane_out);
 					app.overlay.curves.push_arrow(bez, float2(3.5f, 1), OverlayDraw::TEXTURE_THIN_ARROW, col);
+				}
+			}
+		}
+	}
+
+	if (debug_vehicle_lists) {
+		auto show_vehicle = [&] (ActiveVehicle* v) {
+			ImGui::TextColored(lrgba(v->cit->col,1), "%s", v->cit->owned_vehicle->name.c_str());
+		};
+
+		if (ImGui::TreeNodeEx("NodeVehicles", ImGuiTreeNodeFlags_DefaultOpen)) {
+			for (auto& v : node->vehicles.test.list) {
+				show_vehicle(v.vehicle);
+			}
+			ImGui::TreePop();
+		}
+		for (auto* seg : node->segments) {
+			for (auto lane : seg->in_lanes(node)) {
+				if (ImGui::TreeNodeEx("In  LaneVehicles", ImGuiTreeNodeFlags_DefaultOpen)) {
+					for (auto* v : lane.vehicles().list.list) {
+						show_vehicle(v);
+					}
+					ImGui::TreePop();
+				}
+			}
+		
+			for (auto lane : seg->out_lanes(node)) {
+				if (ImGui::TreeNodeEx("Out LaneVehicles", ImGuiTreeNodeFlags_DefaultOpen)) {
+					for (auto* v : lane.vehicles().list.list) {
+						show_vehicle(v);
+					}
+					ImGui::TreePop();
 				}
 			}
 		}
@@ -823,7 +859,7 @@ void debug_person (App& app, Person* person, View3D const& view) {
 	}
 }
 
-#if 0
+#if 1
 void dbg_brake_for (App& app, ActiveVehicle* cur, float dist, float3 obstacle, lrgba col) {
 	// dir does not actually point where we are going to stop
 	// obsticle visualizes what object we are stopping for
@@ -1147,6 +1183,23 @@ void yield_for_car (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool d
 bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, int b_idx) {
 	assert(a.vehicle != b.vehicle);
 
+	auto get_incoming_lane = [node] (NodeVehicle& v) {
+		if (v.vehicle->path.get_state().get_cur_node() == node && v.vehicle->path.get_state().motion == VehiclePath::SEGMENT)
+			return v.vehicle->path.get_state().cur_lane;
+		return SegLane{};
+	};
+
+	auto a_lane = get_incoming_lane(a);
+	auto b_lane = get_incoming_lane(b);
+	if (a_lane && a_lane == b_lane) {
+		// in same lane, failsafe for bug
+		assert(a_lane.vehicles().list.list == b_lane.vehicles().list.list);
+		int a_idx = indexof(a_lane.vehicles().list.list, a.vehicle);
+		int b_idx = indexof(a_lane.vehicles().list.list, b.vehicle);
+		assert(a_idx >= 0 && b_idx >= 0 && a_idx != b_idx);
+		return a_idx > b_idx;
+	}
+
 	bool swap_valid = true;
 
 	NodeVehicle* left_vehicle = nullptr;
@@ -1264,12 +1317,13 @@ void update_node (App& app, Node* node, float dt) {
 	auto* sel  = app.interact.selection.get<Person*>() ? app.interact.selection.get<Person*>()->vehicle.get() : nullptr;
 	auto* sel2 = app.interact.hover    .get<Person*>() ? app.interact.hover    .get<Person*>()->vehicle.get() : nullptr;
 
+	// update traffic light
 	if (node->traffic_light) {
 		assert(node->traffic_light);
 		node->traffic_light->update(node, dt);
 	}
 	
-	//
+	// compute avail space in outgoing lanes taking into acount vehicles already in it
 	for (auto& seg : node->segments) {
 		for (auto lane_out : seg->out_lanes(node)) {
 			auto& avail_space = lane_out.vehicles().avail_space;
@@ -1281,42 +1335,52 @@ void update_node (App& app, Node* node, float dt) {
 		}
 	}
 	
-	// Track cars that are relevant to intersection
+	auto track_node_vehicle = [node] (ActiveVehicle* v, VehiclePath::State const& state) {
+		NodeVehicle nv;
+		nv.vehicle = v;
+		nv.wait_time = 0;
+		nv.conn.conn = { state.cur_lane, state.next_lane };
+		nv.conn.bezier = node->calc_curve(nv.conn.conn.a, nv.conn.conn.b);
+		nv.conn.bez_len = nv.conn.bezier.approx_len(COLLISION_STEPS);
+					
+		auto bez2d = (Bezier2)nv.conn.bezier;
+		bez2d.calc_points(nv.conn.pointsL, COLLISION_STEPS+1, -LANE_COLLISION_R);
+		bez2d.calc_points(nv.conn.pointsR, COLLISION_STEPS+1, +LANE_COLLISION_R);
+
+		return nv;
+	};
+
+	// Add vehicles close to intersection to tracked list
 	for (auto& seg : node->segments) {
 		for (auto lane : seg->in_lanes(node)) {
-			for (auto* v : lane.vehicles().list.list) {
+			auto it = lane.vehicles().list.list.begin();
+			// first part of list, add vehicles if not already in list
+			while (it != lane.vehicles().list.list.end()) { auto* v = *it++;
 				if (node->vehicles.test.contains(v)) continue; // TODO: Expensive contains with vector
 
 				float dist = (1.0f - v->bez_t) * v->bez_speed;
-				if (dist > 10.0f) break;
-
-				auto& state = v->path.get_state();
-				auto* n = state.get_cur_node();
-				if (n == node) {
-					NodeVehicle vehicle;
-					vehicle.vehicle = v;
-					vehicle.wait_time = 0;
-					vehicle.conn.conn = { state.cur_lane, state.next_lane };
-					vehicle.conn.bezier = node->calc_curve(vehicle.conn.conn.a, vehicle.conn.conn.b);
-					vehicle.conn.bez_len = vehicle.conn.bezier.approx_len(COLLISION_STEPS);
-					
-					auto bez2d = (Bezier2)vehicle.conn.bezier;
-					bez2d.calc_points(vehicle.conn.pointsL, COLLISION_STEPS+1, -LANE_COLLISION_R);
-					bez2d.calc_points(vehicle.conn.pointsR, COLLISION_STEPS+1, +LANE_COLLISION_R);
-
-					node->vehicles.test.add(vehicle);
+				if (dist < 10.0f || v == lane.vehicles().list.list.front()) {
+					auto& state = v->path.get_state();
+					auto* n = state.get_cur_node();
+					if (n == node) {
+						node->vehicles.test.add(track_node_vehicle(v, state));
+					}
 				}
+				else {
+					// not in list and should not be in list
+					break;
+				}
+			}
+
+			// FAILSAFE: deadlock if vehicles get added to node according to distance threshold, but order in lane is mismatched due to whatever reason
+			// remaing part of list, remove vehicles if in list to avoid bug
+			while (it != lane.vehicles().list.list.end()) { auto* v = *it++;
+				node->vehicles.test.try_remove(v);
 			}
 		}
 	}
-	node->vehicles.test.remove_if([&] (NodeVehicle& v) {
-		float dist = v.front_k - v.conn.bez_len;
-		return dist > v.vehicle->car_len();
-	});
 	
-	auto update_ks = [&] (NodeVehicle& v) {
-		auto& state = v.vehicle->path.get_state();
-
+	auto update_ks = [&] (NodeVehicle& v, VehiclePath::State const& state) {
 		if (state.get_cur_node() == node) {
 			// ingoing lane
 			if (state.motion == VehiclePath::SEGMENT) {
@@ -1338,15 +1402,17 @@ void update_node (App& app, Node* node, float dt) {
 		
 		v.rear_k = v.front_k - v.vehicle->car_len();
 	};
-	
+
+	// update each tracked vehicle
 	// allocate space in priority order and remember blocked cars
 	for (auto& v : node->vehicles.test.list) {
 		auto& state = v.vehicle->path.get_state();
 
-		update_ks(v);
+		// compute intersection progress value 'k'
+		update_ks(v, state);
 		
 		v.blocked = false;
-		v.wait_time += dt;
+		v.wait_time += dt; // increment wait time
 
 		if (state.get_cur_node() != node) {
 			// already in outgoing lane (don't need to wait and avoid counting avail space twice)
@@ -1391,11 +1457,47 @@ void update_node (App& app, Node* node, float dt) {
 		}
 	}
 
+	// Remove vehicles completely off of intersection from list
+	node->vehicles.test.remove_if([&] (NodeVehicle& v) {
+		auto& state = v.vehicle->path.get_state();
+		if (state.motion == VehiclePath::ENTER_BUILDING) {
+			printf("");
+		}
+
+		float dist = v.front_k - v.conn.bez_len;
+		return dist > v.vehicle->car_len();
+	});
+
 	int count = (int)node->vehicles.test.list.size();
 	
 	// Check each car against higher prio cars to yield to them
 	for (int i=0; i<count; ++i) {
 		auto& a = node->vehicles.test.list[i];
+		
+		if (a.vehicle->path.get_state().get_cur_node() != node) {
+			// already in outgoing lane, still yielding for other vehicles causes bug!
+			continue;
+		}
+
+		//// loop over the last vehicle in each outgoing line
+		//for (auto& seg : node->segments) {
+		//	for (auto lane : seg->out_lanes(node)) {
+		//		if (lane.vehicles().list.list.empty())
+		//			continue;
+		//		auto* v = lane.vehicles().list.list.back();
+		//		NodeVehicle b = track_node_vehicle(v, v->path.get_state());
+		//
+		//		// compute intersection progress value 'k'
+		//		update_ks(b);
+		//		b.blocked = false;
+		//
+		//		if (b.rear_k >= b.conn.bez_len)
+		//			continue;
+		//
+		//		bool dbg = (a.vehicle == sel || a.vehicle == sel2) && (b.vehicle == sel || b.vehicle == sel2);
+		//		yield_for_car(app, node, a, b, dbg);
+		//	}
+		//}
 
 		// loop over all previous cars (higher prio to yield for)
 		for (int j=0; j<i; ++j) {
@@ -1685,7 +1787,7 @@ void Network::simulate (App& app) {
 	};
 	
 	// to avoid debugging overlays only showing while not paused, only skip moving the car when paused, later actually skip sim steps
-	bool force_update_for_dbg = false;
+	bool force_update_for_dbg = true;
 	if (dt > 0.0f || force_update_for_dbg) {
 		Metrics::Var met;
 		

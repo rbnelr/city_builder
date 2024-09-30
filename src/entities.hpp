@@ -1,7 +1,12 @@
 #pragma once
 #include "common.hpp"
 #include "assets.hpp"
-#include "network.hpp"
+
+namespace network {
+	struct Segment;
+	struct Node;
+	struct ActiveVehicle;
+}
 
 struct Building {
 	BuildingAsset* asset;
@@ -81,12 +86,7 @@ struct Person {
 		// can only select while driving currently
 		return vehicle != nullptr;
 	}
-	SelCircle get_sel_shape () { // TODO: move part of this to active vehicle?
-		auto c = lrgb(0.04f, 1, 0.04f);
-		if (vehicle)
-			return { vehicle->center(), vehicle->car_len()*0.5f, c };
-		return { cur_building->pos, 1, c };
-	}
+	SelCircle get_sel_shape (); // TODO: move part of this to active vehicle?
 };
 
 struct Entities {

@@ -2,6 +2,7 @@
 #include "common.hpp"
 #include "engine/camera.hpp"
 #include "entities.hpp"
+#include "network.hpp"
 
 struct GameCamera {
 	friend SERIALIZE_TO_JSON(GameCamera) {

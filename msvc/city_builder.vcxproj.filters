@@ -88,6 +88,7 @@
     <ClCompile Include="..\src\network_defaults.cpp" />
     <ClCompile Include="..\src\util.cpp" />
     <ClCompile Include="..\src\common.cpp" />
+    <ClCompile Include="..\src\entities.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="engine">

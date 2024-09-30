@@ -1,9 +1,8 @@
 #pragma once
 #include "common.hpp"
 #include "assets.hpp"
+#include "entities.hpp"
 
-struct Person;
-struct Building;
 class App;
 
 namespace network {
@@ -120,12 +119,6 @@ struct CachedConnection {
 	Connection conn; // This is unnecessary, can be read from PathState
 	Bezier3 bezier;
 	float bez_len; // This is related to the NodeVehicle k values, which are going to be changed soon
-	
-	// These are only needed for dbg vis, and on conflict cache miss
-	// since computing conflicts is already expensive N(COLLISION_STEPS^2 * 4), we could just compute the points for the 2 beziers on the fly
-	// which is N(2 * (COLLISION_STEPS+1)) for the two beziers (Note: L and R can be computed at the same time)
-	float2 pointsL[COLLISION_STEPS+1];
-	float2 pointsR[COLLISION_STEPS+1];
 };
 
 template <typename T>
@@ -572,20 +565,30 @@ inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowe
 }
 
 ////
+
 class Pathfinding {
 public:
-	// Able to pathfind while restricting the starting directions for example for repathing
-	struct SegDirs {
-		Segment* seg = nullptr;
+	struct Endpoint {
+		Segment* seg;
+		// Able to pathfind while restricting the starting directions for example for repathing
 		bool forw = true, backw = true;
 	};
 
-	static bool pathfind (Network& net, SegDirs start, Segment* target, std::vector<Segment*>* result_path);
+	static bool pathfind (Network& net, Endpoint start, Endpoint target,
+		std::vector<Segment*>* result_path);
 };
 
-class VehiclePath {
+struct VehNavPoint {
+	float3   pos;
+	Segment* seg;
+	// float t
+
+	static bool free_point (Network const& net, float3 pos, VehNavPoint* result);
+};
+
+class VehNav {
 public:
-	enum MotionType { EXIT_BUILDING, ENTER_BUILDING, SEGMENT, NODE };
+	enum MotionType { START, END, SEGMENT, NODE };
 
 	struct State {
 		// current path sequence number (complicated, ideally this could be a generator function)
@@ -618,36 +621,36 @@ public:
 
 private:
 	// start and destination buildings
-	Building* start  = nullptr;
-	Building* target = nullptr;
+	VehNavPoint start;
+	VehNavPoint target;
 	
 	// all segments returned by pathfinding, without choosing lanes
 	// TODO: later this might have lane info (SegLane instead of Segment*) to allow for lane selection into the future
 	// lane info is 1byte at most, so we can afford to store -1 for unchosen and 0-254 for chosen lanes
 	// this enables tracking past lanes, which is good for tracking long vehicles that might cover more than 2 segments correctly (+ nodes inbetween)
 	std::vector<Segment*> path;
+
+	SegLane pick_lane (Network& net, Random& rand, int seg_i, SegLane prev_lane) const;
 	
 	State s;
 
-	State _step (Network& net, ActiveVehicle* vehicle, int idx, State* prev_state) const;
+	State _step (Network& net, SimVehicle* vehicle, int idx, State* prev_state) const;
 
 public:
-	Building* get_start () const { return start; }
-	Building* get_target () const { return target; }
 	State const& get_state () const { return s; }
 
-	bool pathfind (Network& net, ActiveVehicle* vehicle, Building* start, Building* target);
-	bool repath (Network& net, ActiveVehicle* vehicle, Building* new_target);
+	bool pathfind (Network& net, SimVehicle* vehicle, VehNavPoint const& start, VehNavPoint const& target);
+	bool repath (Network& net, SimVehicle* vehicle, VehNavPoint const& new_target);
 
-	void step (Network& net, ActiveVehicle* vehicle) {
+	void step (Network& net, SimVehicle* vehicle) {
 		s = _step(net, vehicle, s.idx + 1, &s);
 	}
 	
-	void visualize (OverlayDraw& overlay, Network& net, ActiveVehicle* vehicle,
+	void visualize (OverlayDraw& overlay, Network& net, SimVehicle* vehicle,
 		bool skip_next_node, lrgba col=lrgba(1,1,0,0.75f));
 
 	// HACK: to fix problem with node vehicle tracking
-	void _clear_nodes (ActiveVehicle* vehicle) {
+	void _clear_nodes (SimVehicle* vehicle) {
 		int num_seg = (int)path.size();
 		
 		for (int i=0; i<num_seg-1; ++i) {
@@ -657,11 +660,7 @@ public:
 	}
 };
 
-struct ActiveVehicle {
-//// Constants for entire trip (decided by game logic)
-	Person* cit; // TODO: rename, later allow for cars with multiple passangers, in which case this would make sense anyway?
-
-////
+struct SimVehicle {
 	float bez_t = 0; // [0,1] bezier parameter for current segment/node curve
 
 	float brake = 1; // set by controlled conflict logic, to brake smoothly
@@ -671,7 +670,7 @@ struct ActiveVehicle {
 	// INF to force no movement on initial tick (rather than div by 0)
 	float bez_speed = INF; // set after timestep based on current bezier eval, to approx correct worldspace step size along bezier in next tick
 
-	VehiclePath path;
+	VehNav nav;
 	
 //// Movement sim variables for visuals
 	float3 front_pos; // car front
@@ -706,14 +705,25 @@ struct ActiveVehicle {
 	float car_len ();
 	void calc_pos (float3* pos, float* ang);
 
-	~ActiveVehicle () {
-		auto& s = path.get_state();
-		if (s.cur_vehicles)  path.get_state().cur_vehicles->try_remove(this);
+	~SimVehicle () {
+		auto& s = nav.get_state();
+		if (s.cur_vehicles)  nav.get_state().cur_vehicles->try_remove(this);
 		if (s.next_vehicles) assert(!s.next_vehicles->contains(this));
 
 
-		path._clear_nodes(this);
+		nav._clear_nodes(this);
 	}
+};
+
+class VehTrip {
+	typedef NullableVariant<Building*, float3> Endpoint;
+
+	Person* driver; // TODO: rename, later allow for cars with multiple passangers, in which case this would make sense anyway?
+	
+	Endpoint start;
+	Endpoint target;
+	
+	SimVehicle sim;
 };
 
 ////
@@ -855,8 +865,8 @@ struct Settings {
 		float wait_boost_fac          = 1;
 		float progress_boost          = 30;
 		float exit_eta_penal          = 10;
-		float right_before_left_penal = 15;
-		float conflict_eta_penal      = 20;
+		float right_before_left_penal = 25;
+		float conflict_eta_penal      = 15;
 		float yield_lane_penal        = 50;
 
 		bool avoid_blocking_intersection = true;
@@ -923,7 +933,28 @@ struct Network {
 
 	void simulate (App& app);
 	void draw_debug (App& app, View3D& view);
+	
+	inline Segment* find_nearest_segment (float3 pos) const {
+		Segment* nearest_seg = nullptr;
+		float min_dist = INF;
+
+		for (auto& seg : segments) {
+			float dist = point_line_segment_dist(seg->pos_a, seg->pos_b - seg->pos_a, (float2)pos);
+			if (dist < min_dist) {
+				min_dist = dist;
+				nearest_seg = seg.get();
+			}
+		}
+
+		return nearest_seg;
+	}
 };
+
+bool VehNavPoint::free_point (Network const& net, float3 pos, VehNavPoint* result) {
+	result->seg = net.find_nearest_segment(pos);
+	result->pos = pos;
+	return result->seg != nullptr;
+}
 
 } // namespace network
 using network::Network;

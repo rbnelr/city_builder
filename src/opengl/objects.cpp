@@ -289,8 +289,9 @@ struct Mesher {
 			float3 right = rotate90_right(forw);
 			//float3 right = float3(rotate90(-forw), 0);
 			float ang = angle2d((float2)forw) - deg(90);
-
-			{ // push turn arrow
+			
+			bool lane_arrow = lane_asset.direction == LaneDir::FORWARD ? node_b_cls > 0 : node_a_cls > 0;
+			if (lane_arrow) { // push turn arrow
 				float2 size = float2(.8f, 2.5f) * lane_asset.width;
 
 				float3 pos = lbez.d;
@@ -335,13 +336,15 @@ struct Mesher {
 				float l = lane_asset.shift - lane_asset.width*0.5f;
 				float r = lane_asset.shift + lane_asset.width*0.5f;
 
-				if (node_b_cls > 0) stop_line(seg.pos_b, l, r, 0);
+				//if (node_b_cls > 0)
+				stop_line(seg.pos_b, l, r, 0);
 			}
 			else {
 				float l = -lane_asset.shift - lane_asset.width*0.5f;
 				float r = -lane_asset.shift + lane_asset.width*0.5f;
 
-				if (node_a_cls > 0) stop_line(seg.pos_a, l, r, 1);
+				//if (node_a_cls > 0)
+				stop_line(seg.pos_a, l, r, 1);
 			}
 		}
 		

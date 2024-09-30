@@ -1,6 +1,6 @@
 {
 	"time": {
-		"target_gamespeed": 100.0,
+		"target_gamespeed": 2.0,
 		"time_of_day": 0.3889999985694885,
 		"day_duration": 432.0,
 		"pause_day": true,
@@ -29,14 +29,14 @@
 	},
 	"main_cam": {
 		"orbit_pos": [
-			145.39218139648438,
-			161.44764709472656,
+			999.6781005859375,
+			1000.4894409179688,
 			-0.14999611675739288
 		],
-		"zoom_target": -7.0,
+		"zoom_target": -5.75,
 		"rot_aer": [
-			-1.5580191612243652,
-			-0.9409172534942627,
+			0.23344635963439941,
+			-0.8175075054168701,
 			0.0
 		],
 		"vfov": 0.9352987408638,
@@ -52,7 +52,7 @@
 				"wait_boost_fac": 1.0,
 				"progress_boost": 30.0,
 				"exit_eta_penal": 10.0,
-				"right_before_left_penal": 15.0,
+				"right_before_left_penal": 40.0,
 				"conflict_eta_penal": 20.0,
 				"yield_lane_penal": 50.0,
 				"avoid_blocking_intersection": true

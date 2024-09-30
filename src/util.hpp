@@ -79,6 +79,14 @@ inline Dirs relative2dir (float3 forward) {
 	return d;
 }
 
+//template<class... Ts>
+//struct overloaded : Ts... { using Ts::operator()...; };
+//
+//template<class U, class... Ts>
+//auto visit_overloaded (U& var, Ts... ts) {
+//	return std::visit(overloaded{ts...}, var);
+//}
+
 template <typename... TYPES>
 class NullableVariant {
 	typedef std::monostate null_t;

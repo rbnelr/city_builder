@@ -524,9 +524,8 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 	if (idx == 0) {
 		s.motion = MotionType::START;
 		
-		s.cur_lane = {};
+		//s.cur_lane = {};
 		s.next_lane = pick_lane(net, seeded_rand, 0, SegLane{});
-		s.next_vehicles = &s.next_lane.vehicles().list;
 
 		s.bezier = start_bezier(s.next_lane, start, &s.next_start_t);
 	}
@@ -534,8 +533,8 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 		s.motion = MotionType::END;
 
 		auto prev_lane = prev_state->cur_lane;
-		s.cur_lane = {};
-		s.next_lane = {};
+		//s.cur_lane = {};
+		//s.next_lane = {};
 
 		float t;
 		s.bezier = end_bezier(prev_lane, target, &t);
@@ -543,10 +542,6 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 	else {
 		int i = (s.idx-1)/2;
 		assert(i >= 0 && i < num_seg);
-		
-		Segment* cur_seg = path[i];
-		Segment* next_seg = i+1 < num_seg ? path[i+1] : nullptr;
-		Node* cur_node  = next_seg ? Node::between(cur_seg, next_seg) : nullptr;
 		
 		if ((idx-1) % 2 == 0) {
 			s.motion = MotionType::SEGMENT;
@@ -557,14 +552,13 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 			if (idx+1 == num_moves-1) {
 				// already on target lane, need end_t
 				end_bezier(s.cur_lane, target, &s.end_t);
+				//s.next_lane = {};
 			}
 			else {
 				s.next_lane = pick_lane(net, seeded_rand, i+1, s.cur_lane);
 			}
 
 			s.cur_vehicles  = &s.cur_lane.vehicles().list;
-			//s.next_vehicles = cur_node ? &cur_node->vehicles.free : nullptr;
-			s.next_vehicles = nullptr;
 			
 			s.bezier = s.cur_lane._bezier();
 		}
@@ -574,14 +568,12 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 			// lanes were already determined in prev call
 			s.cur_lane = prev_state->cur_lane;
 			s.next_lane = prev_state->next_lane;
-			assert(s.cur_lane && s.next_lane);
-			Node* cur_node  = next_seg ? Node::between(cur_seg, next_seg) : nullptr;
 
-			assert(cur_node && next_seg);
+			assert(s.cur_lane && s.next_lane);
+			Node* cur_node = s.next_lane ? Node::between(s.cur_lane.seg, s.next_lane.seg) : nullptr;
+			assert(cur_node);
 			
-			//s.cur_vehicles  = &cur_node->vehicles.free;
-			s.cur_vehicles  = nullptr;
-			s.next_vehicles = &s.next_lane.vehicles().list;
+			//s.cur_vehicles  = nullptr;
 			
 			s.bezier = cur_node->calc_curve(s.cur_lane, s.next_lane);
 		}
@@ -1689,12 +1681,14 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 		assert(bez_t >= 0 && bez_t < 1);
 
 		if (state.cur_vehicles)  state.cur_vehicles ->remove(this);
-		if (state.next_vehicles) state.next_vehicles->add(this);
 
 		if (state.motion == VehNav::END)
 			return true; // end path
 
 		nav.step(net);
+
+		// NODE: what previously was next_vehicles (before step) is simply cur_vehicles after step, saving some memory
+		if (state.cur_vehicles) state.cur_vehicles->add(this);
 
 		// avoid visible jerk between bezier curves by extrapolating t
 		auto start_bez_speed = length(state.bezier.eval(bez_t).vel);
@@ -1703,15 +1697,15 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 		bez_t = min(bez_t + additional_t, state.end_t);
 
 		{
-			float blk = 0;
+			float blnk = 0;
 
 			auto* node = state.get_cur_node();
 			if (node) {
 				auto turn = classify_turn(node, state.cur_lane.seg, state.next_lane.seg);
-				if      (turn == Turns::LEFT ) blk = -1;
-				else if (turn == Turns::RIGHT) blk = +1;
+				if      (turn == Turns::LEFT ) blnk = -1;
+				else if (turn == Turns::RIGHT) blnk = +1;
 			}
-			blinker = blk;
+			blinker = blnk;
 		}
 	}
 

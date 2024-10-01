@@ -661,7 +661,6 @@ public:
 
 		// Needed for correct Segment/Node updates
 		VehicleList<SimVehicle*>* cur_vehicles = nullptr;
-		VehicleList<SimVehicle*>* next_vehicles = nullptr;
 	};
 
 private:
@@ -769,9 +768,7 @@ public: // TODO: encapsulate better?
 	~SimVehicle () {
 		auto& s = nav.get_state();
 		if (s.cur_vehicles)  nav.get_state().cur_vehicles->try_remove(this);
-		if (s.next_vehicles) assert(!s.next_vehicles->contains(this));
-
-
+		
 		nav._clear_nodes(this);
 	}
 	

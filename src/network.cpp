@@ -206,7 +206,7 @@ void debug_last_pathfind (Network& net, View3D& view) {
 
 ////
 
-bool VehNav::pathfind (Network& net, SimVehicle* vehicle, VehNavPoint const& start, VehNavPoint const& target) {
+bool VehNav::pathfind (Network& net, VehNavPoint const& start, VehNavPoint const& target) {
 	assert(path.empty());
 
 	if (!Pathfinding::pathfind(net, { start.seg }, { target.seg }, &path))
@@ -215,10 +215,10 @@ bool VehNav::pathfind (Network& net, SimVehicle* vehicle, VehNavPoint const& sta
 	this->start = start;
 	this->target = target;
 
-	s = _step(net, vehicle, 0, nullptr);
+	s = _step(net, 0, nullptr);
 	return true;
 }
-bool VehNav::repath (Network& net, SimVehicle* vehicle, VehNavPoint const& new_target) {
+bool VehNav::repath (Network& net, VehNavPoint const& new_target) {
 	if (s.motion == END)
 		return false;
 	
@@ -229,6 +229,7 @@ bool VehNav::repath (Network& net, SimVehicle* vehicle, VehNavPoint const& new_t
 	assert(s.idx < num_moves);
 	assert(i < num_seg);
 
+	// Keep start navpoint, change target
 	VehNav new_nav;
 	new_nav.start = start;
 	new_nav.target = new_target;
@@ -245,6 +246,8 @@ bool VehNav::repath (Network& net, SimVehicle* vehicle, VehNavPoint const& new_t
 		auto* node = Node::between(path[0], path[1]);
 		LaneDir dir = path[0]->get_dir_to_node(node);
 
+		// repath while staying in start bezier, make sure first lane goes in same direction
+		// TODO: this is not always correct, might still teleport into different lane!
 		path_start.seg = start.seg;
 		path_start.forw  = dir == LaneDir::FORWARD;
 		path_start.backw = dir != LaneDir::FORWARD;
@@ -263,6 +266,8 @@ bool VehNav::repath (Network& net, SimVehicle* vehicle, VehNavPoint const& new_t
 		auto* node = Node::between(path[i], path[i+1]);
 		LaneDir dir = path[i+1]->get_dir_from_node(node);
 
+		// repath while keeping cur and next lane (keep same path through node)
+		// TODO: this is not always correct, might still teleport into different lane!
 		new_nav.path.push_back(path[i]);
 		path_start.seg = path[i+1];
 		path_start.forw  = dir == LaneDir::FORWARD;
@@ -288,7 +293,7 @@ bool VehNav::repath (Network& net, SimVehicle* vehicle, VehNavPoint const& new_t
 	if (!Pathfinding::pathfind(net, path_start, { new_target.seg }, &new_nav.path))
 		return false;
 
-	new_nav.s = new_nav._step(net, vehicle, new_idx, &dummy_state);
+	new_nav.s = new_nav._step(net, new_idx, &dummy_state);
 
 	std::swap(*this, new_nav);
 	return true;
@@ -476,7 +481,7 @@ SegLane VehNav::pick_lane (Network& net, Random& rand, int seg_i, SegLane prev_l
 	return lane;
 };
 
-VehNav::State VehNav::_step (Network& net, SimVehicle* vehicle, int idx, State* prev_state) const {
+VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 	State s = {};
 	s.idx = idx;
 
@@ -487,9 +492,9 @@ VehNav::State VehNav::_step (Network& net, SimVehicle* vehicle, int idx, State* 
 	// Make lane selection deterministic for path visualization
 	// TODO: this requirement might go away once I do lane selections more robustly
 	//   Might still want to keep determinism based on car id + path progress int, just so reloading a save state results in the same behavior?
-	auto seeded_rand = Random(hash(idx, (uint64_t)vehicle));
+	auto seeded_rand = Random(hash(idx, (uint64_t)this));
 	
-	auto start_bezier = [&] (SegLane const& lane, VehNavPoint const& start, float* out_t) {
+	auto start_bezier = [] (SegLane const& lane, VehNavPoint const& start, float* out_t) {
 		auto lane_bez = lane._bezier();
 		float len = lane_bez.approx_len(4);
 		float t = min(0.5f + 5 / len, 1.0f);
@@ -501,7 +506,7 @@ VehNav::State VehNav::_step (Network& net, SimVehicle* vehicle, int idx, State* 
 		*out_t = t;
 		return Bezier3(point, ctrl, ctrl, on_seg);
 	};
-	auto end_bezier = [&] (SegLane const& lane, VehNavPoint const& end, float* out_t) {
+	auto end_bezier = [] (SegLane const& lane, VehNavPoint const& end, float* out_t) {
 		auto lane_bez = lane._bezier();
 		float len = lane_bez.approx_len(4);
 		float t = max(0.5f - 5 / len, 0.0f); // curve such that the endpoint is 5m earlier on the lane than the middle point
@@ -600,10 +605,11 @@ void VehNav::visualize (OverlayDraw& overlay, Network& net, SimVehicle* vehicle,
 		if (copy.motion == END) break;
 		
 		// call step for visualize, this might be a bad idea if it modifies path (chosen lanes)
-		copy = _step(net, vehicle, copy.idx + 1, &copy);
+		copy = _step(net, copy.idx + 1, &copy);
 	}
 }
 
+////
 inline float get_cur_speed_limit (SimVehicle* vehicle) {
 	auto s = vehicle->nav.get_state();
 	if (s.motion == VehNav::SEGMENT) {
@@ -663,7 +669,7 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 		float bez_speed = length(bez.eval(t1).vel);
 		float t0 = t1 - a->car_len() / bez_speed; // TODO: cache accurate k in vehicle and eliminate this calculation!
 		
-		app.overlay.curves.push_bezier(bez, float2(LANE_COLLISION_R*2, 1), OverlayDraw::PATTERN_STRIPED, lrgba(a->cit->col, 0.8f), float2(t0,t1));
+		app.overlay.curves.push_bezier(bez, float2(LANE_COLLISION_R*2, 1), OverlayDraw::PATTERN_STRIPED, lrgba(a->tint_col, 0.8f), float2(t0,t1));
 	};
 
 	for (auto& seg : node->segments) {
@@ -745,7 +751,7 @@ void debug_node (App& app, Node* node, View3D const& view) {
 
 	if (debug_vehicle_lists) {
 		auto show_vehicle = [&] (SimVehicle* v) {
-			ImGui::TextColored(lrgba(v->cit->col,1), "%s", v->cit->owned_vehicle->name.c_str());
+			ImGui::TextColored(lrgba(v->tint_col,1), "%s", v->vehicle_asset->name.c_str());
 		};
 
 		if (ImGui::TreeNodeEx("NodeVehicles", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -804,14 +810,15 @@ void debug_node (App& app, Node* node, View3D const& view) {
 #endif
 }
 void debug_person (App& app, Person* person, View3D const& view) {
-	if (!person || !person->vehicle) return;
+	if (!person || !person->trip) return;
+	auto& veh = person->trip->sim;
 	
 	static bool visualize_lane_section = false;
 	static bool visualize_nav = true;
 	static bool visualize_conflicts = true;
 	static bool visualize_bones = false;
 	static ValuePlotter speed_plot = ValuePlotter();
-	speed_plot.push_value(person->vehicle->speed);
+	speed_plot.push_value(veh.speed);
 
 	if (imgui_Header("debug_person", true)) {
 		ImGui::Checkbox("visualize_lane_section", &visualize_lane_section);
@@ -822,8 +829,8 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		ImGui::Separator();
 		ImGui::TextColored(lrgba(person->col, 1), "debug person");
 	
-		ImGui::Text("Speed Limit: %7s", app.options.format_speed(get_cur_speed_limit(person->vehicle.get())).c_str());
-		ImGui::Text("Speed: %7s",       app.options.format_speed(person->vehicle->speed).c_str());
+		ImGui::Text("Speed Limit: %7s", app.options.format_speed(get_cur_speed_limit(&veh)).c_str());
+		ImGui::Text("Speed: %7s",       app.options.format_speed(veh.speed).c_str());
 
 		speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
 
@@ -831,24 +838,24 @@ void debug_person (App& app, Person* person, View3D const& view) {
 	}
 	
 	if (visualize_lane_section)
-		overlay_lane_vehicle(app, person->vehicle.get(), lrgba(person->col, 1), OverlayDraw::PATTERN_SOLID);
+		overlay_lane_vehicle(app, &veh, lrgba(person->col, 1), OverlayDraw::PATTERN_SOLID);
 	
 	bool did_viz_conflicts = false;
 
-	auto* cur_node = person->vehicle->nav.get_state().get_cur_node();
+	auto* cur_node = veh.nav.get_state().get_cur_node();
 	if (visualize_conflicts && cur_node) {
-		did_viz_conflicts = dbg_conflicts(app, cur_node, person->vehicle.get());
+		did_viz_conflicts = dbg_conflicts(app, cur_node, &veh);
 	}
 
 	if (visualize_nav) {
-		person->vehicle->nav.visualize(app.overlay, app.network, person->vehicle.get(), did_viz_conflicts);
+		veh.nav.visualize(app.overlay, app.network, &veh, did_viz_conflicts);
 	}
 
 	if (visualize_bones) {
 		for (auto& bone : person->owned_vehicle->bone_mats) {
 			float3 center;
 			float ang;
-			person->vehicle->calc_pos(&center, &ang);
+			veh.calc_pos(&center, &ang);
 
 			auto mat = translate(center) * rotate3_Z(ang) * bone.bone2mesh;
 
@@ -880,19 +887,23 @@ void dbg_brake_for (App& app, SimVehicle* cur, float dist, float3 obstacle, lrgb
 #else
 void dbg_brake_for (App& app, SimVehicle* cur, float dist, float3 obstacle, lrgba col) {}
 #endif
+bool SimVehicle_Selected (App& app, SimVehicle* cur) {
+	auto* sel = app.interact.selection.get<Person*>();
+	return sel && sel->trip && &sel->trip->sim == cur;
+}
 void _FORCEINLINE dbg_brake_for_vehicle (App& app, SimVehicle* cur, float dist, SimVehicle* obstacle) {
-	if (app.interact.selection.get<Person*>() == cur->cit) {
+	if (SimVehicle_Selected(app, cur)) {
 		float3 center = (obstacle->rear_pos + obstacle->front_pos) * 0.5f;
 		dbg_brake_for(app, cur, dist, center, lrgba(1,0.1f,0,1));
 	}
 }
 void _FORCEINLINE dbg_brake_for_blocked_lane_start (App& app, NodeVehicle& v, float dist, SegLane& lane) {
-	if (app.interact.selection.get<Person*>() == v.vehicle->cit) {
+	if (SimVehicle_Selected(app, v.vehicle)) {
 		dbg_brake_for(app, v.vehicle, dist, lane._bezier().a, lrgba(0.2f,0.8f,1,1));
 	}
 }
 void _FORCEINLINE dbg_brake_for_blocked_lane_end (App& app, NodeVehicle& v, float dist, SegLane& lane) {
-	if (app.interact.selection.get<Person*>() == v.vehicle->cit) {
+	if (SimVehicle_Selected(app, v.vehicle)) {
 		dbg_brake_for(app, v.vehicle, dist, lane._bezier().b, lrgba(0.2f,0.8f,1,1));
 	}
 }
@@ -1338,8 +1349,8 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 void update_node (App& app, Node* node, float dt) {
 	bool node_dbg = app.interact.selection.get<Node*>() == node;
 
-	auto* sel  = app.interact.selection.get<Person*>() ? app.interact.selection.get<Person*>()->vehicle.get() : nullptr;
-	auto* sel2 = app.interact.hover    .get<Person*>() ? app.interact.hover    .get<Person*>()->vehicle.get() : nullptr;
+	auto* sel  = app.interact.selection.get<Person*>() ? &app.interact.selection.get<Person*>()->trip->sim : nullptr;
+	auto* sel2 = app.interact.hover    .get<Person*>() ? &app.interact.hover    .get<Person*>()->trip->sim : nullptr;
 
 	// update traffic light
 	if (node->traffic_light) {
@@ -1593,7 +1604,7 @@ float calc_car_deccel (float base_deccel, float target_speed, float cur_speed) {
 }
 
 float network::SimVehicle::car_len () {
-	return cit->owned_vehicle->mesh.aabb.size().x;
+	return vehicle_asset->mesh.aabb.size().x;
 }
 void network::SimVehicle::calc_pos (float3* pos, float* ang) {
 	float3 dir = front_pos - rear_pos;
@@ -1601,8 +1612,7 @@ void network::SimVehicle::calc_pos (float3* pos, float* ang) {
 	*ang = angle2d((float2)dir);
 }
 
-void update_vehicle_suspension (App& app, SimVehicle& vehicle, float3 local_accel, float dt) {
-	auto& sett = app.network.settings;
+void update_vehicle_suspension (Network& net, SimVehicle& vehicle, float3 local_accel, float dt) {
 	// assume constant mass
 
 	float3 ang = vehicle.suspension_ang;
@@ -1612,80 +1622,74 @@ void update_vehicle_suspension (App& app, SimVehicle& vehicle, float3 local_acce
 	//float2 accel = -ang * app.net.settings.suspension_spring_k;
 	
 	// quadratic for more smooth spring limit (and more wobbly around zero)
-	float3 accel = -ang * abs(ang / sett.suspension.max) * sett.suspension.spring_k * 3;
+	float3 accel = -ang * abs(ang / net.settings.suspension.max) * net.settings.suspension.spring_k * 3;
 	
 	// spring point accel
-	accel += local_accel * sett.suspension.accel_fac;
+	accel += local_accel * net.settings.suspension.accel_fac;
 	// spring dampening
-	accel -= vel * sett.suspension.spring_damp;
+	accel -= vel * net.settings.suspension.spring_damp;
 
 	// apply vel, pos and clamp
 	vel += accel * dt;
 	vel = clamp(vel, -100, +100);
 
 	ang += vel * dt;
-	ang = clamp(ang, -sett.suspension.max, +sett.suspension.max);
+	ang = clamp(ang, -net.settings.suspension.max, +net.settings.suspension.max);
 
 	vehicle.suspension_ang = ang;
 	vehicle.suspension_ang_vel = vel;
 }
 
-void update_vehicle (App& app, Metrics::Var& met, SimVehicle* vehicle, float dt) {
-	auto& sett = app.network.settings;
+bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float dt) {
+	float aggress = driver->topspeed_accel_mul();
 
-	float aggress = vehicle->cit->topspeed_accel_mul();
+	assert(bez_t < 1.0f);
+	float speed_limit = aggress * get_cur_speed_limit(this);
 
-	assert(vehicle->bez_t < 1.0f);
-	float speed_limit = aggress * get_cur_speed_limit(vehicle);
-
-	float old_speed = vehicle->speed;
+	float old_speed = speed;
 	float new_speed = old_speed;
 	
-	vehicle->brake_light = 0.0f;
+	brake_light = 0.0f;
 
 	// car speed change
-	float target_speed = speed_limit * vehicle->brake;
+	float target_speed = speed_limit * brake;
 	if (target_speed < 0.33f) target_speed = 0;
 
 	if (target_speed > new_speed) {
-		float accel = aggress * calc_car_accel(sett.car_accel, speed_limit, new_speed);
+		float accel = aggress * calc_car_accel(net.settings.car_accel, speed_limit, new_speed);
 		new_speed += accel * dt;
 		new_speed = min(new_speed, target_speed);
 	}
 	else {
 		//new_speed = target_speed; // brake instantly for now
-		new_speed -= aggress * calc_car_deccel(sett.car_deccel, speed_limit, new_speed);
+		new_speed -= aggress * calc_car_deccel(net.settings.car_deccel, speed_limit, new_speed);
 		new_speed = max(new_speed, target_speed);
 
 		if (new_speed > 0.33f)
-			vehicle->brake_light = 1.0f;
+			brake_light = 1.0f;
 	}
 
-	vehicle->speed = new_speed;
-	met.total_flow += vehicle->speed / speed_limit;
+	speed = new_speed;
+	met.total_flow += speed / speed_limit;
 	
 	// move car with speed on bezier based on previous frame delta t
-	float delta_dist = vehicle->speed * dt;
-	vehicle->bez_t += delta_dist / vehicle->bez_speed;
+	float delta_dist = speed * dt;
+	bez_t += delta_dist / bez_speed;
 
-	auto& state = vehicle->nav.get_state();
+	auto& state = nav.get_state();
 
 	// do bookkeeping when car reaches end of current bezier
-	if (vehicle->bez_t >= state.end_t) {
-		vehicle->bez_t = state.next_start_t;
-		assert(vehicle->bez_t >= 0 && vehicle->bez_t < 1);
+	if (bez_t >= state.end_t) {
+		bez_t = state.next_start_t;
+		assert(bez_t >= 0 && bez_t < 1);
 
-		if (state.cur_vehicles)  state.cur_vehicles ->remove(vehicle);
-		if (state.next_vehicles) state.next_vehicles->add(vehicle);
+		if (state.cur_vehicles)  state.cur_vehicles ->remove(this);
+		if (state.next_vehicles) state.next_vehicles->add(this);
 
-		if (state.motion == VehNav::END) {
-			// end path
-			vehicle->cit->cur_building = vehicle->nav.get_target();
-			vehicle->cit->vehicle = nullptr; // ugh, seems unsafe, but works
-			return;
-		}
+		if (state.motion == VehNav::END)
+			return true; // end path
 
-		vehicle->nav.step(app.network, vehicle);
+		nav.step(net);
 
 		float blinker = 0;
 
@@ -1696,41 +1700,41 @@ void update_vehicle (App& app, Metrics::Var& met, SimVehicle* vehicle, float dt)
 		//	if      (turn == Turns::LEFT ) blinker = -1;
 		//	else if (turn == Turns::RIGHT) blinker = +1;
 		//}
-		vehicle->blinker = blinker;
+		blinker = blinker;
 	}
 
 	// eval bezier at car front
-	auto bez_res = state.bezier.eval_with_curv(vehicle->bez_t);
+	auto bez_res = state.bezier.eval_with_curv(bez_t);
 	// remember bezier delta t for next frame
-	vehicle->bez_speed = length(bez_res.vel); // bezier t / delta pos
-	float3 bez_dir = bez_res.vel / vehicle->bez_speed;
+	bez_speed = length(bez_res.vel); // bezier t / delta pos
+	float3 bez_dir = bez_res.vel / bez_speed;
 
 	// actually move car rear using (bogus) trailer formula
 	float3 new_front = bez_res.pos;
 	
-	float3 old_front = vehicle->front_pos;
-	float3 old_rear  = vehicle->rear_pos;
+	float3 old_front = front_pos;
+	float3 old_rear  = rear_pos;
 
 	// I don't think this needs to be completely 3d
 	auto moveDirs = relative2dir(normalizesafe(old_front - old_rear));
 	//float forw_amount = dot(new_front - old_front, forw);
 
-	float car_len = vehicle->car_len();
-	float3 ref_point = old_rear + car_len*sett.car_rear_drag_ratio * moveDirs.forw; // Kinda works to avoid goofy car rear movement?
+	float len = car_len();
+	float3 ref_point = old_rear + len*net.settings.car_rear_drag_ratio * moveDirs.forw; // Kinda works to avoid goofy car rear movement?
 
-	float3 new_rear = new_front - normalizesafe(new_front - ref_point) * car_len;
+	float3 new_rear = new_front - normalizesafe(new_front - ref_point) * len;
 
-	vehicle->front_pos = new_front;
-	vehicle->rear_pos  = new_rear;
+	front_pos = new_front;
+	rear_pos  = new_rear;
 	
 	// totally wack with car_rear_drag_ratio
-	vehicle->turn_curv = bez_res.curv; // TODO: to be correct for wheel turning this would need to be computed based on the rear axle
+	turn_curv = bez_res.curv; // TODO: to be correct for wheel turning this would need to be computed based on the rear axle
 
 	{
 		float3 old_center = (old_front + old_rear) * 0.5f;
 		float3 new_center = (new_front + new_rear) * 0.5f;
 		float3 center_vel   = dt == 0 ? 0 : (new_center - old_center) / dt;
-		float3 center_accel = dt == 0 ? 0 : (center_vel - vehicle->center_vel) / dt;
+		float3 center_accel = dt == 0 ? 0 : (center_vel - center_vel) / dt;
 		
 		// accel from world to local space
 		//float accel_cap = 30; // we get artefacts with huge accelerations due to discontinuities, cap accel to hide
@@ -1740,7 +1744,7 @@ void update_vehicle (App& app, Metrics::Var& met, SimVehicle* vehicle, float dt)
 		accel_local.x = dot(center_accel, moveDirs.right);
 		accel_local.y = dot(center_accel, moveDirs.forw );
 		accel_local.z = dot(center_accel, moveDirs.up   );
-		update_vehicle_suspension(app, *vehicle, -accel_local, dt);
+		update_vehicle_suspension(net, *this, -accel_local, dt);
 		
 	#if 0
 		if (vehicle->cit == app.interact.selection.get<Person*>()) {
@@ -1760,19 +1764,71 @@ void update_vehicle (App& app, Metrics::Var& met, SimVehicle* vehicle, float dt)
 		}
 	#endif
 
-		vehicle->center_vel = float3(center_vel, 0);
+		center_vel = float3(center_vel, 0);
 
-		float wheel_circum = vehicle->cit->owned_vehicle->wheel_r * (2*PI);
+		float wheel_circum = vehicle_asset->wheel_r * (2*PI);
 
-		vehicle->wheel_roll += delta_dist / wheel_circum;
-		vehicle->wheel_roll = fmodf(vehicle->wheel_roll, 1.0f);
+		wheel_roll += delta_dist / wheel_circum;
+		wheel_roll = fmodf(wheel_roll, 1.0f);
 	}
+
+	return false;
 }
 
 void Metrics::update (Var& var, App& app) {
 	avg_flow = var.total_flow / (float)app.entities.persons.size();
 
 	flow_plot.push_value(avg_flow);
+}
+
+bool VehTrip::start_trip (Entities& entities, Network& net, Random& rand, Person* person) {
+	auto* target = entities.buildings[ rand.uniformi(0, (int)entities.buildings.size()) ].get();
+		
+	assert(person->cur_building->connected_segment);
+	if (person->cur_building->connected_segment) {
+		ZoneScopedN("pathfind");
+
+		auto trip = std::make_unique<network::VehTrip>();
+		
+		trip->sim.vehicle_asset = person->owned_vehicle;
+		trip->sim.tint_col      = person->col;
+		trip->sim.agressiveness = person->agressiveness;
+		//trip->driver = person;
+		trip->start = person->cur_building;
+		trip->target = target;
+
+		bool valid = trip->sim.nav.pathfind(net,
+			VehNavPoint(person->cur_building->pos, person->cur_building->connected_segment),
+			VehNavPoint(target->pos, target->connected_segment));
+
+		net.pathing_count++;
+
+		if (valid) {
+			person->cur_building = nullptr;
+			person->trip = std::move(trip);
+			return true;
+		}
+	}
+	return false;
+}
+void VehTrip::update_person (Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person* person, float dt) {
+	if (person->cur_building) {
+		person->stay_timer += dt;
+		if (person->stay_timer >= 3.0f) {
+			person->stay_timer = 0;
+
+			if (VehTrip::start_trip(entities, net, rand, person)) {
+				dt = 0; // 0 dt timestep to init some values properly
+			}
+		}
+	}
+
+	if (person->trip) {
+		if (person->trip->sim.update(net, met, person, dt)) {
+			person->trip->finish_trip(person);
+			person->trip = nullptr;
+		}
+	}
 }
 
 void Network::simulate (App& app) {
@@ -1782,29 +1838,6 @@ void Network::simulate (App& app) {
 
 	float dt = app.sim_dt();
 
-	auto start_trip = [&] (Person* person) {
-		auto* target = app.entities.buildings[ app.sim_rand.uniformi(0, (int)app.entities.buildings.size()) ].get();
-		
-		assert(person->cur_building->connected_segment);
-		if (person->cur_building->connected_segment) {
-			ZoneScopedN("pathfind");
-
-			auto vehicle = std::make_unique<network::SimVehicle>();
-			VehNav nav;
-
-			pathing_count++;
-			bool valid = nav.pathfind(*this, vehicle.get(), VehNavPoint(person->cur_building), VehiclePathEnd(target));
-			if (valid) {
-				person->vehicle = std::move(vehicle);
-				person->vehicle->cit = person;
-				person->cur_building = nullptr;
-				person->vehicle->nav = std::move(nav);
-				return true;
-			}
-		}
-		return false;
-	};
-	
 	// to avoid debugging overlays only showing while not paused, only skip moving the car when paused, later actually skip sim steps
 	bool force_update_for_dbg = true;
 	if (dt > 0.0f || force_update_for_dbg) {
@@ -1814,7 +1847,7 @@ void Network::simulate (App& app) {
 			ZoneScopedN("init pass");
 			for (auto& cit : app.entities.persons) {
 				if (cit->cur_building) continue;
-				cit->vehicle->brake = 1;
+				cit->trip->sim.brake = 1;
 			}
 		}
 		
@@ -1834,20 +1867,7 @@ void Network::simulate (App& app) {
 		{
 			ZoneScopedN("final pass");
 			for (auto& person : app.entities.persons) {
-				if (person->cur_building) {
-					person->stay_timer += dt;
-					if (person->stay_timer >= 3.0f) {
-						person->stay_timer = 0;
-
-						if (start_trip(person.get())) {
-							update_vehicle(app, met, person->vehicle.get(), 0); // 0 dt timestep to init some values properly
-						}
-					}
-				}
-				else {
-					assert(person->vehicle);
-					update_vehicle(app, met, person->vehicle.get(), dt);
-				}
+				VehTrip::update_person(app.entities, app.network, met, app.sim_rand, person.get(), dt);
 			}
 		}
 

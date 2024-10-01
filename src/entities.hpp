@@ -5,7 +5,7 @@
 namespace network {
 	struct Segment;
 	struct Node;
-	struct ActiveVehicle;
+	class VehTrip;
 }
 
 struct Building {
@@ -39,7 +39,7 @@ struct Person {
 
 	// while driving this is non null and represents the currently driving car
 	// (while inside building car does not exist)
-	std::unique_ptr<network::ActiveVehicle> vehicle = nullptr;
+	std::unique_ptr<network::VehTrip> trip = nullptr;
 
 	VehicleAsset* owned_vehicle;
 
@@ -84,7 +84,7 @@ struct Person {
 
 	bool selectable () {
 		// can only select while driving currently
-		return vehicle != nullptr;
+		return trip != nullptr;
 	}
 	SelCircle get_sel_shape (); // TODO: move part of this to active vehicle?
 };

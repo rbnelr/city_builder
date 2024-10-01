@@ -189,11 +189,11 @@ struct CameraTrack {
 	void update (GameCamera& cam, sel_ptr selection, float dt) {
 		auto* sel = selection.get<Person*>();
 
-		if (track && sel && sel->vehicle) { // If tracking and object selected
+		if (track && sel && sel->trip) { // If tracking and object selected
 			// get object pos and rotation
 			float3 pos;
 			float rot;
-			sel->vehicle->calc_pos(&pos, &rot);
+			sel->trip->sim.calc_pos(&pos, &rot);
 			
 			if (cur_tracking != selection) {
 				// re-center camera if new selection or selection changed

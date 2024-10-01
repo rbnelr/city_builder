@@ -20,9 +20,30 @@ struct Network;
 struct Node;
 struct Segment;
 struct Lane;
-struct ActiveVehicle;
+struct SimVehicle;
 struct LaneVehicles;
 struct TrafficLight;
+
+struct Metrics {
+
+	float avg_flow = 1; // avg of each (cur speed / cur speed limit)
+	
+	struct Var {
+		float total_flow = 0;
+	};
+	
+	void update (Var& var, App& app);
+
+	ValuePlotter flow_plot = ValuePlotter();
+
+	void imgui () {
+		if (!imgui_Header("Metrics")) return;
+
+		flow_plot.imgui_display("avg_flow", 0.0f, 1.0f);
+
+		ImGui::PopID();
+	}
+};
 
 enum class Turns : uint8_t {
 	NONE     = 0,
@@ -166,7 +187,7 @@ struct VehicleList { // TODO: optimize vehicles in lane to only look at vehicle 
 
 // TODO: Might be able to eliminate this entirely! This would probably help perf and reduce complexity
 struct NodeVehicle {
-	ActiveVehicle* vehicle; // unnecessary
+	SimVehicle* vehicle; // unnecessary
 
 	// k == (approx) distance along node curve
 	// where before node : k negative where abs(k) is dist to node
@@ -195,7 +216,7 @@ struct NodeVehicle {
 	bool operator== (NodeVehicle const& other) const {
 		return vehicle == other.vehicle;
 	}
-	bool operator== (ActiveVehicle* other) const {
+	bool operator== (SimVehicle* other) const {
 		return vehicle == other;
 	}
 	template <typename U>
@@ -205,7 +226,7 @@ struct NodeVehicle {
 };
 
 struct LaneVehicles {
-	VehicleList<ActiveVehicle*> list;
+	VehicleList<SimVehicle*> list;
 	float avail_space;
 };
 struct SegVehicles {
@@ -214,7 +235,7 @@ struct SegVehicles {
 };
 
 struct NodeVehicles {
-	//VehicleList<ActiveVehicle*> free;
+	//VehicleList<SimVehicle*> free;
 	VehicleList<NodeVehicle> test;
 
 	// TODO: switch to that one flat hashmap i added to the project and profile?
@@ -615,8 +636,8 @@ public:
 			return nullptr;
 		}
 
-		VehicleList<ActiveVehicle*>* cur_vehicles = nullptr;
-		VehicleList<ActiveVehicle*>* next_vehicles = nullptr;
+		VehicleList<SimVehicle*>* cur_vehicles = nullptr;
+		VehicleList<SimVehicle*>* next_vehicles = nullptr;
 	};
 
 private:
@@ -634,16 +655,16 @@ private:
 	
 	State s;
 
-	State _step (Network& net, SimVehicle* vehicle, int idx, State* prev_state) const;
+	State _step (Network& net, int idx, State* prev_state) const;
 
 public:
 	State const& get_state () const { return s; }
 
-	bool pathfind (Network& net, SimVehicle* vehicle, VehNavPoint const& start, VehNavPoint const& target);
-	bool repath (Network& net, SimVehicle* vehicle, VehNavPoint const& new_target);
+	bool pathfind (Network& net, VehNavPoint const& start, VehNavPoint const& target);
+	bool repath (Network& net, VehNavPoint const& new_target);
 
-	void step (Network& net, SimVehicle* vehicle) {
-		s = _step(net, vehicle, s.idx + 1, &s);
+	void step (Network& net) {
+		s = _step(net, s.idx + 1, &s);
 	}
 	
 	void visualize (OverlayDraw& overlay, Network& net, SimVehicle* vehicle,
@@ -661,6 +682,13 @@ public:
 };
 
 struct SimVehicle {
+	// TODO: These are just copied from Person, can we avoid storing them twice?
+	// Alternatively bundle them into Vehicle Instance* that both person and simVehicle use (note that parked cars also need vehicle_asset and col)
+	VehicleAsset* vehicle_asset;
+	lrgb tint_col;
+	float agressiveness;
+
+	
 	float bez_t = 0; // [0,1] bezier parameter for current segment/node curve
 
 	float brake = 1; // set by controlled conflict logic, to brake smoothly
@@ -713,17 +741,33 @@ struct SimVehicle {
 
 		nav._clear_nodes(this);
 	}
+	
+	bool update (Network& net, Metrics::Var& met, Person* driver, float dt);
 };
 
 class VehTrip {
+public:
 	typedef NullableVariant<Building*, float3> Endpoint;
 
-	Person* driver; // TODO: rename, later allow for cars with multiple passangers, in which case this would make sense anyway?
+	//Person* driver;
 	
 	Endpoint start;
 	Endpoint target;
 	
 	SimVehicle sim;
+
+	static bool start_trip (Entities& entities, Network& net, Random& rand, Person* person);
+
+	void cancel_trip (Person* person) {
+		assert(start.get<Building*>());
+		person->cur_building = start.get<Building*>();
+	}
+	void finish_trip (Person* person) {
+		assert(target.get<Building*>());
+		person->cur_building = target.get<Building*>();
+	}
+
+	static void update_person (Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person* person, float dt);
 };
 
 ////
@@ -817,27 +861,6 @@ struct TrafficLight {
 		}
 		assert(false);
 		return 0;
-	}
-};
-
-struct Metrics {
-
-	float avg_flow = 1; // avg of each (cur speed / cur speed limit)
-	
-	struct Var {
-		float total_flow = 0;
-	};
-	
-	void update (Var& var, App& app);
-
-	ValuePlotter flow_plot = ValuePlotter();
-
-	void imgui () {
-		if (!imgui_Header("Metrics")) return;
-
-		flow_plot.imgui_display("avg_flow", 0.0f, 1.0f);
-
-		ImGui::PopID();
 	}
 };
 
@@ -950,7 +973,7 @@ struct Network {
 	}
 };
 
-bool VehNavPoint::free_point (Network const& net, float3 pos, VehNavPoint* result) {
+inline bool VehNavPoint::free_point (Network const& net, float3 pos, VehNavPoint* result) {
 	result->seg = net.find_nearest_segment(pos);
 	result->pos = pos;
 	return result->seg != nullptr;

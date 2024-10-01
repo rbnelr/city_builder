@@ -97,17 +97,16 @@ struct Interaction {
 		if (selection.get<Person*>() && hover.get<Building*>()) {
 			auto* pers = selection.get<Person*>();
 			auto* build = hover.get<Building*>();
-			if (pers->vehicle) {
-				auto* veh = pers->vehicle.get();
-
+			if (pers->trip) {
 				if (input.buttons[MOUSE_BUTTON_RIGHT].went_down) {
-					veh->path.repath(net, veh, build);
+					pers->trip->target = build;
+					pers->trip->sim.nav.repath(net, { build->pos, build->connected_segment });
 				}
 				else {
 					// copy and preview repath
-					network::VehiclePath tmp_path = veh->path;
-					if (tmp_path.repath(net, veh, build)) {
-						tmp_path.visualize(overlay, net, veh, false, lrgba(1,1,1,0.4f));
+					network::VehNav tmp_nav = pers->trip->sim.nav;
+					if (tmp_nav.repath(net, { build->pos, build->connected_segment })) {
+						tmp_nav.visualize(overlay, net, &pers->trip->sim, false, lrgba(1,1,1,0.4f));
 					}
 				}
 			}
@@ -142,10 +141,10 @@ struct Interaction {
 		if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
 			if (hover.get<Person*>()) {
 				auto* pers = hover.get<Person*>();
-				// actually delete vehicle instead!
-			
-				pers->vehicle->cit->cur_building = pers->vehicle->path.get_start();
-				pers->vehicle->cit->vehicle = nullptr;
+				if (pers->trip) {
+					pers->trip->cancel_trip(pers);
+					pers->trip = nullptr;
+				}
 
 				hover = nullptr;
 			}

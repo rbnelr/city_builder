@@ -471,7 +471,7 @@ struct ObjectRender {
 
 	void upload_static_instances (Textures& texs, App& app);
 	void update_dynamic_traffic_signals (Textures& texs, Network& net);
-	void update_vehicle_instance (Textures& texs, DynamicVehicle& instance, Person& entity, int i, View3D& view, float dt);
+	void update_vehicle_instance (Textures& texs, DynamicVehicle& instance, network::SimVehicle& veh, int i, View3D& view, float dt);
 	void upload_vehicle_instances (Textures& texs, App& app, View3D& view);
 };
 

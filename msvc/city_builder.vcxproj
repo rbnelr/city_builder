@@ -260,7 +260,7 @@
     <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.h" />
     <ClInclude Include="..\src\entities.hpp" />
     <ClInclude Include="..\src\game_time.hpp" />
-    <ClInclude Include="..\src\heightmap.hpp" />
+    <ClInclude Include="..\src\terrain.hpp" />
     <ClInclude Include="..\src\interaction.hpp" />
     <ClInclude Include="..\src\math_util.hpp" />
     <ClInclude Include="..\src\network.hpp" />
@@ -332,7 +332,7 @@
     </ClCompile>
     <ClInclude Include="..\src\opengl\post_passes.hpp" />
     <ClInclude Include="..\src\opengl\render_passes.hpp" />
-    <ClInclude Include="..\src\opengl\terrain.hpp" />
+    <ClInclude Include="..\src\opengl\terrain_render.hpp" />
     <ClInclude Include="..\src\opengl\textures.hpp" />
     <ClInclude Include="..\src\util.hpp" />
   </ItemGroup>

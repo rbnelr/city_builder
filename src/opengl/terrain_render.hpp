@@ -1,7 +1,7 @@
 #pragma once
 #include "common.hpp"
 #include "ogl_render.hpp"
-#include "heightmap.hpp"
+#include "terrain.hpp"
 
 namespace ogl {
 

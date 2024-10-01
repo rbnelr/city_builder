@@ -5,7 +5,7 @@
 namespace network {
 	struct Segment;
 	struct Node;
-	class VehTrip;
+	class VehicleTrip;
 }
 
 struct Building {
@@ -39,7 +39,7 @@ struct Person {
 
 	// while driving this is non null and represents the currently driving car
 	// (while inside building car does not exist)
-	std::unique_ptr<network::VehTrip> trip = nullptr;
+	std::unique_ptr<network::VehicleTrip> trip = nullptr;
 
 	VehicleAsset* owned_vehicle;
 

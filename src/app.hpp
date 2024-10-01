@@ -4,7 +4,7 @@
 #include "game_camera.hpp"
 #include "assets.hpp"
 #include "game_time.hpp"
-#include "heightmap.hpp"
+#include "terrain.hpp"
 #include "network.hpp"
 #include "entities.hpp"
 #include "interaction.hpp"
@@ -1007,7 +1007,7 @@ public:
 		View3D view = update_camera();
 		
 		// select after updating positions
-		interact.update(view, input, overlay, heightmap, entities, network);
+		interact.update(view, input, overlay, entities, network, heightmap);
 
 		network.draw_debug(*this, view); // TODO: move to interact?
 		

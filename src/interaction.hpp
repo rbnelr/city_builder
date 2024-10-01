@@ -3,6 +3,7 @@
 #include "util.hpp"
 #include "network.hpp"
 #include "entities.hpp"
+#include "terrain.hpp"
 
 // TODO: rework this!, probably mirror how heightmap with its tools works
 struct Interaction {
@@ -71,42 +72,62 @@ struct Interaction {
 		ImGui::PopID();
 	}
 
-	void update (View3D& view, Input& input, OverlayDraw& overlay,
-			Heightmap& heightmap, Entities& entities, Network& net) {
+	void update (View3D& view, Input& input,
+			OverlayDraw& overlay, Entities& entities, Network& net, Heightmap& heightmap) {
 		switch (cur_mode) {
 			case INSPECT:
-				update_inspect(overlay, entities, net, view, input);
+				update_inspect(view, input, overlay, entities, net, heightmap);
 			break;
 			case BUILD:
-				update_build(entities, net, view, input);
+				update_build(view, input, entities, net);
 			break;
 			case BULLDOZE:
-				update_bulldoze(entities, net, view, input);
+				update_bulldoze(view, input, entities, net);
 			break;
 			case TERRAFORM:
-				terraform.update(heightmap, view, input);
+				terraform.update(view, input, heightmap);
 			break;
 		}
 
 		highlight_hover_sel();
 	}
 
-	void update_inspect (OverlayDraw& overlay, Entities& entities, Network& net, View3D& view, Input& input) {
-		find_hover(entities, net, view, input, false);
+	void update_inspect (View3D& view, Input& input,
+			OverlayDraw& overlay, Entities& entities, Network& net, Heightmap& heightmap) {
+		find_hover(view, input, entities, net, false);
 
-		if (selection.get<Person*>() && hover.get<Building*>()) {
+		if (selection.get<Person*>()) {
 			auto* pers = selection.get<Person*>();
-			auto* build = hover.get<Building*>();
+
 			if (pers->trip) {
-				if (input.buttons[MOUSE_BUTTON_RIGHT].went_down) {
-					pers->trip->target = build;
-					pers->trip->sim.nav.repath(net, { build->pos, build->connected_segment });
+				network::VehNavPoint targ = {};
+
+				auto* build = hover.get<Building*>();
+				if (build) {
+					targ = network::VehNavPoint::from_building(build);
 				}
 				else {
-					// copy and preview repath
-					network::VehNav tmp_nav = pers->trip->sim.nav;
-					if (tmp_nav.repath(net, { build->pos, build->connected_segment })) {
-						tmp_nav.visualize(overlay, net, &pers->trip->sim, false, lrgba(1,1,1,0.4f));
+					auto res = heightmap.raycast_cursor(view, input);
+					if (res) targ = network::VehNavPoint::from_free_point(net, *res);
+				}
+
+				if (targ) {
+					if (input.buttons[MOUSE_BUTTON_RIGHT].went_down) {
+						if (build) {
+							pers->trip->target = build; // switch target building
+						}
+						else {
+							// targeting free point, keep building target
+							pers->trip->waypoint = targ;
+						}
+						pers->trip->sim.nav.repath(net, targ);
+					}
+					else {
+						// copy and preview repath
+						network::VehNav tmp_nav = pers->trip->sim.nav;
+						if (tmp_nav.repath(net, targ)) {
+							tmp_nav.visualize(overlay, net, &pers->trip->sim, false, lrgba(1,1,1,0.4f));
+						}
 					}
 				}
 			}
@@ -117,11 +138,11 @@ struct Interaction {
 		}
 	}
 
-	void update_build (Entities& entities, Network& net, View3D& view, Input& input) {
+	void update_build (View3D& view, Input& input, Entities& entities, Network& net) {
 		selection = nullptr;
 
 		if (toggle_traffic_light) {
-			find_hover(entities, net, view, input, true);
+			find_hover(view, input, entities, net, true);
 			
 			if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
 				auto* node = hover.get<network::Node*>();
@@ -133,10 +154,10 @@ struct Interaction {
 		}
 	}
 
-	void update_bulldoze (Entities& entities, Network& net, View3D& view, Input& input) {
+	void update_bulldoze (View3D& view, Input& input, Entities& entities, Network& net) {
 		selection = nullptr;
 		
-		find_hover(entities, net, view, input, false);
+		find_hover(view, input, entities, net, false);
 		
 		if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
 			if (hover.get<Person*>()) {
@@ -153,13 +174,13 @@ struct Interaction {
 
 ////
 
-	void find_hover (Entities& entities, Network& net, View3D& view, Input& input,
+	void find_hover (View3D& view, Input& input, Entities& entities, Network& net,
 			bool only_net) { // TODO: create a mask for this
 		Ray ray;
 		if (!view.cursor_ray(input, &ray.pos, &ray.dir))
 			return;
 
-		hover = {};
+		hover = nullptr;
 		float dist = INF;
 
 		if (!only_net) {

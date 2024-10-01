@@ -2,7 +2,7 @@
 #include "common.hpp"
 #include "opengl.hpp"
 #include "bindless_textures.hpp"
-#include "heightmap.hpp"
+#include "terrain.hpp"
 #include "engine/dds_image/include/dds.hpp"
 #include "engine/dds_image/include/dds_formats.hpp"
 #include "engine/kisslib/threadpool.hpp"

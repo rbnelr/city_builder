@@ -20,7 +20,7 @@ struct Network;
 struct Node;
 struct Segment;
 struct Lane;
-struct SimVehicle;
+class SimVehicle;
 struct LaneVehicles;
 struct TrafficLight;
 
@@ -600,11 +600,21 @@ public:
 };
 
 struct VehNavPoint {
-	float3   pos;
-	Segment* seg;
+	Segment* seg = nullptr;
+	float3   pos = 0;
 	// float t
 
-	static bool free_point (Network const& net, float3 pos, VehNavPoint* result);
+	VehNavPoint () {};
+	VehNavPoint (Segment* seg, float3 pos): seg{seg}, pos{pos} {};
+
+	operator bool () const {
+		return seg != nullptr;
+	}
+
+	static VehNavPoint from_building (Building* build) {
+		return { build->connected_segment, build->pos };
+	}
+	static VehNavPoint from_free_point (Network const& net, float3 pos);
 };
 
 class VehNav {
@@ -658,6 +668,7 @@ private:
 	State _step (Network& net, int idx, State* prev_state) const;
 
 public:
+	VehNavPoint const& get_target () const { return target; }
 	State const& get_state () const { return s; }
 
 	bool pathfind (Network& net, VehNavPoint const& start, VehNavPoint const& target);
@@ -681,7 +692,10 @@ public:
 	}
 };
 
-struct SimVehicle {
+class SimVehicle {
+friend class VehNav;
+public: // TODO: encapsulate better?
+
 	// TODO: These are just copied from Person, can we avoid storing them twice?
 	// Alternatively bundle them into Vehicle Instance* that both person and simVehicle use (note that parked cars also need vehicle_asset and col)
 	VehicleAsset* vehicle_asset;
@@ -719,6 +733,10 @@ struct SimVehicle {
 	float blinker_timer = 0; // could get eliminated (a fixed number of blinker timers indexed using vehicle id hash)
 	float brake_light = 0;
 
+	void init () {
+		brake = 1;
+	}
+
 	bool update_blinker (float rand_num, float dt) {
 		constexpr float blinker_freq_min = 1.6f;
 		constexpr float blinker_freq_max = 1.2f;
@@ -745,7 +763,7 @@ struct SimVehicle {
 	bool update (Network& net, Metrics::Var& met, Person* driver, float dt);
 };
 
-class VehTrip {
+class VehicleTrip {
 public:
 	typedef NullableVariant<Building*, float3> Endpoint;
 
@@ -753,10 +771,30 @@ public:
 	
 	Endpoint start;
 	Endpoint target;
-	
+
+	VehNavPoint waypoint = {}; // just for debug repathing for now
+
 	SimVehicle sim;
 
 	static bool start_trip (Entities& entities, Network& net, Random& rand, Person* person);
+
+	bool on_nav_finish (Network& net, Person* person) {
+		if (waypoint) {
+			// waypoint was set when repathing to free point, so we can remember to path towards real target later
+			assert(start.get<Building*>());
+			
+			// reset nav and go from waypoint (where we currently are to original target)
+			sim.nav = {};
+			sim.nav.pathfind(net,
+				waypoint,
+				VehNavPoint::from_building( target.get<Building*>() ));
+
+			waypoint = {};
+			return false;
+		}
+
+		return true; // trip done
+	}
 
 	void cancel_trip (Person* person) {
 		assert(start.get<Building*>());
@@ -973,10 +1011,10 @@ struct Network {
 	}
 };
 
-inline bool VehNavPoint::free_point (Network const& net, float3 pos, VehNavPoint* result) {
-	result->seg = net.find_nearest_segment(pos);
-	result->pos = pos;
-	return result->seg != nullptr;
+inline VehNavPoint VehNavPoint::from_free_point (Network const& net, float3 pos) {
+	auto* seg = net.find_nearest_segment(pos);
+	if (!seg) return {};
+	return {seg, pos};
 }
 
 } // namespace network

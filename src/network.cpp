@@ -64,6 +64,8 @@ bool Pathfinding::pathfind (Network& net, Endpoint start, Endpoint target,
 		start.seg->node_a->_pred_seg = start.seg;
 		unvisited.push({ start.seg->node_a, start.seg->node_a->_cost });
 	}
+	
+	net.pathing_count++;
 
 	net._dijk_iter = 0;
 	net._dijk_iter_dupl = 0;
@@ -208,7 +210,7 @@ void debug_last_pathfind (Network& net, View3D& view) {
 
 bool VehNav::pathfind (Network& net, VehNavPoint const& start, VehNavPoint const& target) {
 	assert(path.empty());
-
+	
 	if (!Pathfinding::pathfind(net, { start.seg }, { target.seg }, &path))
 		return false;
 	
@@ -1781,14 +1783,14 @@ void Metrics::update (Var& var, App& app) {
 	flow_plot.push_value(avg_flow);
 }
 
-bool VehTrip::start_trip (Entities& entities, Network& net, Random& rand, Person* person) {
+bool VehicleTrip::start_trip (Entities& entities, Network& net, Random& rand, Person* person) {
 	auto* target = entities.buildings[ rand.uniformi(0, (int)entities.buildings.size()) ].get();
 		
 	assert(person->cur_building->connected_segment);
 	if (person->cur_building->connected_segment) {
 		ZoneScopedN("pathfind");
 
-		auto trip = std::make_unique<network::VehTrip>();
+		auto trip = std::make_unique<network::VehicleTrip>();
 		
 		trip->sim.vehicle_asset = person->owned_vehicle;
 		trip->sim.tint_col      = person->col;
@@ -1798,10 +1800,8 @@ bool VehTrip::start_trip (Entities& entities, Network& net, Random& rand, Person
 		trip->target = target;
 
 		bool valid = trip->sim.nav.pathfind(net,
-			VehNavPoint(person->cur_building->pos, person->cur_building->connected_segment),
-			VehNavPoint(target->pos, target->connected_segment));
-
-		net.pathing_count++;
+			VehNavPoint(person->cur_building->connected_segment, person->cur_building->pos),
+			VehNavPoint(              target->connected_segment,               target->pos));
 
 		if (valid) {
 			person->cur_building = nullptr;
@@ -1811,13 +1811,13 @@ bool VehTrip::start_trip (Entities& entities, Network& net, Random& rand, Person
 	}
 	return false;
 }
-void VehTrip::update_person (Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person* person, float dt) {
+void VehicleTrip::update_person (Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person* person, float dt) {
 	if (person->cur_building) {
 		person->stay_timer += dt;
 		if (person->stay_timer >= 3.0f) {
 			person->stay_timer = 0;
 
-			if (VehTrip::start_trip(entities, net, rand, person)) {
+			if (VehicleTrip::start_trip(entities, net, rand, person)) {
 				dt = 0; // 0 dt timestep to init some values properly
 			}
 		}
@@ -1825,8 +1825,10 @@ void VehTrip::update_person (Entities& entities, Network& net, Metrics::Var& met
 
 	if (person->trip) {
 		if (person->trip->sim.update(net, met, person, dt)) {
-			person->trip->finish_trip(person);
-			person->trip = nullptr;
+			if (person->trip->on_nav_finish(net, person)) {
+				person->trip->finish_trip(person);
+				person->trip = nullptr;
+			}
 		}
 	}
 }
@@ -1845,9 +1847,9 @@ void Network::simulate (App& app) {
 		
 		{ // TODO: only iterate active vehicles
 			ZoneScopedN("init pass");
-			for (auto& cit : app.entities.persons) {
-				if (cit->cur_building) continue;
-				cit->trip->sim.brake = 1;
+			for (auto& pers : app.entities.persons) {
+				if (pers->cur_building) continue;
+				pers->trip->sim.init();
 			}
 		}
 		
@@ -1867,7 +1869,7 @@ void Network::simulate (App& app) {
 		{
 			ZoneScopedN("final pass");
 			for (auto& person : app.entities.persons) {
-				VehTrip::update_person(app.entities, app.network, met, app.sim_rand, person.get(), dt);
+				VehicleTrip::update_person(app.entities, app.network, met, app.sim_rand, person.get(), dt);
 			}
 		}
 

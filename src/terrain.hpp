@@ -603,7 +603,7 @@ public:
 			cur_tool->imgui(map);
 	}
 
-	void update (Heightmap& map, View3D& view, Input& input) {
+	void update (View3D& view, Input& input, Heightmap& map) {
 		auto cursor_pos = map.raycast_cursor(view, input);
 		if (!cursor_pos.has_value())
 			return;

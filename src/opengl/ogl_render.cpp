@@ -1,6 +1,6 @@
 #include "common.hpp"
 #include "ogl_render.hpp"
-#include "terrain.hpp"
+#include "terrain_render.hpp"
 #include "objects.hpp"
 #include "render_passes.hpp"
 #include "engine/text_render.hpp"

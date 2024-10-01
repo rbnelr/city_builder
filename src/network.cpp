@@ -508,6 +508,28 @@ Bezier3 end_bezier (SegLane const& lane, VehNavPoint const& end, float* out_t) {
 	return Bezier3(on_seg, ctrl, ctrl, point);
 }
 
+
+float get_speed_limit (VehNav::MotionType motion, SegLane cur_lane={}, SegLane next_lane={}) {
+	switch (motion) {
+		case VehNav::SEGMENT: {
+			assert(cur_lane);
+			return cur_lane.seg->asset->speed_limit;
+		}
+		case VehNav::NODE: {
+			assert(cur_lane && next_lane);
+
+			float a = cur_lane .seg->asset->speed_limit;
+			float b = next_lane.seg->asset->speed_limit;
+			return min(a, b); // TODO: ??
+		}
+		default: {
+			return 20 / KPH_PER_MS;
+		}
+	}
+}
+
+// TODO: see if it might not be better to write state-machine like query function that only ever returns current state
+//  then use call it with +1 to get any info needed for next lanes etc.
 VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 	State s = {};
 	s.idx = idx;
@@ -528,6 +550,9 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 		s.next_lane = pick_lane(net, seeded_rand, 0, SegLane{});
 
 		s.bezier = start_bezier(s.next_lane, start, &s.next_start_t);
+
+		s.cur_speedlim  = get_speed_limit(MotionType::START);
+		s.next_speedlim = get_speed_limit(MotionType::SEGMENT, s.next_lane);
 	}
 	else if (idx == num_moves-1) {
 		s.motion = MotionType::END;
@@ -538,6 +563,9 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 
 		float t;
 		s.bezier = end_bezier(prev_lane, target, &t);
+
+		s.cur_speedlim  = get_speed_limit(MotionType::END);
+		s.next_speedlim = 1; // stop at end of last bezier
 	}
 	else {
 		int i = (s.idx-1)/2;
@@ -561,6 +589,11 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 			s.cur_vehicles  = &s.cur_lane.vehicles().list;
 			
 			s.bezier = s.cur_lane._bezier();
+
+			s.cur_speedlim = get_speed_limit(MotionType::SEGMENT, s.cur_lane);
+			// TODO: can this be written more concisely?
+			if (s.next_lane) s.next_speedlim = get_speed_limit(MotionType::NODE, s.cur_lane, s.next_lane);
+			else             s.next_speedlim = get_speed_limit(MotionType::END);
 		}
 		else {
 			s.motion = MotionType::NODE;
@@ -576,6 +609,9 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 			//s.cur_vehicles  = nullptr;
 			
 			s.bezier = cur_node->calc_curve(s.cur_lane, s.next_lane);
+
+			s.cur_speedlim  = get_speed_limit(MotionType::NODE   , s.cur_lane, s.next_lane);
+			s.next_speedlim = get_speed_limit(MotionType::SEGMENT, s.next_lane);
 		}
 	}
 
@@ -604,25 +640,6 @@ void VehNav::visualize (OverlayDraw& overlay, Network& net, SimVehicle* vehicle,
 }
 
 ////
-inline float get_cur_speed_limit (SimVehicle* vehicle) {
-	auto s = vehicle->nav.get_state();
-	if (s.motion == VehNav::SEGMENT) {
-		assert(s.cur_lane);
-		return s.cur_lane.seg->asset->speed_limit;
-	}
-	else if (s.motion == VehNav::NODE) {
-		assert(s.cur_lane);
-		assert(s.next_lane);
-
-		float a = s.cur_lane .seg->asset->speed_limit;
-		float b = s.next_lane.seg->asset->speed_limit;
-		return min(a, b); // TODO: ??
-	}
-	else {
-		return 20 / KPH_PER_MS;
-	}
-}
-
 float _brake_for_dist (float obstacle_dist) {
 	return clamp(map(obstacle_dist, 0.0f, 8.0f), 0.0f, 1.0f);
 }
@@ -823,7 +840,7 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		ImGui::Separator();
 		ImGui::TextColored(lrgba(person->col, 1), "debug person");
 	
-		ImGui::Text("Speed Limit: %7s", app.options.format_speed(get_cur_speed_limit(&veh)).c_str());
+		ImGui::Text("Speed Limit: %7s", app.options.format_speed(veh.nav.get_state().cur_speedlim).c_str());
 		ImGui::Text("Speed: %7s",       app.options.format_speed(veh.speed).c_str());
 
 		speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
@@ -1635,11 +1652,22 @@ void update_vehicle_suspension (Network& net, SimVehicle& vehicle, float3 local_
 }
 
 bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float dt) {
-	float aggress = driver->topspeed_accel_mul();
-
 	// bez_t == state.end_t can happen due to extrapolation between curves
 	assert(bez_t <= 1.0f);
-	float speed_limit = aggress * get_cur_speed_limit(this);
+	
+	auto& state = nav.get_state();
+
+	float speed_limit = state.cur_speedlim;
+	float aggress = driver->topspeed_accel_mul();
+	{
+		float remain_dist = (state.end_t - bez_t) * bez_speed;
+		if (remain_dist <= 5.0f) {
+			speed_limit = lerp(state.cur_speedlim, state.next_speedlim, map(remain_dist, 5.0f, 0.0f));
+		}
+		
+		speed_limit *= aggress;
+		speed_limit = max(speed_limit, 1.0f);
+	}
 
 	float old_speed = speed;
 	float new_speed = old_speed;
@@ -1671,11 +1699,9 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 	float delta_dist = speed * dt;
 	bez_t += delta_dist / bez_speed;
 
-	auto& state = nav.get_state();
-
 	// do bookkeeping when car reaches end of current bezier
 	if (bez_t >= state.end_t) {
-		float remain_dist = (bez_t - state.end_t) * bez_speed;
+		float additional_dist = (bez_t - state.end_t) * bez_speed;
 		bez_t = state.next_start_t;
 
 		assert(bez_t >= 0 && bez_t < 1);
@@ -1692,8 +1718,8 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 
 		// avoid visible jerk between bezier curves by extrapolating t
 		auto start_bez_speed = length(state.bezier.eval(bez_t).vel);
-		assert(remain_dist >= 0.0f);
-		float additional_t = remain_dist / start_bez_speed;
+		assert(additional_dist >= 0.0f);
+		float additional_t = additional_dist / start_bez_speed;
 		bez_t = min(bez_t + additional_t, state.end_t);
 
 		{
@@ -1895,6 +1921,8 @@ void Network::simulate (App& app) {
 }
 
 void Network::draw_debug (App& app, View3D& view) {
+	ZoneScoped;
+
 	debug_node(app, app.interact.selection.get<Node*>(), view);
 	debug_person(app, app.interact.selection.get<Person*>(), view);
 	debug_last_pathfind(app.network, view);

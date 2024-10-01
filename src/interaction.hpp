@@ -74,6 +74,8 @@ struct Interaction {
 
 	void update (View3D& view, Input& input,
 			OverlayDraw& overlay, Entities& entities, Network& net, Heightmap& heightmap) {
+		ZoneScoped;
+
 		switch (cur_mode) {
 			case INSPECT:
 				update_inspect(view, input, overlay, entities, net, heightmap);
@@ -176,6 +178,8 @@ struct Interaction {
 
 	void find_hover (View3D& view, Input& input, Entities& entities, Network& net,
 			bool only_net) { // TODO: create a mask for this
+		ZoneScoped;
+
 		Ray ray;
 		if (!view.cursor_ray(input, &ray.pos, &ray.dir))
 			return;

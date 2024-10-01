@@ -647,6 +647,10 @@ public:
 		float next_start_t = 0.0f;
 		Bezier3 bezier;
 
+		// Should this include slowdown during curves (and if so should it smoothly ramp down the speed somehow?)?
+		float cur_speedlim; // speed limit on current lane
+		float next_speedlim; // speed limit on next lane
+
 		// if vehicle front either in incoming lane before node or in node:
 		// cur_lane: incoming, next_lane: outgoing lane
 		SegLane cur_lane;

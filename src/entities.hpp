@@ -98,4 +98,4 @@ struct Entities {
 	bool buildings_changed = true;
 };
 
-typedef NullableVariant<Building*, Person*, network::Node*> sel_ptr;
+typedef NullableVariant<Building*, Person*, network::Node*, network::Segment*> sel_ptr;

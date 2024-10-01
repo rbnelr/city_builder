@@ -215,6 +215,30 @@ inline bool intersect_circle_ray (float3 pos, float r, Ray const& ray, float* hi
 	return true;
 }
 
+inline bool intersect_rect_ray (float3 pos, float3 forw, float3 right, Ray const& ray, float* hit_dist) {
+	float3 up = normalize(cross(right, forw));
+
+	float3 rel = pos - ray.pos;
+
+	float denom = dot(up, ray.dir);
+	if (denom == 0.0f) return false;
+
+	float t = dot(up, rel) / denom;
+	if (t < 0.0f) return false;
+	
+	float3 hit_pos_rel = ray.dir * t - rel;
+
+	float y = dot(hit_pos_rel, normalize(forw)) / length(forw);
+	float x = dot(hit_pos_rel, normalize(right)) / length(right);
+
+	if ( y < 0.0f || y > 1.0f ||
+	     x < 0.0f || x > 1.0f )
+		return false;
+
+	*hit_dist = t;
+	return true;
+}
+
 inline float3 ndc2world (float4x4 const& clip2world, float3 world) {
 /* Why this works:
 	clip.xyzw = world2clip * (world.xyz, 1)

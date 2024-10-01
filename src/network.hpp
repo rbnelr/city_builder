@@ -284,10 +284,6 @@ struct Node {
 	
 	void update_cached ();
 	void set_defaults ();
-	
-	SelCircle get_sel_shape () {
-		return { pos, _radius, lrgb(0.04f, 0.04f, 1) };
-	}
 
 	Bezier3 calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0, float2 shiftXZ_1);
 	Bezier3 calc_curve (SegLane& in, SegLane& out);
@@ -295,6 +291,10 @@ struct Node {
 	static Node* between (Segment const* in, Segment const* out);
 
 	int get_node_class ();
+	
+	SelCircle get_sel_shape () {
+		return { pos, _radius, lrgb(1, 0.5f, 0) };
+	}
 };
 
 struct Lane {
@@ -455,6 +455,16 @@ struct Segment { // better name? Keep Path and call path Route?
 		lanes.resize(asset->lanes.size());
 
 		_length = distance(pos_a, pos_b);
+	}
+	
+	SelRect get_sel_shape () {
+		float3 pos = pos_a;
+		float3 forw = tangent_a();
+		float3 right = rotate90_right(forw) * asset->width;
+		pos -= right * 0.5f;
+		forw *= _length;
+
+		return { pos, forw, right, lrgb(0, 0, 1) };
 	}
 };
 inline Node* Node::between (Segment const* in, Segment const* out) {

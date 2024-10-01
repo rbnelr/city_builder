@@ -139,11 +139,35 @@ struct SelCircle {
 	}
 	
 	void highlight () {
-		g_dbgdraw.wire_circle(pos, radius + 0.25f, lrgba(1,1,1,1), 32);
+		g_dbgdraw.wire_circle(pos, radius + 0.25f, lrgba(col,1), 32);
 	}
 	void highlight_selected (float tint=0, lrgba tint_col=0) {
 		lrgba tinted = lerp(lrgba(col,1), tint_col, tint);
 		g_dbgdraw.wire_circle(pos, radius, tinted, 32);
+	}
+};
+struct SelRect {
+	float3   pos;
+	float3   forw;
+	float3   right;
+	lrgb     col;
+
+	bool test (Ray const& ray, float* hit_dist) {
+		return intersect_rect_ray(pos, forw, right, ray, hit_dist);
+	}
+	
+	void highlight () {
+		float3 f = normalizesafe(forw) * 0.25f;
+		float3 r = normalizesafe(right) * 0.25f;
+
+		float3 p = pos;
+		p -= f * 0.5f;
+		p -= r * 0.5f;
+		g_dbgdraw.wire_quad(p, forw + f, right + r, lrgba(col,1));
+	}
+	void highlight_selected (float tint=0, lrgba tint_col=0) {
+		lrgba tinted = lerp(lrgba(col,1), tint_col, tint);
+		g_dbgdraw.wire_quad(pos, forw, right, tinted);
 	}
 };
 

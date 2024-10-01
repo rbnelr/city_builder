@@ -213,6 +213,15 @@ struct Interaction {
 				dist = hit_dist;
 			}
 		}
+
+		for (auto& seg : net.segments) {
+			auto shape = seg->get_sel_shape();
+			float hit_dist;
+			if (shape.test(ray, &hit_dist) && hit_dist < dist) {
+				hover = seg.get();
+				dist = hit_dist;
+			}
+		}
 	}
 	void highlight_hover_sel () {
 		if (hover) {

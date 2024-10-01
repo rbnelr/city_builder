@@ -483,6 +483,31 @@ SegLane VehNav::pick_lane (Network& net, Random& rand, int seg_i, SegLane prev_l
 	return lane;
 };
 
+Bezier3 start_bezier (SegLane const& lane, VehNavPoint const& start, float* out_t) {
+	auto lane_bez = lane._bezier();
+	float len = lane_bez.approx_len(4);
+	float t = min(0.5f + 5 / len, 1.0f);
+		
+	float3 point  = start.pos;
+	float3 ctrl   = lane_bez.eval(0.5f).pos;
+	float3 on_seg = lane_bez.eval(t).pos;
+
+	*out_t = t;
+	return Bezier3(point, ctrl, ctrl, on_seg);
+}
+Bezier3 end_bezier (SegLane const& lane, VehNavPoint const& end, float* out_t) {
+	auto lane_bez = lane._bezier();
+	float len = lane_bez.approx_len(4);
+	float t = max(0.5f - 5 / len, 0.0f); // curve such that the endpoint is 5m earlier on the lane than the middle point
+
+	float3 point  = end.pos;
+	float3 ctrl   = lane_bez.eval(0.5f).pos;
+	float3 on_seg = lane_bez.eval(t).pos;
+
+	*out_t = t;
+	return Bezier3(on_seg, ctrl, ctrl, point);
+}
+
 VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 	State s = {};
 	s.idx = idx;
@@ -496,31 +521,6 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 	//   Might still want to keep determinism based on car id + path progress int, just so reloading a save state results in the same behavior?
 	auto seeded_rand = Random(hash(idx, (uint64_t)this));
 	
-	auto start_bezier = [] (SegLane const& lane, VehNavPoint const& start, float* out_t) {
-		auto lane_bez = lane._bezier();
-		float len = lane_bez.approx_len(4);
-		float t = min(0.5f + 5 / len, 1.0f);
-		
-		float3 point  = start.pos;
-		float3 ctrl   = lane_bez.eval(0.5f).pos;
-		float3 on_seg = lane_bez.eval(t).pos;
-
-		*out_t = t;
-		return Bezier3(point, ctrl, ctrl, on_seg);
-	};
-	auto end_bezier = [] (SegLane const& lane, VehNavPoint const& end, float* out_t) {
-		auto lane_bez = lane._bezier();
-		float len = lane_bez.approx_len(4);
-		float t = max(0.5f - 5 / len, 0.0f); // curve such that the endpoint is 5m earlier on the lane than the middle point
-
-		float3 point  = end.pos;
-		float3 ctrl   = lane_bez.eval(0.5f).pos;
-		float3 on_seg = lane_bez.eval(t).pos;
-
-		*out_t = t;
-		return Bezier3(on_seg, ctrl, ctrl, point);
-	};
-
 	if (idx == 0) {
 		s.motion = MotionType::START;
 		
@@ -1645,7 +1645,8 @@ void update_vehicle_suspension (Network& net, SimVehicle& vehicle, float3 local_
 bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float dt) {
 	float aggress = driver->topspeed_accel_mul();
 
-	assert(bez_t < 1.0f);
+	// bez_t == state.end_t can happen due to extrapolation between curves
+	assert(bez_t <= 1.0f);
 	float speed_limit = aggress * get_cur_speed_limit(this);
 
 	float old_speed = speed;
@@ -1682,7 +1683,9 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 
 	// do bookkeeping when car reaches end of current bezier
 	if (bez_t >= state.end_t) {
+		float remain_dist = (bez_t - state.end_t) * bez_speed;
 		bez_t = state.next_start_t;
+
 		assert(bez_t >= 0 && bez_t < 1);
 
 		if (state.cur_vehicles)  state.cur_vehicles ->remove(this);
@@ -1693,16 +1696,23 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 
 		nav.step(net);
 
-		float blinker = 0;
+		// avoid visible jerk between bezier curves by extrapolating t
+		auto start_bez_speed = length(state.bezier.eval(bez_t).vel);
+		assert(remain_dist >= 0.0f);
+		float additional_t = remain_dist / start_bez_speed;
+		bez_t = min(bez_t + additional_t, state.end_t);
 
-		//Connection conn;
-		//auto* node = vehicle->path.get_node(0, &conn);
-		//if (node) {
-		//	auto turn = classify_turn(node, conn.a.seg, conn.b.seg);
-		//	if      (turn == Turns::LEFT ) blinker = -1;
-		//	else if (turn == Turns::RIGHT) blinker = +1;
-		//}
-		blinker = blinker;
+		{
+			float blk = 0;
+
+			auto* node = state.get_cur_node();
+			if (node) {
+				auto turn = classify_turn(node, state.cur_lane.seg, state.next_lane.seg);
+				if      (turn == Turns::LEFT ) blk = -1;
+				else if (turn == Turns::RIGHT) blk = +1;
+			}
+			blinker = blk;
+		}
 	}
 
 	// eval bezier at car front
@@ -1735,17 +1745,17 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 	{
 		float3 old_center = (old_front + old_rear) * 0.5f;
 		float3 new_center = (new_front + new_rear) * 0.5f;
-		float3 center_vel   = dt == 0 ? 0 : (new_center - old_center) / dt;
-		float3 center_accel = dt == 0 ? 0 : (center_vel - center_vel) / dt;
+		float3 cen_vel   = dt == 0 ? 0 : (new_center - old_center) / dt;
+		float3 cen_accel = dt == 0 ? 0 : (cen_vel - this->center_vel) / dt;
 		
 		// accel from world to local space
 		//float accel_cap = 30; // we get artefacts with huge accelerations due to discontinuities, cap accel to hide
 		//center_accel.y = clamp( dot(center_accel, right), -accel_cap, accel_cap);
 		//center_accel.x = clamp( dot(center_accel, forw ), -accel_cap, accel_cap);
 		float3 accel_local;
-		accel_local.x = dot(center_accel, moveDirs.right);
-		accel_local.y = dot(center_accel, moveDirs.forw );
-		accel_local.z = dot(center_accel, moveDirs.up   );
+		accel_local.x = dot(cen_accel, moveDirs.right);
+		accel_local.y = dot(cen_accel, moveDirs.forw );
+		accel_local.z = dot(cen_accel, moveDirs.up   );
 		update_vehicle_suspension(net, *this, -accel_local, dt);
 		
 	#if 0
@@ -1766,7 +1776,7 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 		}
 	#endif
 
-		center_vel = float3(center_vel, 0);
+		center_vel = float3(cen_vel, 0);
 
 		float wheel_circum = vehicle_asset->wheel_r * (2*PI);
 

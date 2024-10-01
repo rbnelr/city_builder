@@ -596,7 +596,6 @@ inline bool is_turn_allowed (Node* node, Segment* in, Segment* out, Turns allowe
 }
 
 ////
-
 class Pathfinding {
 public:
 	struct Endpoint {
@@ -609,6 +608,7 @@ public:
 		std::vector<Segment*>* result_path);
 };
 
+// Represents Start and Endpoint of Navigation
 struct VehNavPoint {
 	Segment* seg = nullptr;
 	float3   pos = 0;
@@ -627,6 +627,9 @@ struct VehNavPoint {
 	static VehNavPoint from_free_point (Network const& net, float3 pos);
 };
 
+// Stores the path from pathfinding
+// Is a Sequence of Motions that a vehicle performs to drive along a path
+// step() should be called whenever the vehicle has performed the Motion represented by the current State
 class VehNav {
 public:
 	enum MotionType { START, END, SEGMENT, NODE };
@@ -656,6 +659,7 @@ public:
 			return nullptr;
 		}
 
+		// Needed for correct Segment/Node updates
 		VehicleList<SimVehicle*>* cur_vehicles = nullptr;
 		VehicleList<SimVehicle*>* next_vehicles = nullptr;
 	};
@@ -702,6 +706,7 @@ public:
 	}
 };
 
+// Stores all the data for Vehicle simulation, from traffic sim, to visual physics and other visuals
 class SimVehicle {
 friend class VehNav;
 public: // TODO: encapsulate better?
@@ -773,6 +778,8 @@ public: // TODO: encapsulate better?
 	bool update (Network& net, Metrics::Var& met, Person* driver, float dt);
 };
 
+// User of SimVehicle, currently represents a random trip from building to building
+// More complexity TODO
 class VehicleTrip {
 public:
 	typedef NullableVariant<Building*, float3> Endpoint;

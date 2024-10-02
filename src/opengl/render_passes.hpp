@@ -1114,7 +1114,7 @@ struct RenderPasses {
 		//glClear(GL_DEPTH_BUFFER_BIT);
 	}
 	
-	void deferred_lighting_pass (StateManager& state, Textures& texs, DefferedPointLightRenderer& light_renderer) {
+	void deferred_lighting_pass (StateManager& state, Textures& texs, DefferedPointLightRenderer& light_renderer, float dt) {
 		if (shad_main_light->set_macro("SHADOWMAP", shadowmap != nullptr))
 			shad_main_light->recompile();
 		
@@ -1159,9 +1159,12 @@ struct RenderPasses {
 			glGenerateMipmap(GL_TEXTURE_2D); // glGenerateMipmap never shows up in profiler, does this even cost any time?
 			glBindTexture(GL_TEXTURE_2D, 0);
 		}
+		
+		exposure.auto_exposure_readback(light_fbo.col, renderscale.size, dt);
 	}
 
-	void postprocess (StateManager& state, int2 window_size, float dt) {
+	void postprocess (StateManager& state, int2 window_size) {
+
 		bloom.render(state, light_fbo);
 		
 		{
@@ -1184,8 +1187,6 @@ struct RenderPasses {
 
 			draw_fullscreen_triangle(state);
 		}
-		
-		exposure.auto_exposure_readback(light_fbo.col, renderscale.size, dt);
 
 		light_fbo.invalidate();
 		bloom.invalidate();

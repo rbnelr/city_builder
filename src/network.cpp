@@ -516,7 +516,6 @@ float get_speed_limit (VehNav::MotionType motion, SegLane cur_lane={}, SegLane n
 		}
 		case VehNav::NODE: {
 			assert(cur_lane && next_lane);
-
 			float a = cur_lane .seg->asset->speed_limit;
 			float b = next_lane.seg->asset->speed_limit;
 			return min(a, b); // TODO: ??
@@ -525,6 +524,25 @@ float get_speed_limit (VehNav::MotionType motion, SegLane cur_lane={}, SegLane n
 			return 20 / KPH_PER_MS;
 		}
 	}
+}
+float get_curvature_speed_limit (float curv) {
+	float max_accel = 6.0f;
+	// centripedal accel formula: a = v^2 / r <=> a = v^2 * curv
+	float max_speed = sqrt(max_accel / (curv + 0.001f));
+	return max(max_speed, 5.0f / KPH_PER_MS);
+}
+// Ideally apply to all beziers, not just curves
+float get_curve_speed_limit (Bezier3 const& bez, SegLane cur_lane, SegLane next_lane) {
+	float seg_limit = get_speed_limit(VehNav::MotionType::NODE, cur_lane, next_lane);
+
+	// sample multiple times to slow down in S-curves as well
+	float curv =     abs(bez.eval_with_curv(0.25f).curv);
+	curv = max(curv, abs(bez.eval_with_curv(0.5f ).curv));
+	curv = max(curv, abs(bez.eval_with_curv(0.75f).curv));
+
+	float curv_limit = get_curvature_speed_limit(curv);
+
+	return min(seg_limit, curv_limit);
 }
 
 // TODO: see if it might not be better to write state-machine like query function that only ever returns current state
@@ -591,8 +609,14 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 
 			s.cur_speedlim = get_speed_limit(MotionType::SEGMENT, s.cur_lane);
 			// TODO: can this be written more concisely?
-			if (s.next_lane) s.next_speedlim = get_speed_limit(MotionType::NODE, s.cur_lane, s.next_lane);
-			else             s.next_speedlim = get_speed_limit(MotionType::END);
+			if (s.next_lane) {
+				Node* cur_node = Node::between(s.cur_lane.seg, s.next_lane.seg);
+				auto curve_bez = cur_node->calc_curve(s.cur_lane, s.next_lane);
+				s.next_speedlim = get_curve_speed_limit(curve_bez, s.cur_lane, s.next_lane);
+			}
+			else {
+				s.next_speedlim = get_speed_limit(MotionType::END);
+			}
 		}
 		else {
 			s.motion = MotionType::NODE;
@@ -609,7 +633,7 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 			
 			s.bezier = cur_node->calc_curve(s.cur_lane, s.next_lane);
 
-			s.cur_speedlim  = get_speed_limit(MotionType::NODE   , s.cur_lane, s.next_lane);
+			s.cur_speedlim  = get_curve_speed_limit(s.bezier, s.cur_lane, s.next_lane);
 			s.next_speedlim = get_speed_limit(MotionType::SEGMENT, s.next_lane);
 		}
 	}

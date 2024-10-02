@@ -197,12 +197,12 @@ public:
 			ZoneScopedN("deferred_lighting");
 			OGL_TRACE("deferred_lighting");
 			
-			passes.deferred_lighting_pass(state, textures, objects.entities.lights);
+			passes.deferred_lighting_pass(state, textures, objects.entities.lights, app.input.real_dt);
 		}
 		
 		update_view_resolution(app.input.window_size);
 
-		passes.postprocess(state, app.input.window_size, app.input.real_dt);
+		passes.postprocess(state, app.input.window_size);
 
 		gl_dbgdraw.render(state, g_dbgdraw);
 

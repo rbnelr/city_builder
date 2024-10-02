@@ -228,7 +228,8 @@ struct ExposureReadback {
 		counter = 0;
 	}
 
-	int desired_res = 4;
+	//int desired_res = 4;
+	int desired_res = 99;
 	float2 edge_weight = 0.0f;
 
 	bool readback (Render_Texture& tex, int2 full_res, lrgb* weighted_average) {
@@ -275,15 +276,15 @@ struct ExposureReadback {
 				lrgb total = 0;
 				float total_weight = 0;
 
-				for (int y=0; y<res.y; ++y)
-				for (int x=0; x<res.x; ++x) {
-					float2 uv = ((float2)int2(x,y) + 0.5f) / (float2)res;
-					float2 t2d = lerp(edge_weight, 1.0f, 1 - abs(uv * 2 - 1));
-					float t = min(t2d.x, t2d.y);
-
-					total += mapped[x + y*res.x];
-					total_weight += t;
-				}
+				//for (int y=0; y<res.y; ++y)
+				//for (int x=0; x<res.x; ++x) {
+				//	float2 uv = ((float2)int2(x,y) + 0.5f) / (float2)res;
+				//	float2 t2d = lerp(edge_weight, 1.0f, 1 - abs(uv * 2 - 1));
+				//	float t = min(t2d.x, t2d.y);
+				//
+				//	total += mapped[x + y*res.x];
+				//	total_weight += t;
+				//}
 
 				*weighted_average = total / total_weight;
 				readback_avail = true;

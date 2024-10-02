@@ -216,7 +216,7 @@ bool VehNav::pathfind (Network& net, VehNavPoint const& start, VehNavPoint const
 	
 	this->start = start;
 	this->target = target;
-
+	
 	s = _step(net, 0, nullptr);
 	return true;
 }
@@ -508,7 +508,6 @@ Bezier3 end_bezier (SegLane const& lane, VehNavPoint const& end, float* out_t) {
 	return Bezier3(on_seg, ctrl, ctrl, point);
 }
 
-
 float get_speed_limit (VehNav::MotionType motion, SegLane cur_lane={}, SegLane next_lane={}) {
 	switch (motion) {
 		case VehNav::SEGMENT: {
@@ -565,7 +564,7 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 		s.bezier = end_bezier(prev_lane, target, &t);
 
 		s.cur_speedlim  = get_speed_limit(MotionType::END);
-		s.next_speedlim = 1; // stop at end of last bezier
+		s.next_speedlim = 1; // stop at end of last bezier, TODO: how to customize based on target? ex. for underground parking entrance
 	}
 	else {
 		int i = (s.idx-1)/2;
@@ -622,7 +621,9 @@ void VehNav::visualize (OverlayDraw& overlay, Network& net, SimVehicle* vehicle,
 	State copy = s;
 	float start_t = vehicle->bez_t;
 	
-	for (;;) {
+	// corretly handle first motion
+	while (!(copy.motion == END && start_t >= copy.end_t)) {
+
 		if (skip_next_node && copy.motion == NODE) {
 			skip_next_node = false;
 		}
@@ -632,7 +633,7 @@ void VehNav::visualize (OverlayDraw& overlay, Network& net, SimVehicle* vehicle,
 		}
 		
 		start_t = copy.next_start_t;
-		if (copy.motion == END) break;
+		if (copy.motion == END) break; // avoid step after last motion
 		
 		// call step for visualize, this might be a bad idea if it modifies path (chosen lanes)
 		copy = _step(net, copy.idx + 1, &copy);
@@ -1650,13 +1651,23 @@ void update_vehicle_suspension (Network& net, SimVehicle& vehicle, float3 local_
 	vehicle.suspension_ang = ang;
 	vehicle.suspension_ang_vel = vel;
 }
+void update_wheel_roll (SimVehicle& vehicle, float delta_dist, VehicleAsset* vehicle_asset) {
+	float wheel_circum = vehicle_asset->wheel_r * (2*PI);
+
+	vehicle.wheel_roll += delta_dist / wheel_circum;
+	vehicle.wheel_roll = fmodf(vehicle.wheel_roll, 1.0f);
+}
 
 bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float dt) {
+	auto& state = nav.get_state();
+	if (state.motion == VehNav::END && bez_t >= state.end_t) {
+		update_vehicle_suspension(net, *this, 0, dt); // update suspention lets it come to rest
+		return true;
+	}
+
 	// bez_t == state.end_t can happen due to extrapolation between curves
 	assert(bez_t <= 1.0f);
 	
-	auto& state = nav.get_state();
-
 	float speed_limit = state.cur_speedlim;
 	float aggress = driver->topspeed_accel_mul();
 	{
@@ -1701,37 +1712,40 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 
 	// do bookkeeping when car reaches end of current bezier
 	if (bez_t >= state.end_t) {
-		float additional_dist = (bez_t - state.end_t) * bez_speed;
-		bez_t = state.next_start_t;
+		if (state.cur_vehicles) state.cur_vehicles ->remove(this);
 
-		assert(bez_t >= 0 && bez_t < 1);
+		if (state.motion == VehNav::END) {
+			// end path with bez_t still >= state.end_t, signalling done_navigating()
+			bez_t = state.end_t;
+		}
+		else {
+			float additional_dist = (bez_t - state.end_t) * bez_speed;
+			bez_t = state.next_start_t;
 
-		if (state.cur_vehicles)  state.cur_vehicles ->remove(this);
+			assert(bez_t >= 0 && bez_t < 1);
 
-		if (state.motion == VehNav::END)
-			return true; // end path
+			nav.step(net);
 
-		nav.step(net);
+			// NODE: what previously was next_vehicles (before step) is simply cur_vehicles after step, saving some memory
+			if (state.cur_vehicles) state.cur_vehicles->add(this);
 
-		// NODE: what previously was next_vehicles (before step) is simply cur_vehicles after step, saving some memory
-		if (state.cur_vehicles) state.cur_vehicles->add(this);
+			// avoid visible jerk between bezier curves by extrapolating t
+			auto start_bez_speed = length(state.bezier.eval(bez_t).vel);
+			assert(additional_dist >= 0.0f);
+			float additional_t = additional_dist / start_bez_speed;
+			bez_t = min(bez_t + additional_t, state.end_t);
 
-		// avoid visible jerk between bezier curves by extrapolating t
-		auto start_bez_speed = length(state.bezier.eval(bez_t).vel);
-		assert(additional_dist >= 0.0f);
-		float additional_t = additional_dist / start_bez_speed;
-		bez_t = min(bez_t + additional_t, state.end_t);
+			{
+				float blnk = 0;
 
-		{
-			float blnk = 0;
-
-			auto* node = state.get_cur_node();
-			if (node) {
-				auto turn = classify_turn(node, state.cur_lane.seg, state.next_lane.seg);
-				if      (turn == Turns::LEFT ) blnk = -1;
-				else if (turn == Turns::RIGHT) blnk = +1;
+				auto* node = state.get_cur_node();
+				if (node) {
+					auto turn = classify_turn(node, state.cur_lane.seg, state.next_lane.seg);
+					if      (turn == Turns::LEFT ) blnk = -1;
+					else if (turn == Turns::RIGHT) blnk = +1;
+				}
+				blinker = blnk;
 			}
-			blinker = blnk;
 		}
 	}
 
@@ -1798,10 +1812,7 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 
 		center_vel = float3(cen_vel, 0);
 
-		float wheel_circum = vehicle_asset->wheel_r * (2*PI);
-
-		wheel_roll += delta_dist / wheel_circum;
-		wheel_roll = fmodf(wheel_roll, 1.0f);
+		update_wheel_roll(*this, delta_dist, vehicle_asset);
 	}
 
 	return false;
@@ -1854,12 +1865,9 @@ void VehicleTrip::update_person (Entities& entities, Network& net, Metrics::Var&
 	}
 
 	if (person->trip) {
-		if (person->trip->sim.update(net, met, person, dt)) {
-			if (person->trip->on_nav_finish(net, person)) {
-				person->trip->finish_trip(person);
-				person->trip = nullptr;
-			}
-		}
+		if (!person->trip->update(net, met, person, dt))
+			return; // trip ongoing
+		person->trip = nullptr; // trip done
 	}
 }
 

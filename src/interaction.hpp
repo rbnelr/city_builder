@@ -102,36 +102,19 @@ struct Interaction {
 			auto* pers = selection.get<Person*>();
 
 			if (pers->trip) {
-				network::VehNavPoint targ = {};
+				network::VehicleTrip::Endpoint targ = {};
 
 				auto* build = hover.get<Building*>();
 				if (build) {
-					targ = network::VehNavPoint::from_building(build);
+					targ = build;
 				}
 				else {
 					auto res = heightmap.raycast_cursor(view, input);
-					if (res) targ = network::VehNavPoint::from_free_point(net, *res);
+					if (res) targ = *res;
 				}
-
-				if (targ) {
-					if (input.buttons[MOUSE_BUTTON_RIGHT].went_down) {
-						if (build) {
-							pers->trip->target = build; // switch target building
-						}
-						else {
-							// targeting free point, keep building target
-							pers->trip->waypoint = targ;
-						}
-						pers->trip->sim.nav.repath(net, targ);
-					}
-					else {
-						// copy and preview repath
-						network::VehNav tmp_nav = pers->trip->sim.nav;
-						if (tmp_nav.repath(net, targ)) {
-							tmp_nav.visualize(overlay, net, &pers->trip->sim, false, lrgba(1,1,1,0.4f));
-						}
-					}
-				}
+				
+				bool preview = !input.buttons[MOUSE_BUTTON_RIGHT].went_down;
+				pers->trip->dbg_waypoint(overlay, net, targ, preview);
 			}
 		}
 		

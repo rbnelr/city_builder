@@ -640,7 +640,7 @@ public:
 		// 1: first segment, 2: first node, 3: next segment...
 		// n-1: road segment -> end building
 		int idx = -1;
-	
+		
 		MotionType motion;
 
 		float end_t = 1.0f;
@@ -685,6 +685,10 @@ private:
 	State _step (Network& net, int idx, State* prev_state) const;
 
 public:
+	operator bool () const {
+		return !path.empty();
+	}
+
 	VehNavPoint const& get_target () const { return target; }
 	State const& get_state () const { return s; }
 
@@ -731,7 +735,7 @@ public: // TODO: encapsulate better?
 	float bez_speed = INF; // set after timestep based on current bezier eval, to approx correct worldspace step size along bezier in next tick
 
 	VehNav nav;
-	
+
 //// Movement sim variables for visuals
 	float3 front_pos; // car front
 	float3 rear_pos; // car rear
@@ -783,44 +787,91 @@ public: // TODO: encapsulate better?
 // More complexity TODO
 class VehicleTrip {
 public:
-	typedef NullableVariant<Building*, float3> Endpoint;
+	typedef std::variant<std::monostate, Building*, float3> Endpoint;
+
+	static VehNavPoint to_navpoint (Network& net, Endpoint const& endpoint) {
+		auto build = std::get_if<Building*>(&endpoint);
+		if (build)
+			return VehNavPoint::from_building(*build);
+		else
+			return VehNavPoint::from_free_point(net, std::get<float3>(endpoint));
+	}
 
 	//Person* driver;
 	
-	Endpoint start;
-	Endpoint target;
+	Building* start;
+	Building* target;
 
-	VehNavPoint waypoint = {}; // just for debug repathing for now
+	std::optional<Endpoint> _waypoint = {}; // just for debug repathing for now
+	float waypoint_wait_after = 0; // just for testing
 
 	SimVehicle sim;
 
 	static bool start_trip (Entities& entities, Network& net, Random& rand, Person* person);
 
-	bool on_nav_finish (Network& net, Person* person) {
-		if (waypoint) {
-			// waypoint was set when repathing to free point, so we can remember to path towards real target later
-			assert(start.get<Building*>());
-			
-			// reset nav and go from waypoint (where we currently are to original target)
-			sim.nav = {};
-			sim.nav.pathfind(net,
-				waypoint,
-				VehNavPoint::from_building( target.get<Building*>() ));
+	bool dbg_waypoint (OverlayDraw& overlay, Network& net, Endpoint waypoint, bool preview) {
+		auto targ = to_navpoint(net, waypoint);
+		if (targ) {
+			if (!preview) {
+				// add tmp waypoint, keep building target
+				_waypoint = waypoint;
+				waypoint_wait_after = 3;
 
-			waypoint = {};
+				sim.nav.repath(net, targ);
+				return true;
+			}
+			else {
+				// copy and preview repath
+				network::VehNav tmp_nav = sim.nav;
+				if (tmp_nav.repath(net, targ)) {
+					tmp_nav.visualize(overlay, net, &sim, false, lrgba(1,1,1,0.4f));
+				}
+			}
+		}
+		return false;
+	}
+
+	void resume_after_waypoint (Network& net, Person* person) {
+		assert(_waypoint);
+		//assert(sim.nav.path.back() == waypoint.seg); // private!
+
+		auto wayp_targ = to_navpoint(net, *_waypoint); // is this smart, computed this before, but might want to know about building as well
+
+		// reset nav and go from waypoint (where we currently are to original target)
+		sim.nav = {};
+		sim.nav.pathfind(net,
+			wayp_targ,
+			VehNavPoint::from_building(target));
+		sim.bez_t = 0; // need to reset this
+
+		_waypoint = {};
+	}
+
+	bool update (Network& net, Metrics::Var& met, Person* person, float dt) {
+		if (!sim.update(net, met, person, dt))
+			return false; // still navigating
+
+		if (_waypoint) {
+			if (waypoint_wait_after <= 0.0f) {
+				waypoint_wait_after = 0;
+				resume_after_waypoint(net, person);
+			}
+			waypoint_wait_after -= dt;
 			return false;
 		}
-
-		return true; // trip done
+		else {
+			finish_trip(person);
+		}
+		return true; // trip finished
 	}
 
+	// do trip = nullptr after
 	void cancel_trip (Person* person) {
-		assert(start.get<Building*>());
-		person->cur_building = start.get<Building*>();
+		person->cur_building = start;
 	}
+	// do trip = nullptr after
 	void finish_trip (Person* person) {
-		assert(target.get<Building*>());
-		person->cur_building = target.get<Building*>();
+		person->cur_building = target;
 	}
 
 	static void update_person (Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person* person, float dt);

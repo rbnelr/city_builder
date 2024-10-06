@@ -9,8 +9,12 @@ inline float angle2d (float2 dir) {
 }
 
 struct PosRot {
-	float3 pos;
-	float  ang;
+	float3 pos = 0;
+	float  ang = 0;
+
+	float3 local (float3 p) const {
+		return pos + rotate3_Z(ang) * p;
+	}
 };
 
 inline float lrgb_luminance (lrgb const& col) {
@@ -242,6 +246,23 @@ inline bool intersect_rect_ray (float3 pos, float3 forw, float3 right, Ray const
 
 	*hit_dist = t;
 	return true;
+}
+
+inline float point_line_segment_dist (float2 const& line_a, float2 const& line_b, float2 const& point, float* out_t=nullptr) {
+
+	float2 pos_rel = point - line_a;
+	float2 line_dir = line_b - line_a;
+
+	float len_sqr = length_sqr(line_dir);
+	float t = len_sqr == 0.0f ? 0.0f : dot(line_dir, pos_rel) / len_sqr;
+
+	t = clamp(t, 0.0f, 1.0f);
+
+	float2 projected = t * line_dir;
+	float2 offset = pos_rel - projected;
+
+	if (out_t) *out_t = t;
+	return length(offset);
 }
 
 inline float3 ndc2world (float4x4 const& clip2world, float3 world) {

@@ -332,6 +332,11 @@ struct Segment { // better name? Keep Path and call path Route?
 	}
 	Bezier3 _bezier_shifted (float2 shiftXZ) const;
 
+	float distance_to_point (float3 pos, float* nearest_t=nullptr) const {
+		// TODO: curved roads!
+		return point_line_segment_dist((float2)pos_a, (float2)pos_b, (float2)pos, nearest_t);
+	}
+
 	float _length = 0;
 
 	SegVehicles vehicles;
@@ -612,20 +617,23 @@ public:
 // Represents Start and Endpoint of Navigation
 struct VehNavPoint {
 	Segment* seg = nullptr;
-	float3   pos = 0;
-	// float t
+	PosRot   pos = {};
+	float    seg_t = 0;
 
 	VehNavPoint () {};
-	VehNavPoint (Segment* seg, float3 pos): seg{seg}, pos{pos} {};
+	VehNavPoint (Segment* seg, float seg_t, PosRot pos): seg{seg}, seg_t{seg_t}, pos{pos} {};
 
 	operator bool () const {
 		return seg != nullptr;
 	}
 
-	static VehNavPoint from_building (Building* build) {
-		return { build->connected_segment, build->pos };
+	float get_lane_t (SegLane const& lane) const {
+		assert(lane.seg == seg);
+		return lane.get_asset().direction == LaneDir::FORWARD ?
+			seg_t : 1.0f - seg_t;
 	}
-	static VehNavPoint from_free_point (Network const& net, float3 pos);
+
+	//static VehNavPoint from_free_point (Network const& net, float3 pos);
 };
 
 // Stores the path from pathfinding
@@ -793,17 +801,26 @@ public:
 	};
 
 	typedef std::variant<Building*, float3> Waypoint;
-
-	static VehNavPoint to_navpoint (Network& net, Waypoint const& waypoint) {
-		auto build = std::get_if<Building*>(&waypoint);
-		if (build)
-			return VehNavPoint::from_building(*build);
-		return VehNavPoint::from_free_point(net, std::get<float3>(waypoint));
-	}
+	
+	//static VehNavPoint to_navpoint (Network& net, Waypoint const& waypoint) {
+	//	auto build = std::get_if<Building*>(&waypoint);
+	//	if (build)
+	//		return VehNavPoint::from_building(*build);
+	//	return VehNavPoint::from_free_point(net, std::get<float3>(waypoint));
+	//}
 	static VehNavPoint to_navpoint (Endpoint const& endpoint) {
+		auto* seg = endpoint.building->connected_segment;
+
+		PosRot pos;
 		if (endpoint.parking)
-			return VehNavPoint{ endpoint.building->connected_segment, endpoint.parking->pos.pos };
-		return VehNavPoint::from_building(endpoint.building);
+			pos = endpoint.parking->vehicle_front_pos();
+		else
+			pos = PosRot(endpoint.building->pos, endpoint.building->rot);
+
+		float seg_t = 0;
+		seg->distance_to_point(pos.pos, &seg_t);
+		
+		return VehNavPoint(seg, seg_t, pos);
 	}
 
 	//Person* driver;
@@ -816,8 +833,8 @@ public:
 	}
 	VehNavPoint get_vehicle_trip_target (Vehicle* vehicle, bool visualize=false) override;
 
-	std::optional<Waypoint> _waypoint = {}; // just for debug repathing for now
-	float waypoint_wait_after = 0; // just for testing
+	//std::optional<Waypoint> _waypoint = {}; // just for debug repathing for now
+	//float waypoint_wait_after = 0; // just for testing
 
 	static Endpoint from_vehicle_start (Building* start_building, Vehicle& veh) {
 		auto* parking = std::get_if<ParkingSpot*>(&veh.state);
@@ -1113,7 +1130,7 @@ struct Network {
 		float min_dist = INF;
 
 		for (auto& seg : segments) {
-			float dist = point_line_segment_dist(seg->pos_a, seg->pos_b - seg->pos_a, (float2)pos);
+			float dist = seg->distance_to_point(pos);
 			if (dist < min_dist) {
 				min_dist = dist;
 				nearest_seg = seg.get();
@@ -1124,11 +1141,11 @@ struct Network {
 	}
 };
 
-inline VehNavPoint VehNavPoint::from_free_point (Network const& net, float3 pos) {
-	auto* seg = net.find_nearest_segment(pos);
-	if (!seg) return {};
-	return {seg, pos};
-}
+//inline VehNavPoint VehNavPoint::from_free_point (Network const& net, float3 pos) {
+//	auto* seg = net.find_nearest_segment(pos);
+//	if (!seg) return {};
+//	return {seg, pos};
+//}
 
 } // namespace network
 using network::Network;

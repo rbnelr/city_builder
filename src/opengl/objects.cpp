@@ -586,17 +586,18 @@ void ObjectRender::push_parked_vehicle_instance (std::vector<DynamicVehicle>& in
 	auto& instance = instances.emplace_back();
 
 	auto& veh = *parking.veh;
+	auto pos = parking.calc_pos();
 
 	int tex_id = texs.bindless_textures[veh.asset->tex_filename];
 
 	instance.mesh_id = entities.vehicle_meshes.asset2mesh_id[veh.asset];
 	instance.instance_id = instance_id;
 	instance.tex_id = tex_id;
-	instance.pos = parking.pos.pos;
+	instance.pos = pos.pos;
 	instance.tint = veh.col;
 	instance.glow = 0;
 	
-	float3x3 heading_rot = rotate3_Z(parking.pos.ang);
+	float3x3 heading_rot = rotate3_Z(pos.ang);
 	for (int i=0; i<ARRLEN(instance.bone_rot); ++i)
 		instance.bone_rot[i] = float4x4(heading_rot);
 }

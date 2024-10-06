@@ -480,26 +480,30 @@ SegLane VehNav::pick_lane (Network& net, Random& rand, int seg_i, SegLane prev_l
 Bezier3 start_bezier (SegLane const& lane, VehNavPoint const& start, float* out_t) {
 	auto lane_bez = lane._bezier();
 	float len = lane_bez.approx_len(4);
-	float t = min(0.5f + 5 / len, 1.0f);
+	float t1 = start.get_lane_t(lane);
+	float t0 = clamp(t1 + 5 / len, 0.01f, 0.99f);
 		
-	float3 point  = start.pos;
-	float3 ctrl   = lane_bez.eval(0.5f).pos;
-	float3 on_seg = lane_bez.eval(t).pos;
+	float3 point  = start.pos.pos;
+	float3 ctrlA  = start.pos.local(float3(-10,0,0));
+	float3 ctrlB  = lane_bez.eval(t1).pos;
+	float3 on_seg = lane_bez.eval(t0).pos;
 
-	*out_t = t;
-	return Bezier3(point, ctrl, ctrl, on_seg);
+	*out_t = t0;
+	return Bezier3(point, ctrlA, ctrlB, on_seg);
 }
 Bezier3 end_bezier (SegLane const& lane, VehNavPoint const& end, float* out_t) {
 	auto lane_bez = lane._bezier();
 	float len = lane_bez.approx_len(4);
-	float t = max(0.5f - 5 / len, 0.0f); // curve such that the endpoint is 5m earlier on the lane than the middle point
+	float t1 = end.get_lane_t(lane);
+	float t0 = clamp(t1 - 5 / len, 0.01f, 0.99f); // curve such that the endpoint is 5m earlier on the lane than seg_t
+	
+	float3 point  = end.pos.pos;
+	float3 ctrlA  = end.pos.local(float3(-10,0,0));
+	float3 ctrlB  = lane_bez.eval(t1).pos;
+	float3 on_seg = lane_bez.eval(t0).pos;
 
-	float3 point  = end.pos;
-	float3 ctrl   = lane_bez.eval(0.5f).pos;
-	float3 on_seg = lane_bez.eval(t).pos;
-
-	*out_t = t;
-	return Bezier3(on_seg, ctrl, ctrl, point);
+	*out_t = t0;
+	return Bezier3(on_seg, ctrlB, ctrlA, point);
 }
 
 float get_speed_limit (VehNav::MotionType motion, SegLane cur_lane={}, SegLane next_lane={}) {
@@ -709,7 +713,7 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 			avail_space = lane_out.seg->_length;
 			for (auto* a : lane_out.seg->vehicles.lanes[lane_out.lane].list.list) {
 				dbg_avail_space(lane_out, a);
-				avail_space -= a->vehicle_asset->car_len() + SAFETY_DIST;
+				avail_space -= a->vehicle_asset->car_len() + SAFETY_DIST*1.25f;
 			}
 		}
 	}
@@ -725,7 +729,7 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 		auto& avail_space = v.conn.conn.b.vehicles().avail_space;
 		if (avail_space >= v.vehicle->vehicle_asset->car_len()) {
 			dbg_avail_space(v.conn.conn.b, v.vehicle);
-			avail_space -= v.vehicle->vehicle_asset->car_len() + SAFETY_DIST;
+			avail_space -= v.vehicle->vehicle_asset->car_len() + SAFETY_DIST*1.25f;
 		}
 	}
 }
@@ -1412,7 +1416,7 @@ void update_node (App& app, Node* node, float dt) {
 
 			avail_space = lane_out.seg->_length;
 			for (auto* a : lane_out.seg->vehicles.lanes[lane_out.lane].list.list) {
-				avail_space -= a->vehicle_asset->car_len() + SAFETY_DIST;
+				avail_space -= a->vehicle_asset->car_len() + SAFETY_DIST*1.25f;
 			}
 		}
 	}
@@ -1524,7 +1528,7 @@ void update_node (App& app, Node* node, float dt) {
 		// reserve space either if already on node or if on incoming lane and not blocked by traffic light
 		if (!incoming_lane || (space_left && !v.blocked)) {
 			// still reserve space even if none is avail if already on node
-			avail_space -= v.vehicle->vehicle_asset->car_len() + SAFETY_DIST;
+			avail_space -= v.vehicle->vehicle_asset->car_len() + SAFETY_DIST*1.25f;
 		}
 		else {
 			float dist = -v.front_k; // end of ingoing lane

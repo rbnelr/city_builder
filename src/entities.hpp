@@ -117,16 +117,29 @@ public:
 		return vehicle;
 	}
 
+	// center
 	PosRot calc_pos () const {
 		return pos;
 	}
+	// 
+	PosRot vehicle_front_pos () const {
+		return { pos.local(float3(ParkingSpot::default_size.y*0.5f,0,0)), pos.ang };
+	}
 
 	void dbg_draw () {
-		float3 forw  = rotate3_Z(pos.ang) * float3(default_size.y,0,0);
-		float3 right = rotate3_Z(pos.ang) * float3(0,-default_size.x,0);
-		float3 p = pos.pos - forw*0.5f - right*0.5f;
+		float3 F  = rotate3_Z(pos.ang) * float3(default_size.y,0,0);
+		float3 R = rotate3_Z(pos.ang) * float3(0,-default_size.x,0);
+		float3 p = pos.pos - F*0.5f - R*0.5f;
 
-		g_dbgdraw.wire_quad(p, forw, right, lrgba(1,0,0,1));
+		float3 A = p;
+		float3 B = p+R;
+		float3 C = p+R+F;
+		float3 D = p  +F;
+
+		g_dbgdraw.line(A, B, lrgba(1,0.5f,0,1));
+		g_dbgdraw.line(B, C, lrgba(1,0,0,1));
+		g_dbgdraw.line(C, D, lrgba(1,0,0,1));
+		g_dbgdraw.line(D, A, lrgba(1,0,0,1));
 	}
 };
 

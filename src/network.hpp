@@ -30,6 +30,7 @@ struct Metrics {
 	
 	struct Var {
 		float total_flow = 0;
+		float total_flow_weight = 0;
 	};
 	
 	void update (Var& var, App& app);
@@ -1084,15 +1085,22 @@ struct Network {
 	int _dijk_iter_dupl = 0;
 	int _dijk_iter_lanes = 0;
 
+	int active_vehicles = 0;
+
 	// Just an experiment for now
 	float _lane_switch_chance = 0.25f;
+	float _stay_time = 30;
 
 	void imgui () {
+		ImGui::Text("Active Vehicles: %5d", active_vehicles);
+
 		metrics.imgui();
 		settings.imgui();
 
 		ImGui::SliderFloat("lane_switch_chance", &_lane_switch_chance, 0, 1);
 		_lane_switch_chance = clamp(_lane_switch_chance, 0.0f, 1.0f);
+
+		ImGui::DragFloat("stay_time", &_stay_time, 0);
 	}
 
 	int pathing_count;

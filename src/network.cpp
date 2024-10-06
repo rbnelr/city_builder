@@ -1738,6 +1738,7 @@ bool SimVehicle::sim_update (Network& net, Metrics::Var& met, Vehicle* veh, Pers
 
 	speed = new_speed;
 	met.total_flow += speed / speed_limit;
+	met.total_flow_weight += 1;
 	
 	// move car with speed on bezier based on previous frame delta t
 	float delta_dist = speed * dt;
@@ -1852,7 +1853,7 @@ bool SimVehicle::sim_update (Network& net, Metrics::Var& met, Vehicle* veh, Pers
 }
 
 void Metrics::update (Var& var, App& app) {
-	avg_flow = var.total_flow / (float)app.entities.persons.size();
+	avg_flow = var.total_flow / var.total_flow_weight;
 
 	flow_plot.push_value(avg_flow);
 }
@@ -1924,9 +1925,10 @@ void VehicleTrip::update_person (Entities& entities, Network& net, Metrics::Var&
 
 	auto* trip = person->owned_vehicle->get_trip();
 	if (trip) {
+		net.active_vehicles++;
 		if (trip->update(net, met, person, dt)) {
 			finish_trip(trip, person);
-			person->stay_timer = 20;
+			person->stay_timer = net._stay_time;
 			return;
 		}
 		// trip ongoing
@@ -1937,6 +1939,7 @@ void Network::simulate (App& app) {
 	ZoneScoped;
 
 	pathing_count = 0;
+	active_vehicles = 0;
 
 	float dt = app.sim_dt();
 

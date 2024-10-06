@@ -9,32 +9,7 @@ namespace network {
 }
 struct Building;
 class Vehicle;
-
-// Should this class be a series of parking spots instead?
-class ParkingSpot {
-public:
-	float3 pos; // TODO: eliminate this
-	// this probably is needed to be able to move vehicles when deleting segment/building,
-	// but could be stored differently
-	Vehicle* parked_vehicle = nullptr;
-
-	bool is_occupied () {
-		return parked_vehicle;
-	}
-	void park (Vehicle* vehicle) {
-		assert(!is_occupied());
-		parked_vehicle = vehicle;
-	}
-	Vehicle* unpark () {
-		Vehicle* vehicle = parked_vehicle;
-		parked_vehicle = nullptr;
-		return vehicle;
-	}
-
-	PosRot calc_pos () const {
-		return { pos, 0 };
-	}
-};
+class ParkingSpot;
 
 class Vehicle {
 public:
@@ -61,7 +36,7 @@ public:
 		bool bus = asset->mesh_filename == "vehicles/bus.fbx";
 
 		// 50% of cars (100% of busses) are colorful
-		if (r.chance(0.5f) && bus) {
+		if (r.chance(0.5f) || bus) {
 			col = hsv2rgb(r.uniformf(), 1.0f, 0.8f); // debug-like colorful colors
 		}
 		// other cars get black and white colors
@@ -82,6 +57,7 @@ public:
 			col = lrgb(1,1,1);
 		}
 	}
+	~Vehicle ();
 
 	std::optional<PosRot> clac_pos ();
 	
@@ -93,6 +69,72 @@ public:
 	}
 };
 
+// Should this class be a series of parking spots instead?
+class ParkingSpot {
+public:
+	static constexpr float2 default_size = float2(2.8f, 5.2f);
+
+	PosRot pos; // TODO: eliminate this
+
+	// this probably is needed to be able to move vehicles when deleting segment/building,
+	// but could be stored differently
+	bool reserved = false; // true: not occupied yet, but not available   false: occupied
+	Vehicle* veh = nullptr;
+
+	void clear (Vehicle* vehicle) {
+		if (veh == vehicle) {
+			reserved = false;
+			veh = nullptr;
+		}
+	}
+	void unreserve (network::VehicleTrip* trip) {
+		if (reserved && veh->get_trip() == trip)
+			clear(veh);
+	}
+	
+	bool avail () {
+		if (veh == nullptr) assert(!reserved);
+		return veh == nullptr;
+	}
+	bool reserved_by (Vehicle* vehicle) {
+		return reserved && veh == vehicle;
+	}
+	
+	void reserve (Vehicle* vehicle) {
+		assert(avail());
+		reserved = true;
+		veh = vehicle;
+	}
+	void park (Vehicle* vehicle) {
+		assert(avail() || reserved_by(vehicle));
+		reserved = false;
+		veh = vehicle;
+	}
+	Vehicle* unpark () {
+		Vehicle* vehicle = veh;
+		veh = nullptr;
+		reserved = false;
+		return vehicle;
+	}
+
+	PosRot calc_pos () const {
+		return pos;
+	}
+
+	void dbg_draw () {
+		float3 forw  = rotate3_Z(pos.ang) * float3(default_size.y,0,0);
+		float3 right = rotate3_Z(pos.ang) * float3(0,-default_size.x,0);
+		float3 p = pos.pos - forw*0.5f - right*0.5f;
+
+		g_dbgdraw.wire_quad(p, forw, right, lrgba(1,0,0,1));
+	}
+};
+
+inline Vehicle::~Vehicle () {
+	auto* parking = std::get_if<ParkingSpot*>(&state);
+	if (parking) (*parking)->clear(this);
+}
+
 struct Building {
 	BuildingAsset* asset;
 
@@ -101,10 +143,20 @@ struct Building {
 
 	network::Segment* connected_segment = nullptr;
 
-	ParkingSpot parking_spot;
+	std::vector<ParkingSpot> parking;
 	
 	void update_cached () {
-		parking_spot.pos = pos + rotate3_Z(rot) * float3(-5, 20, 0);
+		float3 cur_pos = pos + rotate3_Z(rot) * float3(-5, 20, 0);
+		float3 dir = rotate3_Z(rot) * float3(1, 0, 0);
+		float ang = rot - deg(90);
+
+		for (int i=0; i<5; ++i) {
+			ParkingSpot spot;
+			spot.pos = { cur_pos, ang };
+			cur_pos += dir * ParkingSpot::default_size.x;
+
+			parking.push_back(spot);
+		}
 	}
 
 	SelCircle get_sel_shape () {
@@ -123,7 +175,7 @@ struct Person {
 	//Building* work = nullptr;
 	
 	Building* cur_building = nullptr;
-	float stay_timer = 0;
+	float stay_timer = 1;
 
 	std::unique_ptr<Vehicle> owned_vehicle;
 

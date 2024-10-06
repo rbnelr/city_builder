@@ -583,7 +583,8 @@ struct TestMapBuilder {
 			ZoneScopedN("spawn buildings");
 
 			interact.clear_sel<Node*>();
-			//clear_sel<Segment*>();
+			interact.clear_sel<Segment*>();
+			interact.clear_sel<Building*>();
 
 			entities.buildings.clear();
 			net = {};

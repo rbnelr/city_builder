@@ -98,9 +98,12 @@ struct Interaction {
 			OverlayDraw& overlay, Entities& entities, Network& net, Heightmap& heightmap) {
 		find_hover(view, input, entities, net, false);
 
+		static bool dbg_repath = false;
+		ImGui::Checkbox("dbg_repath", &dbg_repath);
+
 		// TODO: move this somewhere else? ie. make this an function of vehicle?
 		// currently it's just a debug feature though
-		if (selection.get<Person*>()) {
+		if (dbg_repath && selection.get<Person*>()) {
 			auto* pers = selection.get<Person*>();
 			auto* trip = pers->owned_vehicle->get_trip();
 			if (trip) {

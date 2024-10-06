@@ -632,6 +632,8 @@ struct VehNavPoint {
 // step() should be called whenever the vehicle has performed the Motion represented by the current State
 class VehNav {
 public:
+	virtual ~VehNav () {}
+
 	enum MotionType { START, END, SEGMENT, NODE };
 
 	struct State {
@@ -667,10 +669,13 @@ public:
 		VehicleList<SimVehicle*>* cur_vehicles = nullptr;
 	};
 
+	// start and destination getters implemented by Trip
+	virtual VehNavPoint get_vehicle_trip_start () = 0;
+	// false: parking spot gets reserved on call, this call only happens just before target is reached
+	// visualize=true to avoid instantly reserving parking spot
+	virtual VehNavPoint get_vehicle_trip_target (Vehicle* vehicle, bool visualize=false) = 0;
+
 private:
-	// start and destination buildings
-	VehNavPoint start;
-	VehNavPoint target;
 	
 	// all segments returned by pathfinding, without choosing lanes
 	// TODO: later this might have lane info (SegLane instead of Segment*) to allow for lane selection into the future
@@ -682,28 +687,27 @@ private:
 	
 	State s;
 
-	State _step (Network& net, int idx, State* prev_state) const;
+	State _step (Network& net, int idx, State* prev_state, Vehicle* veh, bool visualize);
 
 public:
 	operator bool () const {
 		return !path.empty();
 	}
 
-	VehNavPoint const& get_target () const { return target; }
 	State const& get_state () const { return s; }
 
-	bool pathfind (Network& net, VehNavPoint const& start, VehNavPoint const& target);
-	bool repath (Network& net, VehNavPoint const& new_target);
+	bool nav_pathfind (Network& net, Vehicle* veh, Pathfinding::Endpoint start, Pathfinding::Endpoint target);
+	bool nav_repath (Network& net, Vehicle* veh, Pathfinding::Endpoint new_target);
 
-	void step (Network& net) {
-		s = _step(net, s.idx + 1, &s);
+	void nav_step (Network& net, Vehicle* veh) {
+		s = _step(net, s.idx + 1, &s, veh, false);
 	}
 	
-	void visualize (OverlayDraw& overlay, Network& net, SimVehicle* vehicle,
+	void nav_visualize (OverlayDraw& overlay, Network& net, Vehicle* veh,
 		bool skip_next_node, lrgba col=lrgba(1,1,0,0.75f));
 
 	// HACK: to fix problem with node vehicle tracking
-	void _clear_nodes (SimVehicle* vehicle) {
+	void _nav_clear_nodes (SimVehicle* vehicle) {
 		int num_seg = (int)path.size();
 		
 		for (int i=0; i<num_seg-1; ++i) {
@@ -714,8 +718,7 @@ public:
 };
 
 // Stores all the data for Vehicle simulation, from traffic sim, to visual physics and other visuals
-class SimVehicle {
-friend class VehNav;
+class SimVehicle : public VehNav {
 public: // TODO: encapsulate better?
 
 	// TODO: These are just copied from Person, can we avoid storing them twice?
@@ -733,8 +736,6 @@ public: // TODO: encapsulate better?
 	// speed (delta position) / delta beizer t
 	// INF to force no movement on initial tick (rather than div by 0)
 	float bez_speed = INF; // set after timestep based on current bezier eval, to approx correct worldspace step size along bezier in next tick
-
-	VehNav nav;
 
 //// Movement sim variables for visuals
 	float3 front_pos; // car front
@@ -755,7 +756,7 @@ public: // TODO: encapsulate better?
 	float blinker_timer = 0; // could get eliminated (a fixed number of blinker timers indexed using vehicle id hash)
 	float brake_light = 0;
 
-	void init () {
+	void sim_init () {
 		brake = 1;
 	}
 
@@ -770,24 +771,24 @@ public: // TODO: encapsulate better?
 
 	float3 center () { return (front_pos + rear_pos)*0.5; };
 	PosRot calc_pos ();
-
-	~SimVehicle () {
-		auto& s = nav.get_state();
-		if (s.cur_vehicles)  nav.get_state().cur_vehicles->try_remove(this);
+	
+	virtual ~SimVehicle () override {
+		auto& s = get_state();
+		if (s.cur_vehicles) get_state().cur_vehicles->try_remove(this);
 		
-		nav._clear_nodes(this);
+		_nav_clear_nodes(this);
 	}
 	
-	bool update (Network& net, Metrics::Var& met, Person* driver, float dt);
+	bool sim_update (Network& net, Metrics::Var& met, Vehicle* veh, Person* driver, float dt);
 };
 
 // User of SimVehicle, currently represents a random trip from building to building
 // More complexity TODO
-class VehicleTrip {
+class VehicleTrip : public SimVehicle {
 public:
 	struct Endpoint {
 		Building* building = nullptr;
-		std::optional<ParkingSpot*> parking = {};
+		ParkingSpot* parking = {};
 	};
 
 	typedef std::variant<Building*, float3> Waypoint;
@@ -800,81 +801,84 @@ public:
 	}
 	static VehNavPoint to_navpoint (Endpoint const& endpoint) {
 		if (endpoint.parking)
-			return VehNavPoint{ endpoint.building->connected_segment, (*endpoint.parking)->pos };
+			return VehNavPoint{ endpoint.building->connected_segment, endpoint.parking->pos.pos };
 		return VehNavPoint::from_building(endpoint.building);
 	}
 
 	//Person* driver;
 	
 	Endpoint start;
-	Endpoint target;
+	Endpoint target; // TODO: rename as dest?
+
+	VehNavPoint get_vehicle_trip_start () override {
+		return to_navpoint(start);
+	}
+	VehNavPoint get_vehicle_trip_target (Vehicle* vehicle, bool visualize=false) override;
 
 	std::optional<Waypoint> _waypoint = {}; // just for debug repathing for now
 	float waypoint_wait_after = 0; // just for testing
 
-	SimVehicle sim;
-
 	static Endpoint from_vehicle_start (Building* start_building, Vehicle& veh) {
 		auto* parking = std::get_if<ParkingSpot*>(&veh.state);
 		if (parking) {
-			assert(&start_building->parking_spot == *parking);
+			//assert(kiss::contains(start_building->parking, *parking));
 			return { start_building, *parking };
 		}
 
 		assert(std::get_if<std::monostate>(&veh.state)); // can't be in trip state
 		return { start_building };
 	}
+	static ParkingSpot* find_parking (Building* target);
 
 	static bool start_trip (Entities& entities, Network& net, Random& rand, Person* person);
 
 	bool dbg_waypoint (OverlayDraw& overlay, Network& net, Waypoint waypoint, bool preview) {
-		auto targ = to_navpoint(net, waypoint);
-		if (targ) {
-			if (!preview) {
-				// add tmp waypoint, keep building target
-				_waypoint = waypoint;
-				waypoint_wait_after = 3;
-
-				sim.nav.repath(net, targ);
-				return true;
-			}
-			else {
-				// copy and preview repath
-				network::VehNav tmp_nav = sim.nav;
-				if (tmp_nav.repath(net, targ)) {
-					tmp_nav.visualize(overlay, net, &sim, false, lrgba(1,1,1,0.4f));
-				}
-			}
-		}
+	//	auto targ = to_navpoint(net, waypoint);
+	//	if (targ) {
+	//		if (!preview) {
+	//			// add tmp waypoint, keep building target
+	//			_waypoint = waypoint;
+	//			waypoint_wait_after = 3;
+	//
+	//			nav_repath(net, targ);
+	//			return true;
+	//		}
+	//		else {
+	//			// copy and preview repath
+	//			VehicleTrip tmp_nav = *this; // copy whole Trip, is this a good idea?
+	//			if (tmp_nav.nav_repath(net, targ)) {
+	//				tmp_nav.nav_visualize(overlay, net, bez_t, false, lrgba(1,1,1,0.4f));
+	//			}
+	//		}
+	//	}
 		return false;
 	}
 
-	void resume_after_waypoint (Network& net, Person* person) {
-		assert(_waypoint);
-		//assert(sim.nav.path.back() == waypoint.seg); // private!
-
-		auto wayp_targ = to_navpoint(net, *_waypoint); // is this smart, computed this before, but might want to know about building as well
-
-		// reset nav and go from waypoint (where we currently are to original target)
-		sim.nav = {};
-		sim.nav.pathfind(net, wayp_targ, to_navpoint(target));
-		sim.bez_t = 0; // need to reset this
-
-		_waypoint = {};
-	}
+	//void resume_after_waypoint (Network& net, Person* person) {
+	//	assert(_waypoint);
+	//	//assert(sim.nav.path.back() == waypoint.seg); // private!
+	//
+	//	auto wayp_targ = to_navpoint(net, *_waypoint); // is this smart? computed this before, but might want to know about building as well
+	//
+	//	// reset nav and go from waypoint (where we currently are to original target)
+	//	nav_pathfind(net, wayp_targ, to_navpoint(target));
+	//	bez_t = 0; // need to reset this
+	//
+	//	_waypoint = {};
+	//}
 
 	bool update (Network& net, Metrics::Var& met, Person* person, float dt) {
-		if (!sim.update(net, met, person, dt))
+		if (!sim_update(net, met, person->owned_vehicle.get(), person, dt))
 			return false; // still navigating
 
-		if (_waypoint) {
-			if (waypoint_wait_after <= 0.0f) {
-				waypoint_wait_after = 0;
-				resume_after_waypoint(net, person);
-			}
-			waypoint_wait_after -= dt;
-			return false;
-		}
+		//if (_waypoint) {
+		//	if (waypoint_wait_after <= 0.0f) {
+		//		waypoint_wait_after = 0;
+		//		resume_after_waypoint(net, person);
+		//	}
+		//	waypoint_wait_after -= dt;
+		//	return false;
+		//}
 		return true; // trip finished
 	}
 
@@ -888,9 +892,10 @@ public:
 		person->cur_building = trip->target.building;
 
 		{ // handle vehicle
-			if (trip->target.parking && !(*trip->target.parking)->is_occupied()) {
-				// TODO: handle parking spot reservation
-				auto* parking = *trip->target.parking;
+			if (trip->target.parking)
+				assert(trip->target.parking->reserved_by(person->owned_vehicle.get()));
+			if (trip->target.parking && trip->target.parking->reserved_by(person->owned_vehicle.get())) {
+				auto* parking = trip->target.parking;
 				parking->park(person->owned_vehicle.get());
 				person->owned_vehicle->state = parking; // WARNING: Destroys trip, do not evaluate  trip->target.parking  on this line!
 			}
@@ -901,6 +906,11 @@ public:
 	}
 
 	static void update_person (Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person* person, float dt);
+
+	virtual ~VehicleTrip () override {
+		if (target.parking)
+			target.parking->unreserve(this);
+	}
 };
 
 ////

@@ -208,19 +208,15 @@ void debug_last_pathfind (Network& net, View3D& view) {
 
 ////
 
-bool VehNav::pathfind (Network& net, VehNavPoint const& start, VehNavPoint const& target) {
-	assert(path.empty());
-	
-	if (!Pathfinding::pathfind(net, { start.seg }, { target.seg }, &path))
+bool VehNav::nav_pathfind (Network& net, Vehicle* veh, Pathfinding::Endpoint start, Pathfinding::Endpoint target) {
+	path = {};
+	if (!Pathfinding::pathfind(net, start, target, &path))
 		return false;
 	
-	this->start = start;
-	this->target = target;
-	
-	s = _step(net, 0, nullptr);
+	s = _step(net, 0, nullptr, veh, false);
 	return true;
 }
-bool VehNav::repath (Network& net, VehNavPoint const& new_target) {
+bool VehNav::nav_repath (Network& net, Vehicle* veh, Pathfinding::Endpoint new_target) {
 	if (s.motion == END)
 		return false;
 	
@@ -232,9 +228,7 @@ bool VehNav::repath (Network& net, VehNavPoint const& new_target) {
 	assert(i < num_seg);
 
 	// Keep start navpoint, change target
-	VehNav new_nav;
-	new_nav.start = start;
-	new_nav.target = new_target;
+	std::vector<Segment*> new_path;
 	
 	Pathfinding::Endpoint path_start;
 	State dummy_state;
@@ -250,7 +244,7 @@ bool VehNav::repath (Network& net, VehNavPoint const& new_target) {
 
 		// repath while staying in start bezier, make sure first lane goes in same direction
 		// TODO: this is not always correct, might still teleport into different lane!
-		path_start.seg = start.seg;
+		path_start.seg = path[0];
 		path_start.forw  = dir == LaneDir::FORWARD;
 		path_start.backw = dir != LaneDir::FORWARD;
 
@@ -270,7 +264,7 @@ bool VehNav::repath (Network& net, VehNavPoint const& new_target) {
 
 		// repath while keeping cur and next lane (keep same path through node)
 		// TODO: this is not always correct, might still teleport into different lane!
-		new_nav.path.push_back(path[i]);
+		new_path.push_back(path[i]);
 		path_start.seg = path[i+1];
 		path_start.forw  = dir == LaneDir::FORWARD;
 		path_start.backw = dir != LaneDir::FORWARD;
@@ -292,12 +286,12 @@ bool VehNav::repath (Network& net, VehNavPoint const& new_target) {
 		pdummy_state = &dummy_state;
 	}
 
-	if (!Pathfinding::pathfind(net, path_start, { new_target.seg }, &new_nav.path))
-		return false;
+	if (!Pathfinding::pathfind(net, path_start, new_target, &new_path))
+		return false; // fail, leave things unchanged!
 
-	new_nav.s = new_nav._step(net, new_idx, &dummy_state);
-
-	std::swap(*this, new_nav);
+	// replace path and state
+	path = new_path;
+	s = _step(net, new_idx, &dummy_state, veh, false);
 	return true;
 }
 
@@ -547,7 +541,7 @@ float get_curve_speed_limit (Bezier3 const& bez, SegLane cur_lane, SegLane next_
 
 // TODO: see if it might not be better to write state-machine like query function that only ever returns current state
 //  then use call it with +1 to get any info needed for next lanes etc.
-VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
+VehNav::State VehNav::_step (Network& net, int idx, State* prev_state, Vehicle* veh, bool visualize) {
 	State s = {};
 	s.idx = idx;
 
@@ -566,7 +560,7 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 		//s.cur_lane = {};
 		s.next_lane = pick_lane(net, seeded_rand, 0, SegLane{});
 
-		s.bezier = start_bezier(s.next_lane, start, &s.next_start_t);
+		s.bezier = start_bezier(s.next_lane, get_vehicle_trip_start(), &s.next_start_t);
 
 		s.cur_speedlim  = get_speed_limit(MotionType::START);
 		s.next_speedlim = get_speed_limit(MotionType::SEGMENT, s.next_lane);
@@ -579,7 +573,7 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 		//s.next_lane = {};
 
 		float t;
-		s.bezier = end_bezier(prev_lane, target, &t);
+		s.bezier = end_bezier(prev_lane, get_vehicle_trip_target(veh, visualize), &t);
 
 		s.cur_speedlim  = get_speed_limit(MotionType::END);
 		s.next_speedlim = 1; // stop at end of last bezier, TODO: how to customize based on target? ex. for underground parking entrance
@@ -596,7 +590,7 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 
 			if (idx+1 == num_moves-1) {
 				// already on target lane, need end_t
-				end_bezier(s.cur_lane, target, &s.end_t);
+				end_bezier(s.cur_lane, get_vehicle_trip_target(veh, visualize), &s.end_t);
 				//s.next_lane = {};
 			}
 			else {
@@ -641,9 +635,9 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state) const {
 	return s;
 }
 
-void VehNav::visualize (OverlayDraw& overlay, Network& net, SimVehicle* vehicle, bool skip_next_node, lrgba col) {
+void VehNav::nav_visualize (OverlayDraw& overlay, Network& net, Vehicle* veh, bool skip_next_node, lrgba col) {
 	State copy = s;
-	float start_t = vehicle->bez_t;
+	float start_t = veh->get_trip()->bez_t;
 	
 	// corretly handle first motion
 	while (!(copy.motion == END && start_t >= copy.end_t)) {
@@ -660,7 +654,7 @@ void VehNav::visualize (OverlayDraw& overlay, Network& net, SimVehicle* vehicle,
 		if (copy.motion == END) break; // avoid step after last motion
 		
 		// call step for visualize, this might be a bad idea if it modifies path (chosen lanes)
-		copy = _step(net, copy.idx + 1, &copy);
+		copy = _step(net, copy.idx + 1, &copy, veh, true);
 	}
 }
 
@@ -680,7 +674,7 @@ void overlay_lane_vehicle (App& app, SimVehicle* vehicle, lrgba col, int tex) {
 	// (enable asking for car front and back bezier t, coresponding beziers (and ones inbetween if car longer than 1 segment/node etc.)
 	// sample bezier with t to determine worldspace pos, or draw bezier with overlay etc.
 	
-	Bezier3 cur_bez = vehicle->nav.get_state().bezier;
+	Bezier3 cur_bez = vehicle->get_state().bezier;
 	float t1 = vehicle->bez_t;
 	float t0 = vehicle->bez_t - vehicle->vehicle_asset->car_len() / vehicle->bez_speed; // t - len / (dlen / dt) => t - dt
 	if (t0 < 0) {
@@ -722,7 +716,7 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 	
 	// allocate space in priority order and remember blocked cars
 	for (auto& v : node->vehicles.test.list) {
-		auto& state = v.vehicle->nav.get_state();
+		auto& state = v.vehicle->get_state();
 		if (state.get_cur_node() != node) {
 			// already in outgoing lane
 			continue;
@@ -862,7 +856,7 @@ void debug_vehicle (App& app, Vehicle& veh, SimVehicle& sim_veh, View3D const& v
 		ImGui::Separator();
 		ImGui::TextColored(lrgba(veh.col, 1), "debug person");
 	
-		ImGui::Text("Speed Limit: %7s", app.options.format_speed(sim_veh.nav.get_state().cur_speedlim).c_str());
+		ImGui::Text("Speed Limit: %7s", app.options.format_speed(sim_veh.get_state().cur_speedlim).c_str());
 		ImGui::Text("Speed: %7s",       app.options.format_speed(sim_veh.speed).c_str());
 
 		speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
@@ -875,13 +869,13 @@ void debug_vehicle (App& app, Vehicle& veh, SimVehicle& sim_veh, View3D const& v
 	
 	bool did_viz_conflicts = false;
 
-	auto* cur_node = sim_veh.nav.get_state().get_cur_node();
+	auto* cur_node = sim_veh.get_state().get_cur_node();
 	if (visualize_conflicts && cur_node) {
 		did_viz_conflicts = dbg_conflicts(app, cur_node, &sim_veh);
 	}
 
 	if (visualize_nav) {
-		sim_veh.nav.visualize(app.overlay, app.network, &sim_veh, did_viz_conflicts);
+		sim_veh.nav_visualize(app.overlay, app.network, &veh, did_viz_conflicts);
 	}
 
 	if (visualize_bones) {
@@ -895,6 +889,28 @@ void debug_vehicle (App& app, Vehicle& veh, SimVehicle& sim_veh, View3D const& v
 			g_dbgdraw.line(p, (float3)(mat * float4(.25f,0,0,1)), lrgba(1,0,0,1));
 			g_dbgdraw.line(p, (float3)(mat * float4(0,.25f,0,1)), lrgba(0,1,0,1));
 			g_dbgdraw.line(p, (float3)(mat * float4(0,0,.25f,1)), lrgba(0,0,1,1));
+		}
+	}
+}
+void debug_building (App& app, Building* build, View3D const& view) {
+	if (!build) return;
+	
+	static bool debug_incoming_trips = false;
+	if (imgui_Header("debug_node", true)) {
+		ImGui::Checkbox("debug_incoming_trips", &debug_incoming_trips);
+		ImGui::PopID();
+	}
+
+	for (auto& spot : build->parking) {
+		spot.dbg_draw();
+	}
+
+	if (debug_incoming_trips) {
+		for (auto& person : app.entities.persons) {
+			auto* trip = person->owned_vehicle->get_trip();
+			if (trip && trip->target.building == build) {
+				trip->nav_visualize(app.overlay, app.network, person->owned_vehicle.get(), false, lrgba(1,1,0,0.25f));
+			}
 		}
 	}
 }
@@ -919,10 +935,7 @@ void dbg_brake_for (App& app, SimVehicle* cur, float dist, float3 obstacle, lrgb
 void dbg_brake_for (App& app, SimVehicle* cur, float dist, float3 obstacle, lrgba col) {}
 #endif
 auto _SimVehicle_sel = [] (sel_ptr& sel) -> SimVehicle* {
-	auto* pers = sel.get<Person*>();
-	if (!pers) return nullptr;
-	auto* trip = pers->owned_vehicle->get_trip();
-	return trip ? &trip->sim : nullptr;
+	return sel.get<Person*>() ? sel.get<Person*>()->owned_vehicle->get_trip() : nullptr;
 };
 
 void _FORCEINLINE dbg_brake_for_vehicle (App& app, SimVehicle* cur, float dist, SimVehicle* obstacle) {
@@ -1253,8 +1266,8 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 	assert(a.vehicle != b.vehicle);
 
 	auto get_incoming_lane = [node] (NodeVehicle& v) {
-		if (v.vehicle->nav.get_state().get_cur_node() == node && v.vehicle->nav.get_state().motion == VehNav::SEGMENT)
-			return v.vehicle->nav.get_state().cur_lane;
+		if (v.vehicle->get_state().get_cur_node() == node && v.vehicle->get_state().motion == VehNav::SEGMENT)
+			return v.vehicle->get_state().cur_lane;
 		return SegLane{};
 	};
 
@@ -1425,7 +1438,7 @@ void update_node (App& app, Node* node, float dt) {
 
 				float dist = (1.0f - v->bez_t) * v->bez_speed;
 				if (dist < 10.0f || v == lane.vehicles().list.list.front()) {
-					auto& state = v->nav.get_state();
+					auto& state = v->get_state();
 					auto* n = state.get_cur_node();
 					if (n == node) {
 						node->vehicles.test.add(track_node_vehicle(v, state));
@@ -1471,7 +1484,7 @@ void update_node (App& app, Node* node, float dt) {
 	// update each tracked vehicle
 	// allocate space in priority order and remember blocked cars
 	for (auto& v : node->vehicles.test.list) {
-		auto& state = v.vehicle->nav.get_state();
+		auto& state = v.vehicle->get_state();
 
 		// compute intersection progress value 'k'
 		update_ks(v, state);
@@ -1524,7 +1537,7 @@ void update_node (App& app, Node* node, float dt) {
 
 	// Remove vehicles completely off of intersection from list
 	node->vehicles.test.remove_if([&] (NodeVehicle& v) {
-		auto& state = v.vehicle->nav.get_state();
+		auto& state = v.vehicle->get_state();
 		if (state.motion == VehNav::END) {
 			printf("");
 		}
@@ -1539,7 +1552,7 @@ void update_node (App& app, Node* node, float dt) {
 	for (int i=0; i<count; ++i) {
 		auto& a = node->vehicles.test.list[i];
 		
-		if (a.vehicle->nav.get_state().get_cur_node() != node) {
+		if (a.vehicle->get_state().get_cur_node() != node) {
 			// already in outgoing lane, still yielding for other vehicles causes bug!
 			continue;
 		}
@@ -1678,8 +1691,8 @@ void update_wheel_roll (SimVehicle& vehicle, float delta_dist, VehicleAsset* veh
 	vehicle.wheel_roll = fmodf(vehicle.wheel_roll, 1.0f);
 }
 
-bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float dt) {
-	auto& state = nav.get_state();
+bool SimVehicle::sim_update (Network& net, Metrics::Var& met, Vehicle* veh, Person* driver, float dt) {
+	auto& state = get_state();
 	if (state.motion == VehNav::END && bez_t >= state.end_t) {
 		update_vehicle_suspension(net, *this, 0, dt); // update suspention lets it come to rest
 		return true;
@@ -1744,7 +1757,7 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 
 			assert(bez_t >= 0 && bez_t < 1);
 
-			nav.step(net);
+			nav_step(net, veh);
 
 			// NODE: what previously was next_vehicles (before step) is simply cur_vehicles after step, saving some memory
 			if (state.cur_vehicles) state.cur_vehicles->add(this);
@@ -1844,6 +1857,26 @@ void Metrics::update (Var& var, App& app) {
 	flow_plot.push_value(avg_flow);
 }
 
+ParkingSpot* VehicleTrip::find_parking (Building* target) {
+	for (auto& spot : target->parking) {
+		if (spot.avail()) {
+			return &spot;
+		}
+	}
+	return nullptr;
+}
+
+VehNavPoint VehicleTrip::get_vehicle_trip_target (Vehicle* vehicle, bool visualize) {
+	if (!target.parking && !visualize) {
+		// target nav point requested, need to pick parking
+		// TODO: reserve parking so other vehicles don't pick spot we will end up occupying
+		target.parking = find_parking(target.building);
+		if (target.parking)
+			target.parking->reserve(vehicle);
+	}
+	return to_navpoint(target);
+}
+
 bool VehicleTrip::start_trip (Entities& entities, Network& net, Random& rand, Person* person) {
 	auto* target_building = entities.buildings[ rand.uniformi(0, (int)entities.buildings.size()) ].get();
 		
@@ -1853,18 +1886,20 @@ bool VehicleTrip::start_trip (Entities& entities, Network& net, Random& rand, Pe
 
 		auto trip = std::make_unique<network::VehicleTrip>();
 		
-		trip->sim.vehicle_asset = person->owned_vehicle->asset;
-		trip->sim.tint_col      = person->col;
-		trip->sim.agressiveness = person->agressiveness;
+		trip->vehicle_asset = person->owned_vehicle->asset;
+		trip->tint_col      = person->col;
+		trip->agressiveness = person->agressiveness;
 		//trip->driver = person;
 		trip->start  = from_vehicle_start(person->cur_building, *person->owned_vehicle);
-		trip->target = Endpoint{ target_building, &target_building->parking_spot };
+		trip->target = Endpoint{ target_building };
 
-		bool valid = trip->sim.nav.pathfind(net, to_navpoint(trip->start), to_navpoint(trip->target));
+		bool valid = trip->nav_pathfind(net, person->owned_vehicle.get(),
+			Pathfinding::Endpoint{trip->start .building->connected_segment},
+			Pathfinding::Endpoint{trip->target.building->connected_segment});
 
 		if (valid) {
 			if (trip->start.parking) {
-				auto* veh = (*trip->start.parking)->unpark();
+				auto* veh = trip->start.parking->unpark();
 				assert(veh == person->owned_vehicle.get());
 			}
 
@@ -1877,8 +1912,8 @@ bool VehicleTrip::start_trip (Entities& entities, Network& net, Random& rand, Pe
 }
 void VehicleTrip::update_person (Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person* person, float dt) {
 	if (person->cur_building) {
-		person->stay_timer += dt;
-		if (person->stay_timer >= 3.0f) {
+		person->stay_timer -= dt;
+		if (person->stay_timer <= 0.0f) {
 			person->stay_timer = 0;
 
 			if (VehicleTrip::start_trip(entities, net, rand, person)) {
@@ -1891,6 +1926,7 @@ void VehicleTrip::update_person (Entities& entities, Network& net, Metrics::Var&
 	if (trip) {
 		if (trip->update(net, met, person, dt)) {
 			finish_trip(trip, person);
+			person->stay_timer = 20;
 			return;
 		}
 		// trip ongoing
@@ -1915,7 +1951,7 @@ void Network::simulate (App& app) {
 				//if (pers->cur_building) continue;
 				auto* trip = pers->owned_vehicle->get_trip();
 				if (trip)
-					trip->sim.init();
+					trip->sim_init();
 			}
 		}
 		
@@ -1963,10 +1999,12 @@ void Network::draw_debug (App& app, View3D& view) {
 
 	auto* pers = app.interact.selection.get<Person*>();
 	if (pers && pers->owned_vehicle->get_trip()) {
-		debug_vehicle(app, *pers->owned_vehicle, pers->owned_vehicle->get_trip()->sim, view);
+		debug_vehicle(app, *pers->owned_vehicle, *pers->owned_vehicle->get_trip(), view);
 	}
 
 	debug_last_pathfind(app.network, view);
+
+	debug_building(app, app.interact.selection.get<Building*>(), view);
 }
 
 } // namespace network

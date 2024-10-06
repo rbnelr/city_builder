@@ -769,9 +769,7 @@ public: // TODO: encapsulate better?
 	}
 
 	float3 center () { return (front_pos + rear_pos)*0.5; };
-	
-	float car_len ();
-	void calc_pos (float3* pos, float* ang);
+	PosRot calc_pos ();
 
 	~SimVehicle () {
 		auto& s = nav.get_state();
@@ -787,29 +785,49 @@ public: // TODO: encapsulate better?
 // More complexity TODO
 class VehicleTrip {
 public:
-	typedef std::variant<std::monostate, Building*, float3> Endpoint;
+	struct Endpoint {
+		Building* building = nullptr;
+		std::optional<ParkingSpot*> parking = {};
+	};
 
-	static VehNavPoint to_navpoint (Network& net, Endpoint const& endpoint) {
-		auto build = std::get_if<Building*>(&endpoint);
+	typedef std::variant<Building*, float3> Waypoint;
+
+	static VehNavPoint to_navpoint (Network& net, Waypoint const& waypoint) {
+		auto build = std::get_if<Building*>(&waypoint);
 		if (build)
 			return VehNavPoint::from_building(*build);
-		else
-			return VehNavPoint::from_free_point(net, std::get<float3>(endpoint));
+		return VehNavPoint::from_free_point(net, std::get<float3>(waypoint));
+	}
+	static VehNavPoint to_navpoint (Endpoint const& endpoint) {
+		if (endpoint.parking)
+			return VehNavPoint{ endpoint.building->connected_segment, (*endpoint.parking)->pos };
+		return VehNavPoint::from_building(endpoint.building);
 	}
 
 	//Person* driver;
 	
-	Building* start;
-	Building* target;
+	Endpoint start;
+	Endpoint target;
 
-	std::optional<Endpoint> _waypoint = {}; // just for debug repathing for now
+	std::optional<Waypoint> _waypoint = {}; // just for debug repathing for now
 	float waypoint_wait_after = 0; // just for testing
 
 	SimVehicle sim;
 
+	static Endpoint from_vehicle_start (Building* start_building, Vehicle& veh) {
+		auto* parking = std::get_if<ParkingSpot*>(&veh.state);
+		if (parking) {
+			assert(&start_building->parking_spot == *parking);
+			return { start_building, *parking };
+		}
+
+		assert(std::get_if<std::monostate>(&veh.state)); // can't be in trip state
+		return { start_building };
+	}
+
 	static bool start_trip (Entities& entities, Network& net, Random& rand, Person* person);
 
-	bool dbg_waypoint (OverlayDraw& overlay, Network& net, Endpoint waypoint, bool preview) {
+	bool dbg_waypoint (OverlayDraw& overlay, Network& net, Waypoint waypoint, bool preview) {
 		auto targ = to_navpoint(net, waypoint);
 		if (targ) {
 			if (!preview) {
@@ -839,9 +857,7 @@ public:
 
 		// reset nav and go from waypoint (where we currently are to original target)
 		sim.nav = {};
-		sim.nav.pathfind(net,
-			wayp_targ,
-			VehNavPoint::from_building(target));
+		sim.nav.pathfind(net, wayp_targ, to_navpoint(target));
 		sim.bez_t = 0; // need to reset this
 
 		_waypoint = {};
@@ -859,19 +875,29 @@ public:
 			waypoint_wait_after -= dt;
 			return false;
 		}
-		else {
-			finish_trip(person);
-		}
 		return true; // trip finished
 	}
 
 	// do trip = nullptr after
-	void cancel_trip (Person* person) {
-		person->cur_building = start;
+	static void cancel_trip (VehicleTrip* trip, Person* person) {
+		person->cur_building = trip->start.building;
+		person->owned_vehicle->state = {}; // pocket car!
 	}
 	// do trip = nullptr after
-	void finish_trip (Person* person) {
-		person->cur_building = target;
+	static void finish_trip (VehicleTrip* trip, Person* person) {
+		person->cur_building = trip->target.building;
+
+		{ // handle vehicle
+			if (trip->target.parking && !(*trip->target.parking)->is_occupied()) {
+				// TODO: handle parking spot reservation
+				auto* parking = *trip->target.parking;
+				parking->park(person->owned_vehicle.get());
+				person->owned_vehicle->state = parking; // WARNING: Destroys trip, do not evaluate  trip->target.parking  on this line!
+			}
+			else {
+				person->owned_vehicle->state = {};
+			}
+		}
 	}
 
 	static void update_person (Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person* person, float dt);

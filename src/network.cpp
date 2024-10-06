@@ -682,7 +682,7 @@ void overlay_lane_vehicle (App& app, SimVehicle* vehicle, lrgba col, int tex) {
 	
 	Bezier3 cur_bez = vehicle->nav.get_state().bezier;
 	float t1 = vehicle->bez_t;
-	float t0 = vehicle->bez_t - vehicle->car_len() / vehicle->bez_speed; // t - len / (dlen / dt) => t - dt
+	float t0 = vehicle->bez_t - vehicle->vehicle_asset->car_len() / vehicle->bez_speed; // t - len / (dlen / dt) => t - dt
 	if (t0 < 0) {
 		// car rear on different bezier!
 		t0 = 0;
@@ -703,7 +703,7 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 		float t1 = lane_out.vehicles().avail_space / lane_out.seg->_length;
 
 		float bez_speed = length(bez.eval(t1).vel);
-		float t0 = t1 - a->car_len() / bez_speed; // TODO: cache accurate k in vehicle and eliminate this calculation!
+		float t0 = t1 - a->vehicle_asset->car_len() / bez_speed; // TODO: cache accurate k in vehicle and eliminate this calculation!
 		
 		app.overlay.curves.push_bezier(bez, float2(LANE_COLLISION_R*2, 1), OverlayDraw::PATTERN_STRIPED, lrgba(a->tint_col, 0.8f), float2(t0,t1));
 	};
@@ -715,7 +715,7 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 			avail_space = lane_out.seg->_length;
 			for (auto* a : lane_out.seg->vehicles.lanes[lane_out.lane].list.list) {
 				dbg_avail_space(lane_out, a);
-				avail_space -= a->car_len() + SAFETY_DIST;
+				avail_space -= a->vehicle_asset->car_len() + SAFETY_DIST;
 			}
 		}
 	}
@@ -729,9 +729,9 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 		}
 
 		auto& avail_space = v.conn.conn.b.vehicles().avail_space;
-		if (avail_space >= v.vehicle->car_len()) {
+		if (avail_space >= v.vehicle->vehicle_asset->car_len()) {
 			dbg_avail_space(v.conn.conn.b, v.vehicle);
-			avail_space -= v.vehicle->car_len() + SAFETY_DIST;
+			avail_space -= v.vehicle->vehicle_asset->car_len() + SAFETY_DIST;
 		}
 	}
 }
@@ -845,16 +845,13 @@ void debug_node (App& app, Node* node, View3D const& view) {
 	}
 #endif
 }
-void debug_person (App& app, Person* person, View3D const& view) {
-	if (!person || !person->trip) return;
-	auto& veh = person->trip->sim;
-	
+void debug_vehicle (App& app, Vehicle& veh, SimVehicle& sim_veh, View3D const& view) {
 	static bool visualize_lane_section = false;
 	static bool visualize_nav = true;
 	static bool visualize_conflicts = true;
 	static bool visualize_bones = false;
 	static ValuePlotter speed_plot = ValuePlotter();
-	speed_plot.push_value(veh.speed);
+	speed_plot.push_value(sim_veh.speed);
 
 	if (imgui_Header("debug_person", true)) {
 		ImGui::Checkbox("visualize_lane_section", &visualize_lane_section);
@@ -863,10 +860,10 @@ void debug_person (App& app, Person* person, View3D const& view) {
 		ImGui::Checkbox("visualize_bones", &visualize_bones);
 		
 		ImGui::Separator();
-		ImGui::TextColored(lrgba(person->col, 1), "debug person");
+		ImGui::TextColored(lrgba(veh.col, 1), "debug person");
 	
-		ImGui::Text("Speed Limit: %7s", app.options.format_speed(veh.nav.get_state().cur_speedlim).c_str());
-		ImGui::Text("Speed: %7s",       app.options.format_speed(veh.speed).c_str());
+		ImGui::Text("Speed Limit: %7s", app.options.format_speed(sim_veh.nav.get_state().cur_speedlim).c_str());
+		ImGui::Text("Speed: %7s",       app.options.format_speed(sim_veh.speed).c_str());
 
 		speed_plot.imgui_display("speed", 0.0f, 100/KPH_PER_MS);
 
@@ -874,32 +871,30 @@ void debug_person (App& app, Person* person, View3D const& view) {
 	}
 	
 	if (visualize_lane_section)
-		overlay_lane_vehicle(app, &veh, lrgba(person->col, 1), OverlayDraw::PATTERN_SOLID);
+		overlay_lane_vehicle(app, &sim_veh, lrgba(veh.col, 1), OverlayDraw::PATTERN_SOLID);
 	
 	bool did_viz_conflicts = false;
 
-	auto* cur_node = veh.nav.get_state().get_cur_node();
+	auto* cur_node = sim_veh.nav.get_state().get_cur_node();
 	if (visualize_conflicts && cur_node) {
-		did_viz_conflicts = dbg_conflicts(app, cur_node, &veh);
+		did_viz_conflicts = dbg_conflicts(app, cur_node, &sim_veh);
 	}
 
 	if (visualize_nav) {
-		veh.nav.visualize(app.overlay, app.network, &veh, did_viz_conflicts);
+		sim_veh.nav.visualize(app.overlay, app.network, &sim_veh, did_viz_conflicts);
 	}
 
 	if (visualize_bones) {
-		for (auto& bone : person->owned_vehicle->bone_mats) {
-			float3 center;
-			float ang;
-			veh.calc_pos(&center, &ang);
+		for (auto& bone : veh.asset->bone_mats) {
+			auto pos = sim_veh.calc_pos();
 
-			auto mat = translate(center) * rotate3_Z(ang) * bone.bone2mesh;
+			auto mat = translate(pos.pos) * rotate3_Z(pos.ang) * bone.bone2mesh;
 
-			auto pos = (float3)(mat * float4(0,0,0,1));
+			auto p = (float3)(mat * float4(0,0,0,1));
 			//g_dbgdraw.point(pos, 0.01f, lrgba(0,0,0,1));
-			g_dbgdraw.line(pos, (float3)(mat * float4(.25f,0,0,1)), lrgba(1,0,0,1));
-			g_dbgdraw.line(pos, (float3)(mat * float4(0,.25f,0,1)), lrgba(0,1,0,1));
-			g_dbgdraw.line(pos, (float3)(mat * float4(0,0,.25f,1)), lrgba(0,0,1,1));
+			g_dbgdraw.line(p, (float3)(mat * float4(.25f,0,0,1)), lrgba(1,0,0,1));
+			g_dbgdraw.line(p, (float3)(mat * float4(0,.25f,0,1)), lrgba(0,1,0,1));
+			g_dbgdraw.line(p, (float3)(mat * float4(0,0,.25f,1)), lrgba(0,0,1,1));
 		}
 	}
 }
@@ -923,23 +918,26 @@ void dbg_brake_for (App& app, SimVehicle* cur, float dist, float3 obstacle, lrgb
 #else
 void dbg_brake_for (App& app, SimVehicle* cur, float dist, float3 obstacle, lrgba col) {}
 #endif
-bool SimVehicle_Selected (App& app, SimVehicle* cur) {
-	auto* sel = app.interact.selection.get<Person*>();
-	return sel && sel->trip && &sel->trip->sim == cur;
-}
+auto _SimVehicle_sel = [] (sel_ptr& sel) -> SimVehicle* {
+	auto* pers = sel.get<Person*>();
+	if (!pers) return nullptr;
+	auto* trip = pers->owned_vehicle->get_trip();
+	return trip ? &trip->sim : nullptr;
+};
+
 void _FORCEINLINE dbg_brake_for_vehicle (App& app, SimVehicle* cur, float dist, SimVehicle* obstacle) {
-	if (SimVehicle_Selected(app, cur)) {
+	if (_SimVehicle_sel(app.interact.selection) == cur) {
 		float3 center = (obstacle->rear_pos + obstacle->front_pos) * 0.5f;
 		dbg_brake_for(app, cur, dist, center, lrgba(1,0.1f,0,1));
 	}
 }
 void _FORCEINLINE dbg_brake_for_blocked_lane_start (App& app, NodeVehicle& v, float dist, SegLane& lane) {
-	if (SimVehicle_Selected(app, v.vehicle)) {
+	if (_SimVehicle_sel(app.interact.selection) == v.vehicle) {
 		dbg_brake_for(app, v.vehicle, dist, lane._bezier().a, lrgba(0.2f,0.8f,1,1));
 	}
 }
 void _FORCEINLINE dbg_brake_for_blocked_lane_end (App& app, NodeVehicle& v, float dist, SegLane& lane) {
-	if (SimVehicle_Selected(app, v.vehicle)) {
+	if (_SimVehicle_sel(app.interact.selection) == v.vehicle) {
 		dbg_brake_for(app, v.vehicle, dist, lane._bezier().b, lrgba(0.2f,0.8f,1,1));
 	}
 }
@@ -953,7 +951,7 @@ void update_segment (App& app, Segment* seg) {
 			SimVehicle* cur  = lane.list.list[i];
 			
 			// approx seperation using cur car bez_speed
-			float dist = (prev->bez_t - cur->bez_t) * cur->bez_speed - (prev->car_len() + 1);
+			float dist = (prev->bez_t - cur->bez_t) * cur->bez_speed - (prev->vehicle_asset->car_len() + 1);
 
 			brake_for_dist(cur, dist);
 			dbg_brake_for_vehicle(app, cur, dist, prev);
@@ -1385,8 +1383,8 @@ bool swap_cars (App& app, Node* node, NodeVehicle& a, NodeVehicle& b, bool dbg, 
 void update_node (App& app, Node* node, float dt) {
 	bool node_dbg = app.interact.selection.get<Node*>() == node;
 
-	auto* sel  = app.interact.selection.get<Person*>() ? &app.interact.selection.get<Person*>()->trip->sim : nullptr;
-	auto* sel2 = app.interact.hover    .get<Person*>() ? &app.interact.hover    .get<Person*>()->trip->sim : nullptr;
+	auto* sel  = _SimVehicle_sel(app.interact.selection);
+	auto* sel2 = _SimVehicle_sel(app.interact.hover);
 
 	// update traffic light
 	if (node->traffic_light) {
@@ -1401,7 +1399,7 @@ void update_node (App& app, Node* node, float dt) {
 
 			avail_space = lane_out.seg->_length;
 			for (auto* a : lane_out.seg->vehicles.lanes[lane_out.lane].list.list) {
-				avail_space -= a->car_len() + SAFETY_DIST;
+				avail_space -= a->vehicle_asset->car_len() + SAFETY_DIST;
 			}
 		}
 	}
@@ -1467,7 +1465,7 @@ void update_node (App& app, Node* node, float dt) {
 			v.front_k = v.vehicle->bez_t * v.vehicle->bez_speed + v.conn.bez_len;
 		}
 		
-		v.rear_k = v.front_k - v.vehicle->car_len();
+		v.rear_k = v.front_k - v.vehicle->vehicle_asset->car_len();
 	};
 
 	// update each tracked vehicle
@@ -1508,12 +1506,12 @@ void update_node (App& app, Node* node, float dt) {
 
 		auto& avail_space = v.conn.conn.b.vehicles().avail_space;
 
-		bool space_left = avail_space >= v.vehicle->car_len();
+		bool space_left = avail_space >= v.vehicle->vehicle_asset->car_len();
 
 		// reserve space either if already on node or if on incoming lane and not blocked by traffic light
 		if (!incoming_lane || (space_left && !v.blocked)) {
 			// still reserve space even if none is avail if already on node
-			avail_space -= v.vehicle->car_len() + SAFETY_DIST;
+			avail_space -= v.vehicle->vehicle_asset->car_len() + SAFETY_DIST;
 		}
 		else {
 			float dist = -v.front_k; // end of ingoing lane
@@ -1532,7 +1530,7 @@ void update_node (App& app, Node* node, float dt) {
 		}
 
 		float dist = v.front_k - v.conn.bez_len;
-		return dist > v.vehicle->car_len();
+		return dist > v.vehicle->vehicle_asset->car_len();
 	});
 
 	int count = (int)node->vehicles.test.list.size();
@@ -1580,7 +1578,7 @@ void update_node (App& app, Node* node, float dt) {
 			float a_front_k = a.front_k - a.conn.bez_len; // relative to after node
 
 			auto* b = target_lane.back();
-			float b_rear_k = b->bez_t * b->bez_speed - b->car_len();
+			float b_rear_k = b->bez_t * b->bez_speed - b->vehicle_asset->car_len();
 
 			float dist = b_rear_k - a_front_k;
 			dist -= SAFETY_DIST;
@@ -1639,13 +1637,11 @@ float calc_car_deccel (float base_deccel, float target_speed, float cur_speed) {
 	return deccel;
 }
 
-float network::SimVehicle::car_len () {
-	return vehicle_asset->mesh.aabb.size().x;
-}
-void network::SimVehicle::calc_pos (float3* pos, float* ang) {
+PosRot network::SimVehicle::calc_pos () {
 	float3 dir = front_pos - rear_pos;
-	*pos = front_pos - normalizesafe(dir) * car_len()*0.5f;
-	*ang = angle2d((float2)dir);
+	float3 pos = front_pos - normalizesafe(dir) * vehicle_asset->car_len()*0.5f;
+	float ang = angle2d((float2)dir);
+	return { pos, ang };
 }
 
 void update_vehicle_suspension (Network& net, SimVehicle& vehicle, float3 local_accel, float dt) {
@@ -1789,7 +1785,7 @@ bool SimVehicle::update (Network& net, Metrics::Var& met, Person* driver, float 
 	auto moveDirs = relative2dir(normalizesafe(old_front - old_rear));
 	//float forw_amount = dot(new_front - old_front, forw);
 
-	float len = car_len();
+	float len = vehicle_asset->car_len();
 	float3 ref_point = old_rear + len*net.settings.car_rear_drag_ratio * moveDirs.forw; // Kinda works to avoid goofy car rear movement?
 
 	float3 new_rear = new_front - normalizesafe(new_front - ref_point) * len;
@@ -1849,7 +1845,7 @@ void Metrics::update (Var& var, App& app) {
 }
 
 bool VehicleTrip::start_trip (Entities& entities, Network& net, Random& rand, Person* person) {
-	auto* target = entities.buildings[ rand.uniformi(0, (int)entities.buildings.size()) ].get();
+	auto* target_building = entities.buildings[ rand.uniformi(0, (int)entities.buildings.size()) ].get();
 		
 	assert(person->cur_building->connected_segment);
 	if (person->cur_building->connected_segment) {
@@ -1857,20 +1853,23 @@ bool VehicleTrip::start_trip (Entities& entities, Network& net, Random& rand, Pe
 
 		auto trip = std::make_unique<network::VehicleTrip>();
 		
-		trip->sim.vehicle_asset = person->owned_vehicle;
+		trip->sim.vehicle_asset = person->owned_vehicle->asset;
 		trip->sim.tint_col      = person->col;
 		trip->sim.agressiveness = person->agressiveness;
 		//trip->driver = person;
-		trip->start = person->cur_building;
-		trip->target = target;
+		trip->start  = from_vehicle_start(person->cur_building, *person->owned_vehicle);
+		trip->target = Endpoint{ target_building, &target_building->parking_spot };
 
-		bool valid = trip->sim.nav.pathfind(net,
-			VehNavPoint(person->cur_building->connected_segment, person->cur_building->pos),
-			VehNavPoint(              target->connected_segment,               target->pos));
+		bool valid = trip->sim.nav.pathfind(net, to_navpoint(trip->start), to_navpoint(trip->target));
 
 		if (valid) {
+			if (trip->start.parking) {
+				auto* veh = (*trip->start.parking)->unpark();
+				assert(veh == person->owned_vehicle.get());
+			}
+
 			person->cur_building = nullptr;
-			person->trip = std::move(trip);
+			person->owned_vehicle->state = std::move(trip);
 			return true;
 		}
 	}
@@ -1888,10 +1887,13 @@ void VehicleTrip::update_person (Entities& entities, Network& net, Metrics::Var&
 		}
 	}
 
-	if (person->trip) {
-		if (!person->trip->update(net, met, person, dt))
-			return; // trip ongoing
-		person->trip = nullptr; // trip done
+	auto* trip = person->owned_vehicle->get_trip();
+	if (trip) {
+		if (trip->update(net, met, person, dt)) {
+			finish_trip(trip, person);
+			return;
+		}
+		// trip ongoing
 	}
 }
 
@@ -1910,8 +1912,10 @@ void Network::simulate (App& app) {
 		{ // TODO: only iterate active vehicles
 			ZoneScopedN("init pass");
 			for (auto& pers : app.entities.persons) {
-				if (pers->cur_building) continue;
-				pers->trip->sim.init();
+				//if (pers->cur_building) continue;
+				auto* trip = pers->owned_vehicle->get_trip();
+				if (trip)
+					trip->sim.init();
 			}
 		}
 		
@@ -1956,7 +1960,12 @@ void Network::draw_debug (App& app, View3D& view) {
 	ZoneScoped;
 
 	debug_node(app, app.interact.selection.get<Node*>(), view);
-	debug_person(app, app.interact.selection.get<Person*>(), view);
+
+	auto* pers = app.interact.selection.get<Person*>();
+	if (pers && pers->owned_vehicle->get_trip()) {
+		debug_vehicle(app, *pers->owned_vehicle, pers->owned_vehicle->get_trip()->sim, view);
+	}
+
 	debug_last_pathfind(app.network, view);
 }
 

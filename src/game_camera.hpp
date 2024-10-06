@@ -172,8 +172,7 @@ struct CameraTrack {
 
 	sel_ptr cur_tracking = nullptr;
 
-	float3 prev_pos;
-	float  prev_rot;
+	PosRot prev_pos;
 
 	float3 pos_target;
 
@@ -188,22 +187,19 @@ struct CameraTrack {
 
 	void update (GameCamera& cam, sel_ptr selection, float dt) {
 		auto* sel = selection.get<Person*>();
-
-		if (track && sel && sel->trip) { // If tracking and object selected
-			// get object pos and rotation
-			float3 pos;
-			float rot;
-			sel->trip->sim.calc_pos(&pos, &rot);
+		auto* trip = sel ? sel->owned_vehicle->get_trip() : nullptr;
+		if (track && trip) { // If tracking and object selected
+			auto pos = trip->sim.calc_pos();
 			
 			if (cur_tracking != selection) {
 				// re-center camera if new selection or selection changed
-				pos_target = pos; // jump to tracking target
+				pos_target = pos.pos; // jump to tracking target
 				smoothing_t = 0;
 			}
 			else {
-				pos_target += pos - prev_pos;
+				pos_target += pos.pos - prev_pos.pos;
 				if (track_rot)
-					cam.rot_aer.x += rot - prev_rot;
+					cam.rot_aer.x += pos.ang - prev_pos.ang;
 			}
 
 			// smoothly lerp from free camera to tracking target for smoothing_duration seconds
@@ -212,7 +208,6 @@ struct CameraTrack {
 			smoothing_t = min(smoothing_t + dt / smoothing_duration, 1.0f);
 
 			prev_pos = pos;
-			prev_rot = rot;
 
 			cur_tracking = selection;
 		}

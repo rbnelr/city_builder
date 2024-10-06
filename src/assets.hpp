@@ -465,6 +465,10 @@ struct VehicleAsset : public Asset {
 	float wheel_r = 0.5f;
 
 	AssetMesh<SimpleAnimVertex> mesh;
+	
+	float car_len () {
+		return mesh.aabb.size().x;
+	}
 
 	void reload () {
 		mesh = {}; // need to clear mesh

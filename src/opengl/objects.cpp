@@ -564,20 +564,50 @@ void ObjectRender::upload_vehicle_instances (Textures& texs, App& app, View3D& v
 	instances.reserve(4096); // not all persons have active vehicle, don't overallocate
 
 	for (auto& entity : app.entities.persons) {
-		if (entity->trip) {
-			uint32_t instance_idx = (uint32_t)instances.size();
-			auto& instance = instances.emplace_back();
-
-			update_vehicle_instance(texs, instance, entity->trip->sim, instance_idx, view, app.input.real_dt);
-		}
+		visit_overloaded(entity->owned_vehicle->state,
+			[] (std::monostate) {},
+			[&] (std::unique_ptr<network::VehicleTrip> const& v) {
+				push_vehicle_instance(instances, texs, v->sim, view, app.input.real_dt);
+			},
+			[&] (ParkingSpot* v) {
+				assert(entity->owned_vehicle.get() == v->parked_vehicle);
+				push_parked_vehicle_instance(instances, texs, *v);
+			}
+		);
 	}
 
 	entities.vehicles.upload<0>(instances, true);
 }
 
-void ObjectRender::update_vehicle_instance (Textures& texs, DynamicVehicle& instance, network::SimVehicle& veh, int i, View3D& view, float dt) {
+// TODO: make parked vehicles static entities that do not get uploaded every frame (and don't need skinned shader)
+void ObjectRender::push_parked_vehicle_instance (std::vector<DynamicVehicle>& instances,
+		Textures& texs, ParkingSpot& parking) {
+	uint32_t instance_id = (uint32_t)instances.size();
+	auto& instance = instances.emplace_back();
+
+	auto& veh = *parking.parked_vehicle;
+
+	int tex_id = texs.bindless_textures[veh.asset->tex_filename];
+
+	instance.mesh_id = entities.vehicle_meshes.asset2mesh_id[veh.asset];
+	instance.instance_id = instance_id;
+	instance.tex_id = tex_id;
+	instance.pos = parking.pos;
+	instance.tint = veh.col;
+	instance.glow = 0;
+	
+	float3x3 heading_rot = rotate3_Z(0);
+	for (int i=0; i<ARRLEN(instance.bone_rot); ++i)
+		instance.bone_rot[i] = float4x4(heading_rot);
+}
+
+void ObjectRender::push_vehicle_instance (std::vector<DynamicVehicle>& instances,
+		Textures& texs, network::SimVehicle& veh, View3D& view, float dt) {
+	uint32_t instance_id = (uint32_t)instances.size();
+	auto& instance = instances.emplace_back();
+
 	auto& bone_mats = veh.vehicle_asset->bone_mats;
-		
+	
 	int tex_id = texs.bindless_textures[veh.vehicle_asset->tex_filename];
 
 	auto vehicle_hash = (uint32_t)hash((size_t)&veh);
@@ -585,15 +615,12 @@ void ObjectRender::update_vehicle_instance (Textures& texs, DynamicVehicle& inst
 
 	bool blinker_on = veh.update_blinker(rand1, dt);
 
-	// TODO: network code shoud ensure length(dir) == CAR_SIZE
-	float3 center;
-	float ang;
-	veh.calc_pos(&center, &ang);
+	auto pos = veh.calc_pos();
 
 	instance.mesh_id = entities.vehicle_meshes.asset2mesh_id[veh.vehicle_asset];
-	instance.instance_id = i;
+	instance.instance_id = instance_id;
 	instance.tex_id = tex_id;
-	instance.pos = center;
+	instance.pos = pos.pos;
 	instance.tint = veh.tint_col;
 
 	instance.glow.x = 255;
@@ -601,11 +628,11 @@ void ObjectRender::update_vehicle_instance (Textures& texs, DynamicVehicle& inst
 	instance.glow.z = veh.blinker < 0.0f && blinker_on ? 255 : 0;
 	instance.glow.w = veh.blinker > 0.0f && blinker_on ? 255 : 0;
 		
-	float3x3 heading_rot = rotate3_Z(ang);
+	float3x3 heading_rot = rotate3_Z(pos.ang);
 
 	// skip expensive bone matricies computation when too far away
 	float anim_LOD_dist = 250;
-	if (length_sqr(center - view.cam_pos) > anim_LOD_dist*anim_LOD_dist) {
+	if (length_sqr(pos.pos - view.cam_pos) > anim_LOD_dist*anim_LOD_dist) {
 		for (auto& mat : instance.bone_rot) {
 			mat = float4x4(heading_rot);
 		}

@@ -2,9 +2,16 @@
 #include "entities.hpp"
 #include "network.hpp"
 
-SelCircle Person::get_sel_shape () { // TODO: move part of this to active vehicle?
-	auto c = lrgb(0.04f, 1, 0.04f);
-	if (trip)
-		return { trip->sim.center(), trip->sim.car_len()*0.5f, c };
-	return { cur_building->pos, 1, c };
+std::optional<PosRot> Vehicle::clac_pos () {
+	return visit_overloaded(state,
+		[] (std::monostate) -> std::optional<PosRot> {
+			return std::nullopt; 
+		},
+		[] (std::unique_ptr<network::VehicleTrip> const& v) -> std::optional<PosRot> {
+			return v->sim.calc_pos();
+		},
+		[] (ParkingSpot* const& v) -> std::optional<PosRot> {
+			return v->calc_pos();
+		}
+	);
 }

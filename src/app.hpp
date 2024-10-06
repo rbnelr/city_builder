@@ -720,6 +720,7 @@ struct TestMapBuilder {
 					float3 pos1 = base_pos + road_center + float3(0, road_width + asset->size.y, 0);
 					float rot1 = deg(90);
 					auto build1 = std::make_unique<Building>(Building{ asset, pos1, rot1, conn_seg });
+					build1->update_cached();
 					entities.buildings.emplace_back(std::move(build1));
 				}
 				{
@@ -727,6 +728,7 @@ struct TestMapBuilder {
 					float3 pos2 = base_pos + road_center - float3(0, road_width + asset->size.y, 0);
 					float rot2 = deg(-90);
 					auto build2 = std::make_unique<Building>(Building{ asset, pos2, rot2, conn_seg });
+					build2->update_cached();
 					entities.buildings.emplace_back(std::move(build2));
 				}
 			}
@@ -764,7 +766,10 @@ struct TestMapBuilder {
 					auto* building = entities.buildings[sim_rand.uniformi(0, (int)entities.buildings.size())].get();
 					auto* car_asset = rand_car.get_random(sim_rand)->get();
 					
-					entities.persons[i] = std::make_unique<Person>(Person{sim_rand, building, car_asset});
+					auto owned_vehicle = std::make_unique<Vehicle>(sim_rand, car_asset);
+
+					entities.persons[i] = std::make_unique<Person>(sim_rand, building, owned_vehicle->col);
+					entities.persons[i]->owned_vehicle = std::move(owned_vehicle);
 				}
 			}
 		}

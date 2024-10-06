@@ -98,11 +98,13 @@ struct Interaction {
 			OverlayDraw& overlay, Entities& entities, Network& net, Heightmap& heightmap) {
 		find_hover(view, input, entities, net, false);
 
+		// TODO: move this somewhere else? ie. make this an function of vehicle?
+		// currently it's just a debug feature though
 		if (selection.get<Person*>()) {
 			auto* pers = selection.get<Person*>();
-
-			if (pers->trip) {
-				network::VehicleTrip::Endpoint targ = {};
+			auto* trip = pers->owned_vehicle->get_trip();
+			if (trip) {
+				std::optional<network::VehicleTrip::Waypoint> targ = {};
 
 				auto* build = hover.get<Building*>();
 				if (build) {
@@ -113,8 +115,10 @@ struct Interaction {
 					if (res) targ = *res;
 				}
 				
-				bool preview = !input.buttons[MOUSE_BUTTON_RIGHT].went_down;
-				pers->trip->dbg_waypoint(overlay, net, targ, preview);
+				if (targ) {
+					bool preview = !input.buttons[MOUSE_BUTTON_RIGHT].went_down;
+					trip->dbg_waypoint(overlay, net, *targ, preview);
+				}
 			}
 		}
 		
@@ -139,6 +143,7 @@ struct Interaction {
 		}
 	}
 
+	// TODO: turn these into "tool" classes
 	void update_bulldoze (View3D& view, Input& input, Entities& entities, Network& net) {
 		selection = nullptr;
 		
@@ -147,9 +152,9 @@ struct Interaction {
 		if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
 			if (hover.get<Person*>()) {
 				auto* pers = hover.get<Person*>();
-				if (pers->trip) {
-					pers->trip->cancel_trip(pers);
-					pers->trip = nullptr;
+				auto* trip = pers->owned_vehicle->get_trip();
+				if (trip) {
+					network::VehicleTrip::cancel_trip(trip, pers);
 				}
 
 				hover = nullptr;

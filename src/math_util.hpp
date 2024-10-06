@@ -8,6 +8,11 @@ inline float angle2d (float2 dir) {
 	return length_sqr(dir) > 0 ? atan2f(dir.y, dir.x) : 0;
 }
 
+struct PosRot {
+	float3 pos;
+	float  ang;
+};
+
 inline float lrgb_luminance (lrgb const& col) {
 	return dot(col, lrgb(0.2126f, 0.7152f, 0.0722f));
 }

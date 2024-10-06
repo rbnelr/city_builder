@@ -533,9 +533,9 @@ class HeightmapTerraform {
 
 	TerraformBrush brush;
 
-	std::unique_ptr<TerraformMove   > move_tool    = std::make_unique<TerraformMove>();
-	std::unique_ptr<TerraformFlatten> flatten_tool = std::make_unique<TerraformFlatten>();
-	std::unique_ptr<TerraformSmooth > smooth_tool  = std::make_unique<TerraformSmooth>();
+	TerraformMove    move_tool;
+	TerraformFlatten flatten_tool;
+	TerraformSmooth  smooth_tool;
 
 	TerraformTool* cur_tool = nullptr;
 
@@ -590,11 +590,11 @@ public:
 			if (ImGui::ButtonEx(str.c_str(), ImVec2(80, 20), ImGuiButtonFlags_PressedOnClick))
 				cur_tool = !active ? tool : nullptr;
 		};
-		tool_button(move_tool.get());
+		tool_button(&move_tool);
 		ImGui::SameLine();
-		tool_button(flatten_tool.get());
+		tool_button(&flatten_tool);
 		ImGui::SameLine();
-		tool_button(smooth_tool.get());
+		tool_button(&smooth_tool);
 
 		ImGui::Text("Paint Radius  [R] to Drag-Change");
 		ImGui::SliderFloat("##paint radius", &paint_radius, 0, 64*1024, "%.0f", ImGuiSliderFlags_Logarithmic);

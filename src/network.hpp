@@ -843,12 +843,12 @@ struct NavEndPath {
 		return calc_bezier(lane, end_pos, ctrl, t);
 	}
 
-	static NavEndPath building_viz (Lane const& lane, Building* build) {
-		float t;
-		float3 ctrl = PosRot(build->pos, build->rot).local(float3(-5, 0, 0));
-		build->connected_segment->distance_to_point(build->pos, &t);
-		return calc_bezier(lane, build->pos, ctrl, t);
-	}
+	//static NavEndPath building_viz (Lane const& lane, Building* build) {
+	//	float t;
+	//	float3 ctrl = PosRot(build->pos, build->rot).local(float3(-5, 0, 0));
+	//	build->connected_segment->distance_to_point(build->pos, &t);
+	//	return calc_bezier(lane, build->pos, ctrl, t);
+	//}
 	static NavEndPath building_front (Lane const& lane, Building* build) { // for vehicles despawning "pocket cars"
 		return from_nearest_point_on_sidewalk(lane, build->connected_segment, build->pos);
 	}
@@ -873,8 +873,8 @@ public:
 	typedef std::variant<Building*, float3> Waypoint;
 	
 	static NavEndPath calc_nav_curve (NavEndPath::Lane const& lane, Endpoint const& endpoint, bool visualize=false) {
-		if (visualize)
-			return NavEndPath::building_viz(lane, endpoint.building);
+		//if (visualize)
+		//	return NavEndPath::building_viz(lane, endpoint.building);
 
 		if (endpoint.parking)
 			return NavEndPath::building_parking(lane, endpoint.building, endpoint.parking);
@@ -892,10 +892,10 @@ public:
 	}
 	NavEndPath get_vehicle_trip_target (SegLane lane, Vehicle* vehicle, bool visualize=false) override {
 		// no need to reserve parking yet if only visualizing, just use building pos as target
-		if (visualize)
-			return calc_nav_curve({lane, true}, target, true);
+		//if (visualize)
+		//	return calc_nav_curve({lane, true}, target, true);
 
-		if (!target.parking) {
+		if (!target.parking && !visualize) {
 			// find free parking and reserve it
 			target.parking = find_parking(target.building);
 			if (target.parking)

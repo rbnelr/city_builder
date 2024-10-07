@@ -207,7 +207,6 @@ void debug_last_pathfind (Network& net, View3D& view) {
 }
 
 ////
-
 bool VehNav::nav_pathfind (Network& net, Vehicle* veh, Pathfinding::Endpoint start, Pathfinding::Endpoint target) {
 	path = {};
 	if (!Pathfinding::pathfind(net, start, target, &path))
@@ -477,35 +476,6 @@ SegLane VehNav::pick_lane (Network& net, Random& rand, int seg_i, SegLane prev_l
 	return lane;
 };
 
-Bezier3 start_bezier (SegLane const& lane, VehNavPoint const& start, float* out_t) {
-	auto lane_bez = lane._bezier();
-	float len = lane_bez.approx_len(4);
-	float t1 = start.get_lane_t(lane);
-	float t0 = clamp(t1 + 5 / len, 0.01f, 0.99f);
-		
-	float3 point  = start.pos.pos;
-	float3 ctrlA  = start.pos.local(float3(-10,0,0));
-	float3 ctrlB  = lane_bez.eval(t1).pos;
-	float3 on_seg = lane_bez.eval(t0).pos;
-
-	*out_t = t0;
-	return Bezier3(point, ctrlA, ctrlB, on_seg);
-}
-Bezier3 end_bezier (SegLane const& lane, VehNavPoint const& end, float* out_t) {
-	auto lane_bez = lane._bezier();
-	float len = lane_bez.approx_len(4);
-	float t1 = end.get_lane_t(lane);
-	float t0 = clamp(t1 - 5 / len, 0.01f, 0.99f); // curve such that the endpoint is 5m earlier on the lane than seg_t
-	
-	float3 point  = end.pos.pos;
-	float3 ctrlA  = end.pos.local(float3(-10,0,0));
-	float3 ctrlB  = lane_bez.eval(t1).pos;
-	float3 on_seg = lane_bez.eval(t0).pos;
-
-	*out_t = t0;
-	return Bezier3(on_seg, ctrlB, ctrlA, point);
-}
-
 float get_speed_limit (VehNav::MotionType motion, SegLane cur_lane={}, SegLane next_lane={}) {
 	switch (motion) {
 		case VehNav::SEGMENT: {
@@ -564,7 +534,9 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state, Vehicle* 
 		//s.cur_lane = {};
 		s.next_lane = pick_lane(net, seeded_rand, 0, SegLane{});
 
-		s.bezier = start_bezier(s.next_lane, get_vehicle_trip_start(), &s.next_start_t);
+		auto path = get_vehicle_trip_start(s.next_lane);
+		s.bezier = path.bez;
+		s.next_start_t = path.lane_t;
 
 		s.cur_speedlim  = get_speed_limit(MotionType::START);
 		s.next_speedlim = get_speed_limit(MotionType::SEGMENT, s.next_lane);
@@ -576,8 +548,7 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state, Vehicle* 
 		//s.cur_lane = {};
 		//s.next_lane = {};
 
-		float t;
-		s.bezier = end_bezier(prev_lane, get_vehicle_trip_target(veh, visualize), &t);
+		s.bezier = get_vehicle_trip_target(prev_lane, veh, visualize).bez;
 
 		s.cur_speedlim  = get_speed_limit(MotionType::END);
 		s.next_speedlim = 1; // stop at end of last bezier, TODO: how to customize based on target? ex. for underground parking entrance
@@ -594,7 +565,7 @@ VehNav::State VehNav::_step (Network& net, int idx, State* prev_state, Vehicle* 
 
 			if (idx+1 == num_moves-1) {
 				// already on target lane, need end_t
-				end_bezier(s.cur_lane, get_vehicle_trip_target(veh, visualize), &s.end_t);
+				s.end_t = get_vehicle_trip_target(s.cur_lane, veh, visualize).lane_t;
 				//s.next_lane = {};
 			}
 			else {
@@ -680,7 +651,7 @@ void overlay_lane_vehicle (App& app, SimVehicle* vehicle, lrgba col, int tex) {
 	
 	Bezier3 cur_bez = vehicle->get_state().bezier;
 	float t1 = vehicle->bez_t;
-	float t0 = vehicle->bez_t - vehicle->vehicle_asset->car_len() / vehicle->bez_speed; // t - len / (dlen / dt) => t - dt
+	float t0 = vehicle->bez_t - vehicle->vehicle_asset->length() / vehicle->bez_speed; // t - len / (dlen / dt) => t - dt
 	if (t0 < 0) {
 		// car rear on different bezier!
 		t0 = 0;
@@ -701,7 +672,7 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 		float t1 = lane_out.vehicles().avail_space / lane_out.seg->_length;
 
 		float bez_speed = length(bez.eval(t1).vel);
-		float t0 = t1 - a->vehicle_asset->car_len() / bez_speed; // TODO: cache accurate k in vehicle and eliminate this calculation!
+		float t0 = t1 - a->vehicle_asset->length() / bez_speed; // TODO: cache accurate k in vehicle and eliminate this calculation!
 		
 		app.overlay.curves.push_bezier(bez, float2(LANE_COLLISION_R*2, 1), OverlayDraw::PATTERN_STRIPED, lrgba(a->tint_col, 0.8f), float2(t0,t1));
 	};
@@ -713,7 +684,7 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 			avail_space = lane_out.seg->_length;
 			for (auto* a : lane_out.seg->vehicles.lanes[lane_out.lane].list.list) {
 				dbg_avail_space(lane_out, a);
-				avail_space -= a->vehicle_asset->car_len() + SAFETY_DIST*1.25f;
+				avail_space -= a->vehicle_asset->length() + SAFETY_DIST*1.25f;
 			}
 		}
 	}
@@ -727,9 +698,9 @@ void dbg_node_lane_alloc (App& app, Node* node) {
 		}
 
 		auto& avail_space = v.conn.conn.b.vehicles().avail_space;
-		if (avail_space >= v.vehicle->vehicle_asset->car_len()) {
+		if (avail_space >= v.vehicle->vehicle_asset->length()) {
 			dbg_avail_space(v.conn.conn.b, v.vehicle);
-			avail_space -= v.vehicle->vehicle_asset->car_len() + SAFETY_DIST*1.25f;
+			avail_space -= v.vehicle->vehicle_asset->length() + SAFETY_DIST*1.25f;
 		}
 	}
 }
@@ -968,7 +939,7 @@ void update_segment (App& app, Segment* seg) {
 			SimVehicle* cur  = lane.list.list[i];
 			
 			// approx seperation using cur car bez_speed
-			float dist = (prev->bez_t - cur->bez_t) * cur->bez_speed - (prev->vehicle_asset->car_len() + 1);
+			float dist = (prev->bez_t - cur->bez_t) * cur->bez_speed - (prev->vehicle_asset->length() + 1);
 
 			brake_for_dist(cur, dist);
 			dbg_brake_for_vehicle(app, cur, dist, prev);
@@ -1416,7 +1387,7 @@ void update_node (App& app, Node* node, float dt) {
 
 			avail_space = lane_out.seg->_length;
 			for (auto* a : lane_out.seg->vehicles.lanes[lane_out.lane].list.list) {
-				avail_space -= a->vehicle_asset->car_len() + SAFETY_DIST*1.25f;
+				avail_space -= a->vehicle_asset->length() + SAFETY_DIST*1.25f;
 			}
 		}
 	}
@@ -1482,7 +1453,7 @@ void update_node (App& app, Node* node, float dt) {
 			v.front_k = v.vehicle->bez_t * v.vehicle->bez_speed + v.conn.bez_len;
 		}
 		
-		v.rear_k = v.front_k - v.vehicle->vehicle_asset->car_len();
+		v.rear_k = v.front_k - v.vehicle->vehicle_asset->length();
 	};
 
 	// update each tracked vehicle
@@ -1523,12 +1494,12 @@ void update_node (App& app, Node* node, float dt) {
 
 		auto& avail_space = v.conn.conn.b.vehicles().avail_space;
 
-		bool space_left = avail_space >= v.vehicle->vehicle_asset->car_len();
+		bool space_left = avail_space >= v.vehicle->vehicle_asset->length();
 
 		// reserve space either if already on node or if on incoming lane and not blocked by traffic light
 		if (!incoming_lane || (space_left && !v.blocked)) {
 			// still reserve space even if none is avail if already on node
-			avail_space -= v.vehicle->vehicle_asset->car_len() + SAFETY_DIST*1.25f;
+			avail_space -= v.vehicle->vehicle_asset->length() + SAFETY_DIST*1.25f;
 		}
 		else {
 			float dist = -v.front_k; // end of ingoing lane
@@ -1547,7 +1518,7 @@ void update_node (App& app, Node* node, float dt) {
 		}
 
 		float dist = v.front_k - v.conn.bez_len;
-		return dist > v.vehicle->vehicle_asset->car_len();
+		return dist > v.vehicle->vehicle_asset->length();
 	});
 
 	int count = (int)node->vehicles.test.list.size();
@@ -1595,7 +1566,7 @@ void update_node (App& app, Node* node, float dt) {
 			float a_front_k = a.front_k - a.conn.bez_len; // relative to after node
 
 			auto* b = target_lane.back();
-			float b_rear_k = b->bez_t * b->bez_speed - b->vehicle_asset->car_len();
+			float b_rear_k = b->bez_t * b->bez_speed - b->vehicle_asset->length();
 
 			float dist = b_rear_k - a_front_k;
 			dist -= SAFETY_DIST;
@@ -1656,7 +1627,7 @@ float calc_car_deccel (float base_deccel, float target_speed, float cur_speed) {
 
 PosRot network::SimVehicle::calc_pos () {
 	float3 dir = front_pos - rear_pos;
-	float3 pos = front_pos - normalizesafe(dir) * vehicle_asset->car_len()*0.5f;
+	float3 pos = front_pos - normalizesafe(dir) * vehicle_asset->length()*0.5f;
 	float ang = angle2d((float2)dir);
 	return { pos, ang };
 }
@@ -1790,8 +1761,11 @@ bool SimVehicle::sim_update (Network& net, Metrics::Var& met, Vehicle* veh, Pers
 	// eval bezier at car front
 	auto bez_res = state.bezier.eval_with_curv(bez_t);
 	// remember bezier delta t for next frame
-	bez_speed = length(bez_res.vel); // bezier t / delta pos
-	float3 bez_dir = bez_res.vel / bez_speed;
+	bez_speed = length(bez_res.vel); // delta pos / bezier t
+	// some Beziers can have points with 0 speed, which breaks the code (bezier step would end up with inf step size)
+	// so some step size has to be chosen, we could approximate this in some way, but simply limiting to something
+	// arbitrary works
+	bez_speed = max(bez_speed, 1.0f);
 
 	// actually move car rear using (bogus) trailer formula
 	float3 new_front = bez_res.pos;
@@ -1803,7 +1777,7 @@ bool SimVehicle::sim_update (Network& net, Metrics::Var& met, Vehicle* veh, Pers
 	auto moveDirs = relative2dir(normalizesafe(old_front - old_rear));
 	//float forw_amount = dot(new_front - old_front, forw);
 
-	float len = vehicle_asset->car_len();
+	float len = vehicle_asset->length();
 	float3 ref_point = old_rear + len*net.settings.car_rear_drag_ratio * moveDirs.forw; // Kinda works to avoid goofy car rear movement?
 
 	float3 new_rear = new_front - normalizesafe(new_front - ref_point) * len;
@@ -1862,26 +1836,6 @@ void Metrics::update (Var& var, App& app) {
 	flow_plot.push_value(avg_flow);
 }
 
-ParkingSpot* VehicleTrip::find_parking (Building* target) {
-	for (auto& spot : target->parking) {
-		if (spot.avail()) {
-			return &spot;
-		}
-	}
-	return nullptr;
-}
-
-VehNavPoint VehicleTrip::get_vehicle_trip_target (Vehicle* vehicle, bool visualize) {
-	if (!target.parking && !visualize) {
-		// target nav point requested, need to pick parking
-		// TODO: reserve parking so other vehicles don't pick spot we will end up occupying
-		target.parking = find_parking(target.building);
-		if (target.parking)
-			target.parking->reserve(vehicle);
-	}
-	return to_navpoint(target);
-}
-
 bool VehicleTrip::start_trip (Entities& entities, Network& net, Random& rand, Person* person) {
 	auto* target_building = entities.buildings[ rand.uniformi(0, (int)entities.buildings.size()) ].get();
 		
@@ -1906,6 +1860,10 @@ bool VehicleTrip::start_trip (Entities& entities, Network& net, Random& rand, Pe
 			if (trip->start.parking) {
 				auto* veh = trip->start.parking->unpark();
 				assert(veh == person->owned_vehicle.get());
+				trip->init_pos(trip->start.parking);
+			}
+			else {
+				trip->init_pos(trip->get_state().bezier);
 			}
 
 			person->cur_building = nullptr;

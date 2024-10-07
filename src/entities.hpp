@@ -16,9 +16,9 @@ public:
 	VehicleAsset* asset;
 	lrgb col;
 	
-	// allow pocket car if not otherwise possible for now?
+	// Could 
 	typedef std::variant<
-		std::monostate, // = Pocket car? Might be needed for cases where no parking can be found! -> Apply No parking malus
+		std::monostate, // = Pocket car
 		std::unique_ptr<network::VehicleTrip>,
 		ParkingSpot*> State;
 //private:
@@ -64,7 +64,7 @@ public:
 	std::optional<SelCircle> get_sel_shape () {
 		auto pos = clac_pos();
 		if (pos)
-			return SelCircle{ pos->pos, asset->car_len()*0.5f, 0 }; // return pos and radius for Person::get_sel_shape()
+			return SelCircle{ pos->pos, asset->length()*0.5f, 0 }; // return pos and radius for Person::get_sel_shape()
 		return std::nullopt;
 	}
 };
@@ -124,6 +124,9 @@ public:
 	// 
 	PosRot vehicle_front_pos () const {
 		return { pos.local(float3(ParkingSpot::default_size.y*0.5f,0,0)), pos.ang };
+	}
+	float3 vehicle_bez_ctrl_point () const {
+		return pos.local(float3(-ParkingSpot::default_size.y*1.5f,0,0));
 	}
 
 	void dbg_draw () {

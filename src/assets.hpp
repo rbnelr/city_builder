@@ -466,7 +466,7 @@ struct VehicleAsset : public Asset {
 
 	AssetMesh<SimpleAnimVertex> mesh;
 	
-	float car_len () {
+	float length () {
 		return mesh.aabb.size().x;
 	}
 

@@ -20,6 +20,7 @@ struct Network;
 struct Node;
 struct Segment;
 struct Lane;
+struct NavEndPath;
 class SimVehicle;
 struct LaneVehicles;
 struct TrafficLight;
@@ -524,45 +525,6 @@ inline Bezier3 SegLane::_bezier () const {
 		bez = bez.reverse();
 	return bez;
 }
-inline Bezier3 Node::calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0, float2 shiftXZ_1) {
-	auto i0 = seg0->get_end_info(this, shiftXZ_0);
-	auto i1 = seg1->get_end_info(this, shiftXZ_1);
-
-	float3 ctrl_in, ctrl_out;
-	float2 point;
-	// Find straight line intersection of in/out lanes with their tangents
-	if (line_line_intersect((float2)i0.pos, (float2)i0.forw, (float2)i1.pos, (float2)i1.forw, &point)) {
-		ctrl_in  = float3(point, i0.pos.z);
-		ctrl_out = float3(point, i1.pos.z);
-	}
-	// Come up with seperate control points TODO: how reasonable is this?
-	else {
-		float dist = distance(i0.pos, i1.pos) * 0.5f;
-		ctrl_in  = i0.pos + float3((float2)i0.forw, 0) * dist;
-		ctrl_out = i1.pos + float3((float2)i1.forw, 0) * dist;
-	}
-
-	// NOTE: for quarter circle turns k=0.5539 would result in almost exactly a quarter circle!
-	// https://pomax.github.io/bezierinfo/#circles_cubic
-	// but turns that are sharper in the middle are more realistic, but we could make this customizable?
-	float k = 0.6667f;
-
-	Bezier3 bez;
-	bez.a = i0.pos;
-	bez.b = lerp(i0.pos, ctrl_in , k);
-	bez.c = lerp(i1.pos, ctrl_out, k);
-	bez.d = i1.pos;
-	return bez;
-}
-inline Bezier3 Node::calc_curve (SegLane& in, SegLane& out) {
-	// calc_curve works with shifts 
-	auto& a0 = in.get_asset();
-	auto& a1 = out.get_asset();
-	float shift0 = a0.direction == LaneDir::FORWARD ? a0.shift : -a0.shift;
-	float shift1 = a1.direction == LaneDir::FORWARD ? -a1.shift : a1.shift;
-
-	return calc_curve(in.seg, out.seg, float2(shift0, ROAD_Z), float2(shift1, ROAD_Z));
-}
 
 // max lanes/segment and max segments per node == 256
 inline uint32_t conn_id (Node* node, Connection const& conn) {
@@ -614,27 +576,6 @@ public:
 		std::vector<Segment*>* result_path);
 };
 
-// Represents Start and Endpoint of Navigation
-struct VehNavPoint {
-	Segment* seg = nullptr;
-	PosRot   pos = {};
-	float    seg_t = 0;
-
-	VehNavPoint () {};
-	VehNavPoint (Segment* seg, float seg_t, PosRot pos): seg{seg}, seg_t{seg_t}, pos{pos} {};
-
-	operator bool () const {
-		return seg != nullptr;
-	}
-
-	float get_lane_t (SegLane const& lane) const {
-		assert(lane.seg == seg);
-		return lane.get_asset().direction == LaneDir::FORWARD ?
-			seg_t : 1.0f - seg_t;
-	}
-
-	//static VehNavPoint from_free_point (Network const& net, float3 pos);
-};
 
 // Stores the path from pathfinding
 // Is a Sequence of Motions that a vehicle performs to drive along a path
@@ -679,10 +620,10 @@ public:
 	};
 
 	// start and destination getters implemented by Trip
-	virtual VehNavPoint get_vehicle_trip_start () = 0;
+	virtual NavEndPath get_vehicle_trip_start (SegLane lane) = 0;
 	// false: parking spot gets reserved on call, this call only happens just before target is reached
 	// visualize=true to avoid instantly reserving parking spot
-	virtual VehNavPoint get_vehicle_trip_target (Vehicle* vehicle, bool visualize=false) = 0;
+	virtual NavEndPath get_vehicle_trip_target (SegLane lane, Vehicle* vehicle, bool visualize=false) = 0;
 
 private:
 	
@@ -765,6 +706,20 @@ public: // TODO: encapsulate better?
 	float blinker_timer = 0; // could get eliminated (a fixed number of blinker timers indexed using vehicle id hash)
 	float brake_light = 0;
 
+	void _init_pos (float3 pos, float3 forw) {
+		front_pos = pos;
+		rear_pos = pos - forw * vehicle_asset->length();
+	}
+	void init_pos (Bezier3 const& bez) {
+		auto pos = bez.eval(0).pos;
+		auto forw = normalizesafe(bez.eval(0.001f).pos - pos);
+		_init_pos(pos, forw);
+	}
+	void init_pos (ParkingSpot* parking) {
+		auto pos = parking->vehicle_front_pos();
+		_init_pos(pos.pos, rotate3_Z(pos.ang) * float3(1,0,0));
+	}
+
 	void sim_init () {
 		brake = 1;
 	}
@@ -791,6 +746,121 @@ public: // TODO: encapsulate better?
 	bool sim_update (Network& net, Metrics::Var& met, Vehicle* veh, Person* driver, float dt);
 };
 
+inline Bezier3 Node::calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0, float2 shiftXZ_1) {
+	auto i0 = seg0->get_end_info(this, shiftXZ_0);
+	auto i1 = seg1->get_end_info(this, shiftXZ_1);
+
+	float3 ctrl_in, ctrl_out;
+	float2 point;
+	// Find straight line intersection of in/out lanes with their tangents
+	if (line_line_intersect((float2)i0.pos, (float2)i0.forw, (float2)i1.pos, (float2)i1.forw, &point)) {
+		ctrl_in  = float3(point, i0.pos.z);
+		ctrl_out = float3(point, i1.pos.z);
+	}
+	// Come up with seperate control points TODO: how reasonable is this?
+	else {
+		float dist = distance(i0.pos, i1.pos) * 0.5f;
+		ctrl_in  = i0.pos + float3((float2)i0.forw, 0) * dist;
+		ctrl_out = i1.pos + float3((float2)i1.forw, 0) * dist;
+	}
+
+	// NOTE: for quarter circle turns k=0.5539 would result in almost exactly a quarter circle!
+	// https://pomax.github.io/bezierinfo/#circles_cubic
+	// but turns that are sharper in the middle are more realistic, but we could make this customizable?
+	float k = 0.6667f;
+
+	Bezier3 bez;
+	bez.a = i0.pos;
+	bez.b = lerp(i0.pos, ctrl_in , k);
+	bez.c = lerp(i1.pos, ctrl_out, k);
+	bez.d = i1.pos;
+	return bez;
+}
+inline Bezier3 Node::calc_curve (SegLane& in, SegLane& out) {
+	// calc_curve works with shifts 
+	auto& a0 = in.get_asset();
+	auto& a1 = out.get_asset();
+	float shift0 = a0.direction == LaneDir::FORWARD ? a0.shift : -a0.shift;
+	float shift1 = a1.direction == LaneDir::FORWARD ? -a1.shift : a1.shift;
+
+	return calc_curve(in.seg, out.seg, float2(shift0, ROAD_Z), float2(shift1, ROAD_Z));
+}
+
+// Represents Start and Endpoint of Navigation
+struct NavEndPath {
+	Bezier3 bez;
+	float lane_t;
+	
+	static float get_lane_t (SegLane const& lane, float lane_t) {
+		float t = lane.get_asset().direction == LaneDir::FORWARD ? lane_t : 1.0f - lane_t;
+		assert(t >= 0.0f && t <= 1.0f);
+		return t;
+	}
+
+	struct Lane {
+		SegLane const& lane;
+		bool dir;
+	};
+	static NavEndPath calc_bezier (Lane const& lane, float3 pos, float3 ctrl, float lane_t) {
+		auto lane_bez = lane.lane._bezier();
+		float len = lane_bez.approx_len(4);
+		float ctrl_t = min(5 / len, 0.5f); // control point 3m from actual nearest point
+
+		float t0, t1;
+		if (lane.dir == false) {
+			t1 = clamp(get_lane_t(lane.lane, lane_t), 0.01f, 0.99f - ctrl_t); // limit such that t0 still in range
+			t0 = t1 + ctrl_t;
+		} else {
+			t1 = clamp(get_lane_t(lane.lane, lane_t), 0.01f + ctrl_t, 0.99f); // limit such that t0 still in range
+			t0 = t1 - ctrl_t;
+		}
+		assert(t0 > 0.0f && t0 < 1.0f);
+		assert(t1 > 0.0f && t1 < 1.0f);
+	
+		float3 lane_ctrl = lane_bez.eval(t1).pos;
+		float3 lane_pos  = lane_bez.eval(t0).pos;
+		
+		if (lane.dir == false)
+			return NavEndPath{ Bezier3(pos, ctrl, lane_ctrl, lane_pos), t0 };
+		else
+			return NavEndPath{ Bezier3(lane_pos, lane_ctrl, ctrl, pos), t0 };
+	}
+	
+	static NavEndPath from_nearest_point_on_sidewalk (Lane const& lane, Segment* seg, float3 pos) {
+		float t;
+		seg->distance_to_point(pos, &t);
+		
+		auto bez = seg->bezier().eval(t);
+		auto right = bez.dirs().right;
+
+		float right_dist = dot(right, pos - bez.pos);
+		float offset1 = right_dist > 0.0f ? seg->asset->sidewalkR : seg->asset->sidewalkL;
+		float offset2 = right_dist > 0.0f ? seg->asset->sidewalkR+1 : seg->asset->sidewalkL-1;
+
+		float3 end_pos = bez.pos + right * offset2;
+		float3 ctrl    = bez.pos + right * offset1;
+
+		return calc_bezier(lane, end_pos, ctrl, t);
+	}
+
+	static NavEndPath building_viz (Lane const& lane, Building* build) {
+		float t;
+		float3 ctrl = PosRot(build->pos, build->rot).local(float3(-5, 0, 0));
+		build->connected_segment->distance_to_point(build->pos, &t);
+		return calc_bezier(lane, build->pos, ctrl, t);
+	}
+	static NavEndPath building_front (Lane const& lane, Building* build) { // for vehicles despawning "pocket cars"
+		return from_nearest_point_on_sidewalk(lane, build->connected_segment, build->pos);
+	}
+	static NavEndPath building_parking (Lane const& lane, Building* build, ParkingSpot* parking) {
+		float3 pos = parking->vehicle_front_pos().pos;
+		float3 ctrl = parking->vehicle_bez_ctrl_point();
+		float t;
+		build->connected_segment->distance_to_point(ctrl, &t);
+		return calc_bezier(lane, pos, ctrl, t);
+	}
+};
+
 // User of SimVehicle, currently represents a random trip from building to building
 // More complexity TODO
 class VehicleTrip : public SimVehicle {
@@ -802,25 +872,14 @@ public:
 
 	typedef std::variant<Building*, float3> Waypoint;
 	
-	//static VehNavPoint to_navpoint (Network& net, Waypoint const& waypoint) {
-	//	auto build = std::get_if<Building*>(&waypoint);
-	//	if (build)
-	//		return VehNavPoint::from_building(*build);
-	//	return VehNavPoint::from_free_point(net, std::get<float3>(waypoint));
-	//}
-	static VehNavPoint to_navpoint (Endpoint const& endpoint) {
-		auto* seg = endpoint.building->connected_segment;
+	static NavEndPath calc_nav_curve (NavEndPath::Lane const& lane, Endpoint const& endpoint, bool visualize=false) {
+		if (visualize)
+			return NavEndPath::building_viz(lane, endpoint.building);
 
-		PosRot pos;
 		if (endpoint.parking)
-			pos = endpoint.parking->vehicle_front_pos();
+			return NavEndPath::building_parking(lane, endpoint.building, endpoint.parking);
 		else
-			pos = PosRot(endpoint.building->pos, endpoint.building->rot);
-
-		float seg_t = 0;
-		seg->distance_to_point(pos.pos, &seg_t);
-		
-		return VehNavPoint(seg, seg_t, pos);
+			return NavEndPath::building_front(lane, endpoint.building);
 	}
 
 	//Person* driver;
@@ -828,10 +887,22 @@ public:
 	Endpoint start;
 	Endpoint target; // TODO: rename as dest?
 
-	VehNavPoint get_vehicle_trip_start () override {
-		return to_navpoint(start);
+	NavEndPath get_vehicle_trip_start (SegLane lane) override {
+		return calc_nav_curve({lane, false}, start);
 	}
-	VehNavPoint get_vehicle_trip_target (Vehicle* vehicle, bool visualize=false) override;
+	NavEndPath get_vehicle_trip_target (SegLane lane, Vehicle* vehicle, bool visualize=false) override {
+		// no need to reserve parking yet if only visualizing, just use building pos as target
+		if (visualize)
+			return calc_nav_curve({lane, true}, target, true);
+
+		if (!target.parking) {
+			// find free parking and reserve it
+			target.parking = find_parking(target.building);
+			if (target.parking)
+				target.parking->reserve(vehicle);
+		}
+		return calc_nav_curve({lane, true}, target);
+	}
 
 	//std::optional<Waypoint> _waypoint = {}; // just for debug repathing for now
 	//float waypoint_wait_after = 0; // just for testing
@@ -846,7 +917,14 @@ public:
 		assert(std::get_if<std::monostate>(&veh.state)); // can't be in trip state
 		return { start_building };
 	}
-	static ParkingSpot* find_parking (Building* target);
+	static ParkingSpot* find_parking (Building* target) {
+		for (auto& spot : target->parking) {
+			if (spot.avail()) {
+				return &spot;
+			}
+		}
+		return nullptr;
+	}
 
 	static bool start_trip (Entities& entities, Network& net, Random& rand, Person* person);
 
@@ -940,10 +1018,10 @@ struct TrafficLight {
 		GREEN,
 	};
 
-	static constexpr float yellow_time = 2.0f; // 1sec, TODO: make customizable or have it depend on duration of cycle?
+	static constexpr float yellow_time = 3; // 1sec, TODO: make customizable or have it depend on duration of cycle?
 
-	float phase_go_duration = 10; // how long we have green/yellow
-	float phase_idle_duration = 2; // how long to hold red before next phase starts
+	float phase_go_duration = 30; // how long we have green/yellow
+	float phase_idle_duration = 3; // how long to hold red before next phase starts
 
 	float timer = 0;
 
@@ -1106,7 +1184,7 @@ struct Network {
 
 	// Just an experiment for now
 	float _lane_switch_chance = 0.25f;
-	float _stay_time = 30;
+	float _stay_time = 5*60;
 
 	void imgui () {
 		ImGui::Text("Active Vehicles: %5d", active_vehicles);
@@ -1140,12 +1218,6 @@ struct Network {
 		return nearest_seg;
 	}
 };
-
-//inline VehNavPoint VehNavPoint::from_free_point (Network const& net, float3 pos) {
-//	auto* seg = net.find_nearest_segment(pos);
-//	if (!seg) return {};
-//	return {seg, pos};
-//}
 
 } // namespace network
 using network::Network;

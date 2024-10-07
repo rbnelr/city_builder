@@ -936,7 +936,8 @@ public:
 	Entities entities; // Entities after network, because entities refer to network and else dtors break! This needs to be fixed!
 
 	float sim_dt () {
-		return time.pause_sim ? 0 : input.real_dt * time.target_gamespeed;
+		float dt = time.pause_sim ? 0 : input.real_dt * time.target_gamespeed;
+		return min(dt, 0.1f); // limit dt to avoid huge timestep when debugging etc.
 	}
 
 	TestMapBuilder test_map_builder;

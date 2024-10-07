@@ -1,19 +1,31 @@
 #pragma once
 #include "common.hpp"
 
-template <typename VEC>
-struct BezierRes {
-	VEC pos;
-	VEC vel;   // velocity (over bezier t)
-	float  curv;  // curvature (delta angle over dist along curve)
-};
-
 inline float2 rotate90_right (float2 v) {
 	return float2(v.y, -v.x);
 }
 inline float3 rotate90_right (float3 v) {
 	return float3(v.y, -v.x, v.z);
 }
+
+template <typename VEC>
+struct BezierRes {
+	VEC pos;
+	VEC vel;   // velocity (delta position / delta bezier t)
+	float curv;  // curvature (delta angle over dist along curve)
+
+	struct Dirs {
+		VEC forw;
+		VEC right;
+	};
+	Dirs dirs () const {
+		Dirs d;
+		d.forw = normalizesafe(vel);
+		d.right = rotate90_right(d.forw);
+		return d;
+	}
+};
+
 
 /* Probably never needed
 template <typename VEC=float3>
@@ -195,7 +207,9 @@ struct Bezier {
 		VEC accel = c3*(t*6)  + c2*2;                 // f''(t)
 		
 		float denom = deriv.x*deriv.x + deriv.y*deriv.y;
-		float curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
+		float curv = 0;
+		if (denom >= 0.0001f) // curv not defined if deriv=0, which happens if a==b for example
+			curv = (deriv.x*accel.y - accel.x*deriv.y) / (denom * sqrt(denom)); // denom^(3/2)
 		
 		return { value, deriv, curv };
 	}
@@ -219,7 +233,7 @@ struct Bezier {
 			float t = lerp(t0, t1, (float)i / (float)max(count-1,1));
 
 			auto val = eval(t);
-			VEC pos = val.pos + rotate90_right(normalizesafe(val.vel)) * shift;
+			VEC pos = val.pos + val.dirs().right * shift;
 			
 			points[i] = pos;
 		}

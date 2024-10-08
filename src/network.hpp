@@ -324,6 +324,15 @@ struct Lane {
 	std::vector<SegLane> connections;
 };
 
+class StreetParking {
+public:
+	std::vector<ParkingSpot> spots;
+	int forw_count;
+
+	StreetParking () {}
+	StreetParking (Segment* seg);
+};
+
 // Segments are oriented from a -> b, such that the 'forward' lanes go from a->b and reverse lanes from b->a
 struct Segment { // better name? Keep Path and call path Route?
 	NetworkAsset* asset;
@@ -362,6 +371,8 @@ struct Segment { // better name? Keep Path and call path Route?
 
 	std::vector<Lane> lanes;
 	laneid_t num_lanes () const { return (laneid_t)lanes.size(); }
+
+	StreetParking parking;
 
 	Node* get_other_node (Node const* node) const {
 		assert(node && (node == node_a || node == node_b));
@@ -484,6 +495,8 @@ struct Segment { // better name? Keep Path and call path Route?
 		lanes.resize(asset->lanes.size());
 
 		_length = distance(pos_a, pos_b);
+
+		parking = StreetParking(this);
 	}
 	
 	SelRect get_sel_shape () {
@@ -496,6 +509,50 @@ struct Segment { // better name? Keep Path and call path Route?
 		return { pos, forw, right, lrgb(0, 0, 1) };
 	}
 };
+inline StreetParking::StreetParking (Segment* seg) {
+	auto create_parking_lane = [&] (float x) {
+		auto bez = seg->_bezier_shifted(float2(x,0));
+		//float len = bez.approx_len(10);
+
+		float spot_length = ParkingSpot::default_size.y+0.3f;
+		
+		// one pass to find unallocated t
+		float t = 0;
+		auto prev_res = bez.eval(t);
+		for (;;) {
+			float step = prev_res.t_step(spot_length);
+			if (t+step > 1.0f)
+				break;
+			t += step;
+			prev_res = bez.eval(t);
+		}
+
+		// second pass to create spots centered on segment
+		t = (1.0f - t) * 0.5f;
+		prev_res = bez.eval(t);
+		for (;;) {
+			t += prev_res.t_step(ParkingSpot::default_size.y+0.3f);
+			if (t > 1.0f)
+				break;
+
+			auto res = bez.eval(t);
+
+			PosRot pos;
+			pos.pos = (prev_res.pos + res.pos) * 0.5f;
+			float3 delta = res.pos - prev_res.pos;
+			pos.ang = angle2d((float2)delta);
+
+			spots.push_back(ParkingSpot(pos));
+
+			prev_res = res;
+		}
+	};
+
+	create_parking_lane(seg->asset->sidewalkR);
+	forw_count = (int)spots.size();
+	create_parking_lane(seg->asset->sidewalkL);
+}
+
 inline Node* Node::between (Segment const* in, Segment const* out) {
 	if (in->node_a == out->node_a || in->node_a == out->node_b) {
 		return in->node_a;
@@ -884,6 +941,27 @@ struct NavEndPath {
 	}
 };
 
+inline ParkingSpot* find_building_parking (Building* target) {
+	for (auto& spot : target->parking) {
+		if (spot.avail())
+			return &spot;
+	}
+	return nullptr;
+}
+inline ParkingSpot* find_street_parking (Segment* seg) {
+	for (auto& spot : seg->parking.spots) {
+		if (spot.avail())
+			return &spot;
+	}
+	return nullptr;
+}
+inline ParkingSpot* find_parking_near (Building* target) {
+	auto* spot = find_building_parking(target);
+	if (spot) return spot;
+
+	return find_street_parking(target->connected_segment);
+}
+
 // User of SimVehicle, currently represents a random trip from building to building
 // More complexity TODO
 class VehicleTrip : public SimVehicle {
@@ -920,7 +998,7 @@ public:
 
 		if (!target.parking && !visualize) {
 			// find free parking and reserve it
-			target.parking = find_parking(target.building);
+			target.parking = find_parking_near(target.building);
 			if (target.parking)
 				target.parking->reserve(vehicle);
 		}
@@ -939,14 +1017,6 @@ public:
 
 		assert(std::get_if<std::monostate>(&veh.state)); // can't be in trip state
 		return { start_building };
-	}
-	static ParkingSpot* find_parking (Building* target) {
-		for (auto& spot : target->parking) {
-			if (spot.avail()) {
-				return &spot;
-			}
-		}
-		return nullptr;
 	}
 
 	static bool start_trip (Entities& entities, Network& net, Random& rand, Person* person);

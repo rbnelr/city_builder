@@ -24,6 +24,10 @@ struct BezierRes {
 		d.right = rotate90_right(d.forw);
 		return d;
 	}
+
+	float t_step (float dist) {
+		return dist / length(vel);
+	}
 };
 
 

@@ -725,6 +725,13 @@ void overlay_lane_vehicle (App& app, SimVehicle* vehicle, lrgba col, int tex) {
 }
 bool dbg_conflicts (App& app, Node* node, SimVehicle* vehicle);
 
+void debug_segment (App& app, Segment* seg) {
+	if (!seg) return;
+	
+	for (auto& spot : seg->parking.spots) {
+		spot.dbg_draw();
+	}
+}
 void debug_node (App& app, Node* node, View3D const& view) {
 	if (!node) return;
 	
@@ -2042,6 +2049,8 @@ void Network::simulate (App& app) {
 
 void Network::draw_debug (App& app, View3D& view) {
 	ZoneScoped;
+
+	debug_segment(app, app.interact.selection.get<Segment*>());
 
 	debug_node(app, app.interact.selection.get<Node*>(), view);
 

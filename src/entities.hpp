@@ -170,7 +170,7 @@ struct Building {
 		float3 dir = rotate3_Z(rot) * float3(1, 0, 0);
 		float ang = rot - deg(90);
 
-		for (int i=0; i<5; ++i) {
+		for (int i=0; i<2; ++i) {
 			ParkingSpot spot;
 			spot.pos = { cur_pos, ang };
 			cur_pos += dir * ParkingSpot::default_size.x;

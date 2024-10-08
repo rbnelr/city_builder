@@ -58,7 +58,7 @@ void MemUse::_imgui () {
 	for (auto key : ordered) {
 		auto& entry = sizes[key];
 
-		ImGui::TextColored(color(entry.size), "%25s:%6llu %10s", key, entry.count, format_bytes(entry.size).c_str());
+		ImGui::TextColored(color(entry.size), "%25s:%7llu %10s", key, entry.count, format_bytes(entry.size).c_str());
 
 		total += entry.size;
 	}

@@ -132,14 +132,21 @@ public:
 	}
 	// 
 	PosRot vehicle_front_pos () const {
-		return { pos.local(float3(ParkingSpot::default_size.y*0.5f,0,0)), pos.ang };
+		return { pos.local(float3(default_size.y*0.5f,0,0)), pos.ang };
 	}
 	PosRot vehicle_center_pos (Vehicle* veh) const {
-		float dist = ParkingSpot::default_size.y*0.5f - veh->asset->length()*0.5f;
+		float dist = default_size.y*0.5f - veh->asset->length()*0.5f;
 		return { pos.local(float3(dist,0,0)), pos.ang };
 	}
-	float3 vehicle_bez_ctrl_point () const {
-		return pos.local(float3(-ParkingSpot::default_size.y*1.5f,0,0));
+
+	float3 front_enter_ctrl () const {
+		return pos.local(float3(-default_size.y*1.5f,0,0));
+	}
+	float3 side_enter_ctrl () const {
+		return pos.local(float3(-default_size.y*1.5f,+default_size.x*0.5f,0)); // backward left
+	}
+	float3 side_exit_ctrl () const {
+		return pos.local(float3(+default_size.y*1.5f,+default_size.x*0.5f,0)); // forward left
 	}
 
 	void dbg_draw () {
@@ -178,12 +185,12 @@ struct Building {
 
 	std::vector<ParkingSpot> parking;
 	
-	void update_cached () {
+	void update_cached (int num_parking) {
 		float3 cur_pos = pos + rotate3_Z(rot) * float3(-5, 20, 0);
 		float3 dir = rotate3_Z(rot) * float3(1, 0, 0);
 		float ang = rot - deg(90);
 
-		for (int i=0; i<2; ++i) {
+		for (int i=0; i<num_parking; ++i) {
 			ParkingSpot spot;
 			spot.pos = { cur_pos, ang };
 			cur_pos += dir * ParkingSpot::default_size.x;

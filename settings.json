@@ -447,8 +447,8 @@
 		"speed": 2.0
 	},
 	"test_map_builder": {
-		"_grid_n": 5,
-		"_persons_n": 500,
+		"_grid_n": 7,
+		"_persons_n": 1000,
 		"_intersection_radius": 0.5,
 		"_connection_chance": 0.699999988079071
 	},

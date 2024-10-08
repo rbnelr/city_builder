@@ -551,7 +551,7 @@ struct Segment { // better name? Keep Path and call path Route?
 	}
 };
 inline StreetParking::StreetParking (Segment* seg) {
-	auto create_parking_lane = [&] (float x) {
+	auto create_parking_lane = [&] (float x, float ang_offs) {
 		auto bez = seg->_bezier_shifted(float2(x,0));
 		//float len = bez.approx_len(10);
 
@@ -581,7 +581,7 @@ inline StreetParking::StreetParking (Segment* seg) {
 			PosRot pos;
 			pos.pos = (prev_res.pos + res.pos) * 0.5f;
 			float3 delta = res.pos - prev_res.pos;
-			pos.ang = angle2d((float2)delta);
+			pos.ang = angle2d((float2)delta) + ang_offs;
 
 			spots.push_back(ParkingSpot(pos));
 
@@ -589,9 +589,9 @@ inline StreetParking::StreetParking (Segment* seg) {
 		}
 	};
 
-	create_parking_lane(seg->asset->sidewalkR);
+	create_parking_lane(seg->asset->sidewalkR, 0);
 	forw_count = (int)spots.size();
-	create_parking_lane(seg->asset->sidewalkL);
+	create_parking_lane(seg->asset->sidewalkL, deg(180));
 }
 
 inline Node* Node::between (Segment const* in, Segment const* out) {
@@ -979,7 +979,14 @@ struct NavEndPath {
 	}
 	static NavEndPath building_parking (Lane const& lane, Building* build, ParkingSpot* parking) {
 		float3 pos = parking->vehicle_front_pos().pos;
-		float3 ctrl = parking->vehicle_bez_ctrl_point();
+		float3 ctrl = parking->front_enter_ctrl();
+		float t;
+		build->connected_segment->distance_to_point(ctrl, &t);
+		return calc_bezier(lane, pos, ctrl, t);
+	}
+	static NavEndPath street_parking (Lane const& lane, Building* build, ParkingSpot* parking) {
+		float3 pos = parking->vehicle_front_pos().pos;
+		float3 ctrl = lane.dir ? parking->side_enter_ctrl() : parking->side_exit_ctrl();
 		float t;
 		build->connected_segment->distance_to_point(ctrl, &t);
 		return calc_bezier(lane, pos, ctrl, t);
@@ -1027,10 +1034,17 @@ public:
 		//if (visualize)
 		//	return NavEndPath::building_viz(lane, endpoint.building);
 
-		if (endpoint.parking)
-			return NavEndPath::building_parking(lane, endpoint.building, endpoint.parking);
-		else
+		if (endpoint.parking) {
+			bool is_building_parking = kiss::contains(endpoint.building->parking, endpoint.parking,
+				[] (ParkingSpot const& l, ParkingSpot const* r) { return &l == r; });
+			if (is_building_parking)
+				return NavEndPath::building_parking(lane, endpoint.building, endpoint.parking);
+			else
+				return NavEndPath::street_parking(lane, endpoint.building, endpoint.parking);
+		}
+		else {
 			return NavEndPath::building_front(lane, endpoint.building);
+		}
 	}
 
 	//Person* driver;
@@ -1314,7 +1328,7 @@ struct Settings {
 	}
 };
 struct Network {
-	SERIALIZE(Network, settings);
+	SERIALIZE(Network, settings, _stay_time);
 
 	void mem_use (MemUse& mem) {
 		mem.add("Network", sizeof(*this));

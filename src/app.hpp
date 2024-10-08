@@ -567,10 +567,10 @@ struct TestMapBuilder {
 
 		ImGui::SliderFloat("connection_chance", &_connection_chance, 0, 1);
 		
-		static DistributionPlotter aggress_dist;
-		aggress_dist.plot_distribution("vehicle topspeed_accel_mul",
-			(int)entities.persons.size(), [&] (int i) { return entities.persons[i]->topspeed_accel_mul(); },
-			0.5f, 1.6f, false);
+		//static DistributionPlotter aggress_dist;
+		//aggress_dist.plot_distribution("vehicle topspeed_accel_mul",
+		//	(int)entities.persons.size(), [&] (int i) { return entities.persons[i]->topspeed_accel_mul(); },
+		//	0.5f, 1.6f, false);
 		
 		if (persons) {
 			interact.clear_sel<Person*>();
@@ -936,8 +936,9 @@ public:
 	Entities entities; // Entities after network, because entities refer to network and else dtors break! This needs to be fixed!
 
 	float sim_dt () {
-		float dt = time.pause_sim ? 0 : input.real_dt * time.target_gamespeed;
-		return min(dt, 0.1f); // limit dt to avoid huge timestep when debugging etc.
+		float dt = min(input.real_dt, 0.1f); // limit dt to avoid huge timestep when debugging etc.
+		dt *= time.pause_sim ? 0 : time.target_gamespeed;
+		return dt;
 	}
 
 	TestMapBuilder test_map_builder;

@@ -118,35 +118,36 @@ struct GameTime {
 
 	struct ControlSpeed {
 		std::vector<float> speeds = {
-			1,2,4,10,50
+			1,2,4,10,50,200
 		};
 		std::vector<std::string> speeds_btn = {
-			"1",">",">>",">>>",">>>>"
+			//"1",">",">>",">>>",">>>>"
+			"1","2","4","10","50","200"
 		};
 
 		int cur_mode (float speed) {
 			int i = 0;
-			for (float s : speeds) {
+			for (; i<(int)speeds_btn.size(); ++i) {
+				float s = speeds[i];
 				if (s >= speed) break;
-				i++;
 			}
 			return i;
 		}
 
-		bool imgui (float* speed) {
-			bool changed = false;
+		void imgui (float* speed) {
 			int sel = cur_mode(*speed);
-			for (int i=0; i<(int)speeds.size(); ++i) {
+			for (int i=0; i<(int)speeds_btn.size(); ++i) {
 				if (i != 0) ImGui::SameLine();
 				bool selected = i == sel;
 				if (selected) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
 				if (ImGui::Button(speeds_btn[i].c_str())) {
 					*speed = speeds[i];
-					changed = true;
 				}
 				if (selected) ImGui::PopStyleColor();
 			}
-			return changed;
+
+			ImGui::SliderFloat("##target_gamespeed", speed, 0.1f, 1000.0f, "%.1fx",
+				ImGuiSliderFlags_Logarithmic|ImGuiSliderFlags_NoRoundToFormat|ImGuiSliderFlags_AlwaysClamp);
 		}
 
 		void update (Input& I, float* speed) {
@@ -165,13 +166,10 @@ struct GameTime {
 		ImGui::Unindent(100);
 		
 		ImGui::Separator();
-			
 		ImGui::Text("Simulation Speed");
-		ImGui::SliderFloat("Target##target_gamespeed", &target_gamespeed, 0,100, "%.1fx", ImGuiSliderFlags_Logarithmic);
-		
-		ImGui::Checkbox("Pause [Space]", &pause_sim);
-		ImGui::SameLine(0, 20);
+
 		control_speed.imgui(&target_gamespeed);
+		ImGui::Checkbox("Pause [Space]", &pause_sim);
 		
 		ImGui::Separator();
 

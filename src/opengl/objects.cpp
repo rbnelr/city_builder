@@ -586,7 +586,7 @@ void ObjectRender::push_parked_vehicle_instance (std::vector<DynamicVehicle>& in
 	auto& instance = instances.emplace_back();
 
 	auto& veh = *parking.veh;
-	auto pos = parking.calc_pos();
+	auto pos = parking.vehicle_center_pos(&veh);
 
 	int tex_id = texs.bindless_textures[veh.asset->tex_filename];
 

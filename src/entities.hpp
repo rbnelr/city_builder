@@ -125,6 +125,10 @@ public:
 	PosRot vehicle_front_pos () const {
 		return { pos.local(float3(ParkingSpot::default_size.y*0.5f,0,0)), pos.ang };
 	}
+	PosRot vehicle_center_pos (Vehicle* veh) const {
+		float dist = ParkingSpot::default_size.y*0.5f - veh->asset->length()*0.5f;
+		return { pos.local(float3(dist,0,0)), pos.ang };
+	}
 	float3 vehicle_bez_ctrl_point () const {
 		return pos.local(float3(-ParkingSpot::default_size.y*1.5f,0,0));
 	}
@@ -182,6 +186,16 @@ struct Building {
 	}
 };
 
+struct VehicleAgressiveness {
+	static float get_random_for_person (Random& rand) {
+		float agressiveness_deviation = 0.15f;
+		return rand.normalf(agressiveness_deviation, 0.0f);
+	}
+	static float topspeed_accel_mul (float agressiveness) {
+		return clamp(1.1f + agressiveness, 0.7f, 1.5f);
+	}
+};
+
 struct Person {
 	// TODO: needs to be some kind of state like in car, or in building
 	// OR car/building etc needs to track citizen and we dont know where the citizen is
@@ -198,13 +212,9 @@ struct Person {
 	lrgb col;
 	float agressiveness;
 
-	float topspeed_accel_mul () {
-		return clamp(1.1f + agressiveness, 0.7f, 1.5f);
-	}
-
 	Person (Random& r, Building* initial_building, lrgb col): cur_building{initial_building}, col{col} {
 		float agressiveness_deviation = 0.15f;
-		agressiveness = r.normalf(agressiveness_deviation, 0.0f);
+		agressiveness = VehicleAgressiveness::get_random_for_person(r);
 
 		stay_timer = r.uniformf(0,1);
 	}

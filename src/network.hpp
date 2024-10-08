@@ -158,6 +158,12 @@ struct VehicleList { // TODO: optimize vehicles in lane to only look at vehicle 
 		assert(!contains(vehicle));
 		list.push_back(vehicle);
 	}
+	// idx=-1 -> add, else insert at idx
+	void insert (T vehicle, int idx) {
+		assert(!contains(vehicle));
+		assert(idx >= 0 && idx <= (int)list.size());
+		list.insert(list.begin() + idx, vehicle);
+	}
 	
 	template <typename U>
 	void remove (U const& vehicle) {
@@ -230,6 +236,18 @@ struct NodeVehicle {
 struct LaneVehicles {
 	VehicleList<SimVehicle*> list;
 	float avail_space;
+	
+	// find index in list of vehicles such all vehicles of indices below return value have
+	// rear bezier t > bez_t
+	// this is the correct index for insertion
+	struct FindResult {
+		int idx;
+		SimVehicle* leading = nullptr;
+		SimVehicle* trailing = nullptr;
+	};
+	FindResult find_lane_spot (float bez_t) const;
+
+	void find_spot_and_insert (SimVehicle* veh);
 };
 struct SegVehicles {
 	std::vector<LaneVehicles> lanes;
@@ -360,6 +378,10 @@ struct Segment { // better name? Keep Path and call path Route?
 	LaneDir get_dir_from_node (Node const* node) const {
 		assert(node && (node == node_a || node == node_b));
 		return node_a == node ? LaneDir::FORWARD : LaneDir::BACKWARD;
+	}
+
+	static Node* node_from_lane (SegLane const& lane) {
+		return lane.seg->get_node_in_dir(lane.get_asset().direction);
 	}
 	
 	struct EndInfo {
@@ -616,7 +638,7 @@ public:
 		}
 
 		// Needed for correct Segment/Node updates
-		VehicleList<SimVehicle*>* cur_vehicles = nullptr;
+		LaneVehicles* cur_vehicles = nullptr;
 	};
 
 	// start and destination getters implemented by Trip
@@ -685,7 +707,8 @@ public: // TODO: encapsulate better?
 
 	// speed (delta position) / delta beizer t
 	// INF to force no movement on initial tick (rather than div by 0)
-	float bez_speed = INF; // set after timestep based on current bezier eval, to approx correct worldspace step size along bezier in next tick
+	// set after timestep based on current bezier eval, to approx correct worldspace step size along bezier in next tick
+	float bez_speed = INF;
 
 //// Movement sim variables for visuals
 	float3 front_pos; // car front
@@ -738,12 +761,12 @@ public: // TODO: encapsulate better?
 	
 	virtual ~SimVehicle () override {
 		auto& s = get_state();
-		if (s.cur_vehicles) get_state().cur_vehicles->try_remove(this);
+		if (s.cur_vehicles) get_state().cur_vehicles->list.try_remove(this);
 		
 		_nav_clear_nodes(this);
 	}
 	
-	bool sim_update (Network& net, Metrics::Var& met, Vehicle* veh, Person* driver, float dt);
+	bool sim_update (App& app, Network& net, Metrics::Var& met, Vehicle* veh, float dt);
 };
 
 inline Bezier3 Node::calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0, float2 shiftXZ_1) {
@@ -963,8 +986,8 @@ public:
 	//	_waypoint = {};
 	//}
 
-	bool update (Network& net, Metrics::Var& met, Person* person, float dt) {
-		if (!sim_update(net, met, person->owned_vehicle.get(), person, dt))
+	bool update (App& app, Network& net, Metrics::Var& met, Person* person, float dt) {
+		if (!sim_update(app, net, met, person->owned_vehicle.get(), dt))
 			return false; // still navigating
 
 		//if (_waypoint) {
@@ -1001,7 +1024,7 @@ public:
 		}
 	}
 
-	static void update_person (Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person* person, float dt);
+	static void update_person (App& app, Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person* person, float dt);
 
 	virtual ~VehicleTrip () override {
 		if (target.parking)

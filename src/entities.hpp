@@ -6,6 +6,8 @@ namespace network {
 	struct Segment;
 	struct Node;
 	class VehicleTrip;
+
+	void _mem_use (MemUse& mem, VehicleTrip* trip); // can't forward declare a method, but can a free function, bravo C++...
 }
 struct Building;
 class Vehicle;
@@ -24,6 +26,13 @@ public:
 //private:
 	State state;
 //public:
+
+	void mem_use (MemUse& mem) {
+		mem.add("Vehicle", sizeof(*this));
+		
+		auto* trip = get_trip();
+		if (trip) network::_mem_use(mem, trip);
+	}
 
 	network::VehicleTrip* get_trip () {
 		auto* res = std::get_if<std::unique_ptr<network::VehicleTrip>>(&state);
@@ -148,6 +157,10 @@ public:
 		g_dbgdraw.line(C, D, lrgba(1,0,0,1));
 		g_dbgdraw.line(D, A, lrgba(1,0,0,1));
 	}
+
+	void mem_use (MemUse& mem) {
+		mem.add("ParkingSpot", sizeof(*this));
+	}
 };
 
 inline Vehicle::~Vehicle () {
@@ -183,6 +196,11 @@ struct Building {
 		auto sz = asset->mesh.aabb.size();
 		float radius = max(sz.x, sz.y) * 0.5f;
 		return { pos, radius*0.5f, lrgb(1, 0.04f, 0.04f) };
+	}
+
+	void mem_use (MemUse& mem) {
+		mem.add("Building", sizeof(*this));
+		for (auto& i : parking) i.mem_use(mem);
 	}
 };
 
@@ -239,6 +257,11 @@ struct Person {
 		assert(shape.has_value());
 		return { shape->pos, shape->radius, c };
 	}
+	
+	void mem_use (MemUse& mem) {
+		mem.add("Person", sizeof(*this));
+		owned_vehicle->mem_use(mem);
+	}
 };
 
 struct Entities {
@@ -248,6 +271,11 @@ struct Entities {
 
 	// building and streets
 	bool buildings_changed = true;
+	
+	void mem_use (MemUse& mem) {
+		for (auto& i : buildings) i->mem_use(mem);
+		for (auto& i : persons) i->mem_use(mem);
+	}
 };
 
 typedef NullableVariant<Building*, Person*, network::Node*, network::Segment*> sel_ptr;

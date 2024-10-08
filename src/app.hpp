@@ -896,6 +896,18 @@ public:
 		assets.imgui(options);
 
 		renderer->imgui(*this);
+
+		mem.imgui([&] () {
+			mem.begin();
+			mem_use(mem);
+		});
+	}
+
+	void mem_use (MemUse& mem) {
+		//assets   .mem_use(mem);
+		heightmap.mem_use(mem);
+		network  .mem_use(mem);
+		entities .mem_use(mem);
 	}
 	
 	virtual bool update_files_changed (kiss::ChangedFiles& changed_files) {
@@ -949,6 +961,8 @@ public:
 	Test test;
 	Test2 test2;
 	BezierBuilder test_bez;
+
+	MemUse mem;
 
 	View3D update_camera () {
 		auto res = (float2)input.window_size;

@@ -195,6 +195,10 @@ struct VehicleList { // TODO: optimize vehicles in lane to only look at vehicle 
 
 // TODO: Might be able to eliminate this entirely! This would probably help perf and reduce complexity
 struct NodeVehicle {
+	void mem_use (MemUse& mem) {
+		mem.add("NodeVehicle", sizeof(*this));
+	}
+
 	SimVehicle* vehicle; // unnecessary
 
 	// k == (approx) distance along node curve
@@ -234,6 +238,10 @@ struct NodeVehicle {
 };
 
 struct LaneVehicles {
+	void mem_use (MemUse& mem) {
+		mem.add("LaneVehicles", sizeof(*this) + MemUse::sizeof_alloc(list.list));
+	}
+
 	VehicleList<SimVehicle*> list;
 	float avail_space;
 	
@@ -250,11 +258,21 @@ struct LaneVehicles {
 	void find_spot_and_insert (SimVehicle* veh);
 };
 struct SegVehicles {
+	void mem_use (MemUse& mem) {
+		mem.add("SegVehicles", sizeof(*this));
+		for (auto& i : lanes) i.mem_use(mem);
+	}
+
 	std::vector<LaneVehicles> lanes;
 	//VehicleList<Vehicle*> free; // not part of lane, building->lane
 };
 
 struct NodeVehicles {
+	void mem_use (MemUse& mem) {
+		mem.add("NodeVehicles", sizeof(*this) + MemUse::sizeof_alloc(test.list));
+		mem.add("NodeVehicles::Hashmap", MemUse::sizeof_alloc(conflict_cache));
+	}
+
 	//VehicleList<SimVehicle*> free;
 	VehicleList<NodeVehicle> test;
 
@@ -263,6 +281,13 @@ struct NodeVehicles {
 };
 
 struct Node {
+	void mem_use (MemUse& mem) {
+		mem.add("Node", sizeof(*this));
+		mem.add("Node::segments", MemUse::sizeof_alloc(segments));
+		// TODO: traffic_light
+		vehicles.mem_use(mem);
+	}
+
 	// node center
 	float3 pos;
 
@@ -318,6 +343,10 @@ struct Node {
 };
 
 struct Lane {
+	void mem_use (MemUse& mem) {
+		mem.add("Lane", sizeof(*this) + MemUse::sizeof_alloc(connections));
+	}
+
 	Turns allowed_turns = Turns::NONE;
 	bool  yield = false;
 
@@ -331,10 +360,22 @@ public:
 
 	StreetParking () {}
 	StreetParking (Segment* seg);
+
+	void mem_use (MemUse& mem) {
+		mem.add("StreetParking", sizeof(*this));
+		for (auto& i : spots) i.mem_use(mem);
+	}
 };
 
 // Segments are oriented from a -> b, such that the 'forward' lanes go from a->b and reverse lanes from b->a
 struct Segment { // better name? Keep Path and call path Route?
+	void mem_use (MemUse& mem) {
+		mem.add("Segment", sizeof(*this));
+		for (auto& i : lanes) i.mem_use(mem);
+		vehicles.mem_use(mem);
+		parking.mem_use(mem);
+	}
+
 	NetworkAsset* asset;
 	Node* node_a;
 	Node* node_b;
@@ -661,6 +702,10 @@ public:
 // step() should be called whenever the vehicle has performed the Motion represented by the current State
 class VehNav {
 public:
+	void more_mem_use (MemUse& mem) {
+		for (auto& i : path) mem.add("VehNav::path[]", sizeof(i));
+	}
+
 	virtual ~VehNav () {}
 
 	enum MotionType { START, END, SEGMENT, NODE };
@@ -966,6 +1011,11 @@ inline ParkingSpot* find_parking_near (Building* target) {
 // More complexity TODO
 class VehicleTrip : public SimVehicle {
 public:
+	void mem_use (MemUse& mem) {
+		mem.add("VehicleTrip", sizeof(*this));
+		VehNav::more_mem_use(mem);
+	}
+
 	struct Endpoint {
 		Building* building = nullptr;
 		ParkingSpot* parking = {};
@@ -1101,6 +1151,9 @@ public:
 			target.parking->unreserve(this);
 	}
 };
+inline void _mem_use (MemUse& mem, VehicleTrip* trip) {
+	trip->mem_use(mem);
+}
 
 ////
 struct TrafficLight {
@@ -1262,6 +1315,12 @@ struct Settings {
 };
 struct Network {
 	SERIALIZE(Network, settings);
+
+	void mem_use (MemUse& mem) {
+		mem.add("Network", sizeof(*this));
+		for (auto& i : nodes) i->mem_use(mem);
+		for (auto& i : segments) i->mem_use(mem);
+	}
 
 	std::vector<std::unique_ptr<Node>> nodes;
 	std::vector<std::unique_ptr<Segment>> segments;

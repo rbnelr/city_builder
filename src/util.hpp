@@ -56,7 +56,7 @@ struct Options {
 	}
 };
 
-void imgui_process_stats (bool* open);
+size_t imgui_process_stats ();
 
 // Argably, rotating like this is a mistake, since I use it to get right from forward vectors
 // which either should be with z=0 or needs to be rethought!
@@ -221,6 +221,16 @@ inline bool draggable (Input& I, View3D& view, float3* pos, float r) {
 template <typename KEY_T, typename VAL_T, typename HASHER=std::hash<KEY_T>, typename EQUAL=std::equal_to<KEY_T>>
 struct Hashmap : public std::unordered_map<KEY_T, VAL_T, HASHER> {
 	// Not tested with move only types yet (avoiding copies can be hard with try_add etc)
+
+	size_t approx_alloc_size () const {
+		typedef std::unordered_map<KEY_T, VAL_T, HASHER> Base;
+
+		// https://stackoverflow.com/questions/25375202/how-to-measure-the-memory-usage-of-stdunordered-map
+		return (size_t)(
+			(Base::size() * (sizeof(VAL_T) + sizeof(void*)) + // data list
+			Base::bucket_count() * (sizeof(void*) + sizeof(size_t))) // bucket index
+			* 1.5); // estimated allocation overheads
+	}
 
 	template <typename T, typename V>
 	VAL_T* try_add (T&& key, V&& val) {
@@ -636,5 +646,47 @@ struct OverlayDraw {
 
 	void begin () {
 		curves.clear();
+	}
+};
+
+class MemUse {
+	typedef const char* Name;
+
+	struct Entry {
+		size_t count = 0;
+		size_t size = 0;
+	};
+	std::unordered_map<Name, Entry> sizes;
+	
+public:
+	void begin () {
+		sizes.clear();
+	}
+	void add (Name name, size_t size) {
+		auto& entry = sizes[name];
+		entry.count++;
+		entry.size += size;
+	}
+	
+	void _imgui ();
+
+	template <typename FUNC>
+	void imgui (FUNC add_all) {
+		if (!imgui_Header("Mem Use")) return;
+
+		add_all();
+
+		_imgui();
+		ImGui::PopID();
+	}
+
+	template <typename T>
+	static size_t sizeof_alloc (std::vector<T> const& vec) {
+		return vec.capacity() * sizeof(T);
+	}
+
+	template <typename T, typename U, typename V>
+	static size_t sizeof_alloc (Hashmap<T, U, V> const& hm) {
+		return hm.approx_alloc_size();
 	}
 };

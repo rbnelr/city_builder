@@ -29,6 +29,11 @@ public:
 		// cleared by renderer
 		// NOTE: hi is inclusive
 		RectInt dirty_rect = RectInt::INF;
+		
+		void mem_use (MemUse& mem) {
+			size_t data_sz = sizeof(pixel_t) * data.size.x * data.size.y;
+			mem.add("HeightmapZone", sizeof(*this) + data_sz);
+		}
 
 		void set_empty (int2 resolution=1024, pixel_t init_value=UINT16_MAX/10) {
 			data = Image<pixel_t>(resolution);
@@ -293,6 +298,11 @@ public:
 		}
 
 		ImGui::PopID();
+	}
+
+	void mem_use (MemUse& mem) {
+		inner.mem_use(mem);
+		outer.mem_use(mem);
 	}
 
 ////

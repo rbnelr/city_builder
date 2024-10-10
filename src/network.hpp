@@ -327,7 +327,7 @@ struct Node {
 
 	NodeVehicles vehicles;
 	
-	void update_cached ();
+	void update_cached (float additional_node_radius);
 	void set_defaults ();
 
 	Bezier3 calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0, float2 shiftXZ_1);
@@ -356,7 +356,7 @@ struct Lane {
 class StreetParking {
 public:
 	std::vector<ParkingSpot> spots;
-	int forw_count;
+	//int forw_count;
 
 	StreetParking () {}
 	StreetParking (Segment* seg);
@@ -541,21 +541,21 @@ struct Segment { // better name? Keep Path and call path Route?
 	}
 	
 	SelRect get_sel_shape () {
-		float3 pos = pos_a;
 		float3 forw = tangent_a();
-		float3 right = rotate90_right(forw) * asset->width;
-		pos -= right * 0.5f;
+		float3 right = rotate90_right(forw);
+		float3 pos = pos_a + right * asset->edgeL;
 		forw *= _length;
+		right *= asset->get_width();
 
 		return { pos, forw, right, lrgb(0, 0, 1) };
 	}
 };
 inline StreetParking::StreetParking (Segment* seg) {
-	auto create_parking_lane = [&] (float x, float ang_offs) {
+	auto create_parking_lane = [&] (float x, float2 spot_size, float ang_offs) {
 		auto bez = seg->_bezier_shifted(float2(x,0));
 		//float len = bez.approx_len(10);
 
-		float spot_length = ParkingSpot::default_size.y+0.3f;
+		float spot_length = spot_size.y+0.3f;
 		
 		// one pass to find unallocated t
 		float t = 0;
@@ -572,26 +572,27 @@ inline StreetParking::StreetParking (Segment* seg) {
 		t = (1.0f - t) * 0.5f;
 		prev_res = bez.eval(t);
 		for (;;) {
-			t += prev_res.t_step(ParkingSpot::default_size.y+0.3f);
+			t += prev_res.t_step(spot_size.y+0.3f);
 			if (t > 1.0f)
 				break;
 
 			auto res = bez.eval(t);
 
-			PosRot pos;
-			pos.pos = (prev_res.pos + res.pos) * 0.5f;
+			ParkingSpot spot;
+			spot.pos.pos = (prev_res.pos + res.pos) * 0.5f;
 			float3 delta = res.pos - prev_res.pos;
-			pos.ang = angle2d((float2)delta) + ang_offs;
+			spot.pos.ang = angle2d((float2)delta) + ang_offs;
+			spot.size = spot_size;
 
-			spots.push_back(ParkingSpot(pos));
+			spots.push_back(spot);
 
 			prev_res = res;
 		}
 	};
 
-	create_parking_lane(seg->asset->sidewalkR, 0);
-	forw_count = (int)spots.size();
-	create_parking_lane(seg->asset->sidewalkL, deg(180));
+	for (auto& l : seg->asset->parking) {
+		create_parking_lane(l.shift, l.spot_size, l.direction == LaneDir::FORWARD ? 0 : deg(180));
+	}
 }
 
 inline Node* Node::between (Segment const* in, Segment const* out) {
@@ -929,7 +930,7 @@ struct NavEndPath {
 	static NavEndPath calc_bezier (Lane const& lane, float3 pos, float3 ctrl, float lane_t) {
 		auto lane_bez = lane.lane._bezier();
 		float len = lane_bez.approx_len(4);
-		float ctrl_t = min(5 / len, 0.5f); // control point 3m from actual nearest point
+		float ctrl_t = min(3 / len, 0.5f); // control point 3m from actual nearest point
 
 		float t0, t1;
 		if (lane.dir == false) {

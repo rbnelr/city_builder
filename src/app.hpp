@@ -639,7 +639,7 @@ struct TestMapBuilder {
 				net.nodes[y * (_grid_n+1) + x] = std::move(node);
 			}
 			
-			auto create_segment = [&] (NetworkAsset* layout, Node* node_a, Node* node_b, int2 pos, int axis, bool flip) {
+			auto create_segment = [&] (NetworkAsset* layout, Node* node_a, Node* node_b, bool flip) {
 				assert(node_a && node_b && node_a != node_b);
 
 				if (flip) std::swap(node_a, node_b);
@@ -653,14 +653,9 @@ struct TestMapBuilder {
 
 				node_a->segments.push_back(seg);
 				node_b->segments.push_back(seg);
-
-				int2 pos2 = pos;
-				pos2[axis] += 1;
-
-				if (flip) std::swap(pos, pos2);
 				
-				seg->pos_a = node_a->pos + dir * (road_type(pos,  axis^1)->width * 0.5f + _intersection_radius);
-				seg->pos_b = node_b->pos - dir * (road_type(pos2, axis^1)->width * 0.5f + _intersection_radius);
+				seg->pos_a = node_a->pos;
+				seg->pos_b = node_b->pos;
 
 				seg->vehicles.lanes.resize(layout->lanes.size());
 
@@ -675,7 +670,7 @@ struct TestMapBuilder {
 
 				auto* a = get_node(x, y);
 				auto* b = get_node(x+1, y);
-				create_segment(layout, a, b, int2(x,y), 0, flip);
+				create_segment(layout, a, b, flip);
 			}
 			// create y paths
 			for (int y=0; y<_grid_n; ++y)
@@ -686,13 +681,16 @@ struct TestMapBuilder {
 				if (layout != small_road || rand.chance(_connection_chance)) {
 					auto* a = get_node(x, y);
 					auto* b = get_node(x, y+1);
-					create_segment(layout, a, b, int2(x,y), 1, flip);
+					create_segment(layout, a, b, flip);
 				}
 			}
 
 			for (auto& node : net.nodes) {
-				node->update_cached();
+				node->update_cached(_intersection_radius); // TODO: currently needs seg->update_cached(); to configure lanes!
 				node->set_defaults();
+			}
+			for (auto& seg : net.segments) {
+				seg->update_cached(); // need to re-run to update lengths, TODO: fix this, maybe by computing things on demand via a flagging system?
 			}
 
 			for (int y=0; y<_grid_n+1; ++y)
@@ -714,11 +712,12 @@ struct TestMapBuilder {
 				}
 
 				float3 road_center = (float3((float)x,(float)y,0) + float3(0.5f,0,0)) * float3(spacing,0);
-				float road_width = conn_seg->asset->width * 0.5f;
+				float roadL = conn_seg->asset->edgeL;
+				float roadR = conn_seg->asset->edgeR;
 				
 				{
 					auto* asset = rand.uniformi(0, 2) ? house0 : house1;
-					float3 pos1 = base_pos + road_center + float3(0, road_width + asset->size.y, 0);
+					float3 pos1 = base_pos + road_center + float3(0,  roadR + asset->size.y, 0);
 					float rot1 = deg(90);
 					auto build1 = std::make_unique<Building>(Building{ asset, pos1, rot1, conn_seg });
 					build1->update_cached(asset == house0 ? 2 : 0);
@@ -726,7 +725,7 @@ struct TestMapBuilder {
 				}
 				{
 					auto* asset = rand.uniformi(0, 2) ? house0 : house1;
-					float3 pos2 = base_pos + road_center - float3(0, road_width + asset->size.y, 0);
+					float3 pos2 = base_pos + road_center - float3(0, -roadL + asset->size.y, 0);
 					float rot2 = deg(-90);
 					auto build2 = std::make_unique<Building>(Building{ asset, pos2, rot2, conn_seg });
 					build2->update_cached(asset == house0 ? 2 : 0);

@@ -189,8 +189,6 @@ struct Mesher {
 		int node_a_cls = seg.node_a->get_node_class();
 		int node_b_cls = seg.node_b->get_node_class();
 
-		float width = seg.asset->width;
-		
 		float3 dir = seg.node_b->pos - seg.node_a->pos;
 
 		float3 forw = normalizesafe(dir);
@@ -231,7 +229,7 @@ struct Mesher {
 		float3 diag_right = (up + right) * SQRT_2/2;
 		float3 diag_left  = (up - right) * SQRT_2/2;
 
-		V sL0  = { float3(         -width*0.5f              , 0, sidw_z), up,         tang, no_uv, sidewalk_tex_id };
+		V sL0  = { float3(seg.asset->edgeL                  , 0, sidw_z), up,         tang, no_uv, sidewalk_tex_id };
 		V sL1  = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidw_z), up,         tang, no_uv, sidewalk_tex_id };
 		V sL1b = { float3(seg.asset->sidewalkL - curbstone_w, 0, sidw_z), up,         tang, float2(0,0), curb_tex_id };
 		V sL2  = { float3(seg.asset->sidewalkL              , 0, sidw_z), diag_right, tang, float2(0,0.6f), curb_tex_id };
@@ -242,7 +240,7 @@ struct Mesher {
 		V sR1  = { float3(seg.asset->sidewalkR              , 0, sidw_z), diag_left, tang, float2(0,0.6f), curb_tex_id };
 		V sR2b = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidw_z), up,        tang, float2(0,0), curb_tex_id };
 		V sR2  = { float3(seg.asset->sidewalkR + curbstone_w, 0, sidw_z), up,        tang, no_uv, sidewalk_tex_id };
-		V sR3  = { float3(         +width*0.5f              , 0, sidw_z), up,        tang, no_uv, sidewalk_tex_id };
+		V sR3  = { float3(seg.asset->edgeR                  , 0, sidw_z), up,        tang, no_uv, sidewalk_tex_id };
 
 		extrude(sL0 , sL1 );
 		extrude(sL1b, sL2 , curb_tex_tiling);
@@ -351,11 +349,16 @@ struct Mesher {
 		auto crosswalk = [&] (int dir) {
 			int tex_id = textures.bindless_textures["misc/crosswalk"];
 				
-			float length = abs(seg.asset->sidewalkR - seg.asset->sidewalkL);
+			float length = seg.asset->sidewalkR - seg.asset->sidewalkL;
+			float center = (seg.asset->sidewalkR + seg.asset->sidewalkL) * 0.5f;
 			float width = 2.5f;
 
+			float3 inward = dir == 0 ? -seg.tangent_a() : -seg.tangent_b();
+			float3 right = rotate90_right(seg.tangent_a());
+
 			float3 pos = dir == 0 ? seg.pos_a : seg.pos_b;
-			pos -= (dir == 0 ? seg.tangent_a() : seg.tangent_b()) * (width * 0.5f + 0.5f);
+			pos += inward * (width * 0.5f + 0.5f);
+			pos += right * center;
 			
 			float y_tiling = 4.0f; // decoupled from length
 			float uv_len = length / y_tiling;
@@ -377,16 +380,18 @@ struct Mesher {
 		{ // clipping
 			float3 forw = normalizesafe(seg.pos_b - seg.pos_a);
 			float ang = angle2d((float2)forw);
-
+			float3 right = rotate90_right(forw);
 			float3 center = (seg.pos_a + seg.pos_b) * 0.5f;
+			center += right * (seg.asset->edgeL + seg.asset->edgeR) * 0.5f;
+
 			float3 size;
 			size.x = distance(seg.pos_b, seg.pos_a) + 15.0f*2; // TODO: this will get done better with better road meshing
-			size.y = seg.asset->width;
+			size.y = seg.asset->get_width();
 			size.z = 1.0f + 10.0f; // 10 meters above ground;
 			float offs_z = -1.0f + size.z/2;
 
 			ClippingRenderer::Instance clip;
-			clip.pos = (seg.pos_a + seg.pos_b) * 0.5f;
+			clip.pos = center;
 			clip.pos.z += offs_z;
 			clip.rot = ang;
 			clip.size = size;
@@ -434,22 +439,29 @@ struct Mesher {
 			auto si = s->get_end_info(node);
 			auto ri = r->get_end_info(node);
 
-			auto sidewalk_Ra = node->calc_curve(s,r, s->asset->sidewalkR, r->asset->sidewalkL);
-			auto sidewalk_Rb = node->calc_curve(s,r, s->asset->width*0.5f, -r->asset->width*0.5f);
+			auto pick = [&] (network::Segment* seg, float L, float R) {
+				return seg->get_dir_to_node(node) == LaneDir::FORWARD ?
+					std::array<float, 2>{L,R} : std::array<float, 2>{-R,-L}; // need mirror road params if direction points away from node
+			};
 
-			//sidewalk_Ra.dbg_draw(app.view, 0, 4, lrgba(1,0,0,1));
-			//sidewalk_Rb.dbg_draw(app.view, 0, 4, lrgba(0,1,0,1));
+			auto s_sidw = pick(s, s->asset->sidewalkL, s->asset->sidewalkR);
+			auto s_edge = pick(s, s->asset->edgeL, s->asset->edgeR);
+			auto r_sidw = pick(r, r->asset->sidewalkL, r->asset->sidewalkR);
+			auto r_edge = pick(r, r->asset->edgeL, r->asset->edgeR);
 
-			float2 segL = si.pos + si.right * s->asset->sidewalkL;
-			float2 segR = si.pos + si.right * s->asset->sidewalkR;
+			auto sidewalk_Ra = node->calc_curve(s,r, s_sidw[1], r_sidw[0]);
+			auto sidewalk_Rb = node->calc_curve(s,r, s_edge[1], r_edge[0]);
+
+			float2 seg_pL = si.pos + si.right * s_sidw[0];
+			float2 seg_pR = si.pos + si.right * s_sidw[1];
 
 			float road_z = network::ROAD_Z;
 			float sidw_z = 0;
 
 			typedef NetworkRender::Vertex V;
 			V nodeCenter = { node->pos + float3(0, 0, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
-			V seg0       = { float3(segL, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
-			V seg1       = { float3(segR, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
+			V seg0       = { float3(seg_pL, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
+			V seg1       = { float3(seg_pR, road_z), norm_up, tang_up, no_uv, asphalt_tex_id };
 
 			int res = 10;
 			for (int i=0; i<res; ++i) {

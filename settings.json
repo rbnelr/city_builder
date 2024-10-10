@@ -106,9 +106,11 @@
 		"networks": {
 			"small road": {
 				"road_class": 0,
-				"width": 10.0,
-				"sidewalkL": -2.799999952316284,
-				"sidewalkR": 2.799999952316284,
+				"speed_limit": 8.333333969116211,
+				"edgeL": -5.0,
+				"edgeR": 7.0,
+				"sidewalkL": -3.0,
+				"sidewalkR": 5.0,
 				"lanes": [
 					{
 						"shift": 1.399999976158142,
@@ -121,11 +123,33 @@
 						"direction": "BACKWARD"
 					}
 				],
-				"line_markings": [],
+				"parking": [
+					{
+						"shift": 4.199999809265137,
+						"direction": "FORWARD",
+						"spot_size": [
+							2.5999999046325684,
+							5.199999809265137
+						]
+					}
+				],
+				"line_markings": [
+					{
+						"type": "LINE",
+						"shift": [
+							2.9000000953674316,
+							0.0
+						],
+						"scale": [
+							0.5,
+							1.0
+						]
+					}
+				],
 				"streetlights": [
 					{
 						"shift": [
-							4.849999904632568,
+							6.849999904632568,
 							0.0,
 							0.0
 						],
@@ -138,12 +162,13 @@
 				"traffic_light_shift": [
 					3.0999999046325684,
 					0.20000000298023224
-				],
-				"speed_limit": 8.333333969116211
+				]
 			},
 			"medium road": {
 				"road_class": 1,
-				"width": 20.0,
+				"speed_limit": 13.88888931274414,
+				"edgeL": -10.0,
+				"edgeR": 10.0,
 				"sidewalkL": -7.0,
 				"sidewalkR": 7.0,
 				"lanes": [
@@ -168,6 +193,7 @@
 						"direction": "BACKWARD"
 					}
 				],
+				"parking": [],
 				"line_markings": [
 					{
 						"type": "STRIPED",
@@ -229,12 +255,13 @@
 				"traffic_light_shift": [
 					7.599999904632568,
 					0.5
-				],
-				"speed_limit": 13.88888931274414
+				]
 			},
 			"medium road asym": {
 				"road_class": 1,
-				"width": 20.0,
+				"speed_limit": 13.88888931274414,
+				"edgeL": -10.0,
+				"edgeR": 10.0,
 				"sidewalkL": -7.5,
 				"sidewalkR": 7.5,
 				"lanes": [
@@ -264,6 +291,7 @@
 						"direction": "BACKWARD"
 					}
 				],
+				"parking": [],
 				"line_markings": [
 					{
 						"type": "STRIPED",
@@ -336,8 +364,7 @@
 				"traffic_light_shift": [
 					8.100000381469727,
 					0.800000011920929
-				],
-				"speed_limit": 13.88888931274414
+				]
 			}
 		},
 		"buildings": {
@@ -447,7 +474,7 @@
 		"speed": 2.0
 	},
 	"test_map_builder": {
-		"_grid_n": 7,
+		"_grid_n": 10,
 		"_persons_n": 1000,
 		"_intersection_radius": 0.5,
 		"_connection_chance": 0.699999988079071

@@ -121,7 +121,68 @@ void set_default_lane_options (Node& node, bool fully_dedicated, int node_class)
 	}
 }
 
-void Node::update_cached () {
+void default_node_segment_pos (Node* node, float additional_node_radius) {
+	auto pick = [node] (Segment* seg, float L, float R) {
+		return seg->get_dir_to_node(node) == LaneDir::FORWARD ?
+			std::array<float, 2>{L,R} : std::array<float, 2>{-R,-L}; // need mirror road params if direction points away from node
+	};
+
+	int count = (int)node->segments.size();
+	
+	for (int i=0; i<count; ++i) {
+		Segment* segL = node->segments[wrap(i-1, count)];
+		Segment* seg  = node->segments[wrap(i,   count)];
+		Segment* segR = node->segments[wrap(i+1, count)];
+
+		struct Res { float2 dir, right, posL, posR; };
+		auto clac_seg = [node, pick] (Segment* seg) -> Res {
+			// direction away from node
+			float2 dir = seg->node_a == node ? (float2)seg->tangent_a() : (float2)seg->tangent_b();
+			float2 right = rotate90_right(-dir);
+			
+			// segment edge positions relative to node
+			auto edge = pick(seg, seg->asset->edgeL, seg->asset->edgeR);
+			float2 posL = right * edge[0];
+			float2 posR = right * edge[1];
+
+			return { dir, right, posL, posR };
+		};
+
+		auto l = clac_seg(segL);
+		auto s = clac_seg(seg);
+		auto r = clac_seg(segR);
+
+		//g_dbgdraw.arrow(node->pos, float3(s.dir,0), 0.2f, lrgba(1,0,0,1));
+		//g_dbgdraw.arrow(node->pos, float3(s.right,0), 0.2f, lrgba(0,1,0,1));
+		//g_dbgdraw.arrow(node->pos + float3(s.posL,0), float3(s.dir*10,0), 0.2f, lrgba(0,0,1,1));
+		//g_dbgdraw.arrow(node->pos + float3(s.posR,0), float3(s.dir*10,0), 0.2f, lrgba(0,1,1,1));
+		//
+		//g_dbgdraw.arrow(node->pos + float3(l.posR,0), float3(l.dir*10,0), 0.2f, lrgba(1,0,1,1));
+		//g_dbgdraw.arrow(node->pos + float3(r.posL,0), float3(r.dir*10,0), 0.2f, lrgba(1,0,1,1));
+		
+		float dist = 1;
+
+		// intersection of neighbouring segment edges relative to node
+		float2 inters;
+		if (line_line_intersect(s.posL, s.dir, l.posR, l.dir, &inters)) {
+			//if (i == _i) g_dbgdraw.point(node->pos + float3(inters,0), 0.2f, lrgba(1,1,0,1));
+
+			dist = max(dist, dot(inters, s.dir));
+		}
+		if (line_line_intersect(s.posR, s.dir, r.posL, r.dir, &inters)) {
+			//if (i == _i) g_dbgdraw.point(node->pos + float3(inters,0), 0.2f, lrgba(1,1,0,1));
+
+			dist = max(dist, dot(inters, s.dir));
+		}
+		
+		dist += additional_node_radius;
+		float3& pos = seg->node_a == node ? seg->pos_a : seg->pos_b;
+		pos = float3((float2)node->pos + s.dir * dist, node->pos.z);
+
+		//if (i == _i) g_dbgdraw.point(pos, 0.2f, lrgba(1,1,1,1));
+	}
+}
+void Node::update_cached (float additional_node_radius) {
 	// Sort CCW(?) segments in place for good measure
 	auto get_seg_angle = [] (Node* node, Segment* a) {
 		Node* other = a->get_other_node(node);
@@ -133,6 +194,8 @@ void Node::update_cached () {
 		float ang_r = get_seg_angle(this, r);
 		return ang_l < ang_r;
 	});
+
+	default_node_segment_pos(this, additional_node_radius);
 
 	_radius = 0;
 	for (auto* seg : segments) {

@@ -265,9 +265,16 @@ struct TrafficLightPropsAsset : public Asset {
 	}
 };
 
+inline bool imgui_lane_dir (const char* label, LaneDir* direction) {
+	int val = (int)*direction;
+	bool changed = ImGui::Combo(label, &val, "forward\0backwards", 2);
+	*direction = (LaneDir)val;
+	return changed;
+}
+
 struct NetworkAsset : public Asset {
-	SERIALIZE(NetworkAsset, road_class, width, sidewalkL, sidewalkR,
-		lanes, line_markings, streetlights, traffic_light_props, traffic_light_shift, sidewalkL, sidewalkR, speed_limit)
+	SERIALIZE(NetworkAsset, road_class, speed_limit, edgeL, edgeR, sidewalkL, sidewalkR,
+		lanes, parking, line_markings, streetlights, traffic_light_props, traffic_light_shift)
 
 	struct Lane {
 		SERIALIZE(Lane, shift, width, direction)
@@ -276,6 +283,21 @@ struct NetworkAsset : public Asset {
 		float width = 3;
 		LaneDir direction = LaneDir::FORWARD;
 		// user types (cars, trams, pedestrian etc.)
+	};
+
+	struct ParkingLane {
+		SERIALIZE(ParkingLane, shift, direction, spot_size)
+
+		float shift = 0;
+		//float width = 2.8f;
+		LaneDir direction = LaneDir::FORWARD;
+		//laneid_t connected_lane;
+		
+		float2 spot_size = float2(2.6f, 5.2f);
+
+		//void default_connection (NetworkAsset& asset) {
+		//	connected_lane = asset.lanes_in_dir(direction).outer();
+		//}
 	};
 
 	struct LineMarking {
@@ -295,12 +317,17 @@ struct NetworkAsset : public Asset {
 
 		AssetPtr<PropAsset> prop = dummy_asset<PropAsset>();
 	};
-	
-	//std::string filename;
 
 	int road_class = 0;
 
-	float width = 16;
+	float speed_limit = 40 / KPH_PER_MS;
+
+	float edgeL = -8;
+	float edgeR = 8;
+
+	float get_width () const {
+		return edgeR - edgeL;
+	}
 
 	float sidewalkL = -6;
 	float sidewalkR = +6;
@@ -308,6 +335,7 @@ struct NetworkAsset : public Asset {
 	// for now: (RHD) inner forward, outer forward, ..., inner reverse, outer reverse
 	// ie. sorted from left to right per direction
 	std::vector<Lane> lanes;
+	std::vector<ParkingLane> parking;
 
 	std::vector<LineMarking> line_markings;
 
@@ -316,8 +344,33 @@ struct NetworkAsset : public Asset {
 	AssetPtr<TrafficLightPropsAsset> traffic_light_props = dummy_asset<TrafficLightPropsAsset>();
 	float2 traffic_light_shift = 0;
 
-	float speed_limit = 40 / KPH_PER_MS;
+	struct LanesRange {
+		laneid_t first, end_;
+		
+		int count () {
+			return (int)end_ - (int)first;
+		}
 
+		laneid_t inner (int idx=0) {
+			assert(idx >= 0 && idx < count());
+			return (laneid_t)(first+idx);
+		}
+		laneid_t outer (int idx=0) {
+			assert(idx >= 0 && idx < count());
+			return (laneid_t)(end_-1-idx);
+		}
+	};
+	LanesRange lanes_forward () {
+		laneid_t count = num_lanes_in_dir(LaneDir::FORWARD);
+		return { 0, count };
+	}
+	LanesRange lanes_backwards () {
+		laneid_t first = num_lanes_in_dir(LaneDir::FORWARD);
+		return { first, (laneid_t)lanes.size() };
+	}
+	LanesRange lanes_in_dir (LaneDir dir) {
+		return dir == LaneDir::FORWARD ? lanes_forward() : lanes_backwards();
+	}
 
 	laneid_t _num_lanes_in_dir[2];
 	laneid_t num_lanes_in_dir (LaneDir dir) {
@@ -345,19 +398,29 @@ struct NetworkAsset : public Asset {
 		bool changed = false;
 
 		changed = ImGui::InputText("name", &name) || changed;
+		
+		changed = opt.imgui_slider_speed("speed_limit", &speed_limit, 0, 200/KPH_PER_MS) || changed;
 
-		changed = ImGui::DragFloat("width", &width, 0.1f) || changed;
+		changed = ImGui::DragFloat("edgeL", &edgeL, 0.1f) || changed;
+		changed = ImGui::DragFloat("edgeR", &edgeR, 0.1f) || changed;
+
+		changed = ImGui::DragFloat("sidewalkL", &sidewalkL, 0.1f) || changed;
+		changed = ImGui::DragFloat("sidewalkR", &sidewalkR, 0.1f) || changed;
 
 		changed = imgui_edit_vector("lanes", lanes, [&] (int i, Lane& l) {
 			bool changed = ImGui::DragFloat("shift", &l.shift, 0.1f,
 				i > 0 ? lanes[i-1].shift : -INF,
 				i < (int)lanes.size()-1 ? lanes[i+1].shift : +INF);
 			changed = ImGui::DragFloat("width", &l.width, 0.1f) || changed;
-
-			int val = (int)l.direction;
-			changed = ImGui::Combo("direction", &val, "forward\0backwards", 2) || changed;
-			l.direction = (LaneDir)val;
-
+			changed = imgui_lane_dir("direction", &l.direction) || changed;
+			return changed;
+		}) || changed;
+		
+		changed = imgui_edit_vector("parking", parking, [&] (int i, ParkingLane& l) {
+			bool changed = ImGui::DragFloat("shift", &l.shift, 0.1f);
+			//changed = ImGui::DragFloat("width", &l.width, 0.1f) || changed;
+			changed = imgui_lane_dir("direction", &l.direction) || changed;
+			changed = ImGui::DragFloat2("spot_size", &l.spot_size.x, 0.1f) || changed;
 			return changed;
 		}) || changed;
 
@@ -377,15 +440,7 @@ struct NetworkAsset : public Asset {
 			return changed;
 		}) || changed;
 
-		//changed = ImGui::Checkbox("has_sidewalk", &has_sidewalk) || changed;
-		//if (has_sidewalk) {
-			changed = ImGui::DragFloat("sidewalkL", &sidewalkL, 0.1f) || changed;
-			changed = ImGui::DragFloat("sidewalkR", &sidewalkR, 0.1f) || changed;
-		//}
-
 		changed = ImGui::DragFloat2("traffic_light_shift", &traffic_light_shift.x, 0.1f) || changed;
-		
-		changed = opt.imgui_slider_speed("speed_limit", &speed_limit, 0, 200/KPH_PER_MS) || changed;
 
 		if (changed) update_cached();
 		return changed;

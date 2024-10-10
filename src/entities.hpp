@@ -81,9 +81,8 @@ public:
 // Should this class be a series of parking spots instead?
 class ParkingSpot {
 public:
-	static constexpr float2 default_size = float2(2.8f, 5.2f);
-
 	PosRot pos; // TODO: eliminate this
+	float2 size;
 
 	// this probably is needed to be able to move vehicles when deleting segment/building,
 	// but could be stored differently
@@ -132,26 +131,26 @@ public:
 	}
 	// 
 	PosRot vehicle_front_pos () const {
-		return { pos.local(float3(default_size.y*0.5f,0,0)), pos.ang };
+		return { pos.local(float3(size.y*0.5f,0,0)), pos.ang };
 	}
 	PosRot vehicle_center_pos (Vehicle* veh) const {
-		float dist = default_size.y*0.5f - veh->asset->length()*0.5f;
+		float dist = size.y*0.5f - veh->asset->length()*0.5f;
 		return { pos.local(float3(dist,0,0)), pos.ang };
 	}
 
 	float3 front_enter_ctrl () const {
-		return pos.local(float3(-default_size.y*1.5f,0,0));
+		return pos.local(float3(-size.y*1.5f,0,0));
 	}
 	float3 side_enter_ctrl () const {
-		return pos.local(float3(-default_size.y*1.5f,+default_size.x*0.5f,0)); // backward left
+		return pos.local(float3(-size.y*0.75f,+size.x*0.5f,0)); // backward left
 	}
 	float3 side_exit_ctrl () const {
-		return pos.local(float3(+default_size.y*1.5f,+default_size.x*0.5f,0)); // forward left
+		return pos.local(float3(+size.y*0.75f,+size.x*0.5f,0)); // forward left
 	}
 
 	void dbg_draw () {
-		float3 F  = rotate3_Z(pos.ang) * float3(default_size.y,0,0);
-		float3 R = rotate3_Z(pos.ang) * float3(0,-default_size.x,0);
+		float3 F  = rotate3_Z(pos.ang) * float3(size.y,0,0);
+		float3 R = rotate3_Z(pos.ang) * float3(0,-size.x,0);
 		float3 p = pos.pos - F*0.5f - R*0.5f;
 
 		float3 A = p;
@@ -184,16 +183,18 @@ struct Building {
 	network::Segment* connected_segment = nullptr;
 
 	std::vector<ParkingSpot> parking;
+	static constexpr float2 PARKING_SPOT_SIZE = float2(2.8f, 5.2f);
 	
 	void update_cached (int num_parking) {
-		float3 cur_pos = pos + rotate3_Z(rot) * float3(-5, 20, 0);
-		float3 dir = rotate3_Z(rot) * float3(1, 0, 0);
-		float ang = rot - deg(90);
+		float3 cur_pos = pos + rotate3_Z(rot) * float3(-3, 11, 0);
+		float ang = rot;
+		float3 dir = rotate3_Z(ang) * float3(0, 1, 0);
 
 		for (int i=0; i<num_parking; ++i) {
 			ParkingSpot spot;
 			spot.pos = { cur_pos, ang };
-			cur_pos += dir * ParkingSpot::default_size.x;
+			spot.size = PARKING_SPOT_SIZE;
+			cur_pos += dir * spot.size.x;
 
 			parking.push_back(spot);
 		}

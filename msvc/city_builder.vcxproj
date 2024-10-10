@@ -227,7 +227,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">common.hpp</PrecompiledHeaderFile>
     </ClCompile>
-    <ClCompile Include="..\src\network.cpp">
+    <ClCompile Include="..\src\network_sim.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">common.hpp</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">common.hpp</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Validate|x64'">common.hpp</PrecompiledHeaderFile>
@@ -260,6 +260,7 @@
     <ClInclude Include="..\src\engine\dear_imgui_custom\imgui_impl_opengl3.h" />
     <ClInclude Include="..\src\entities.hpp" />
     <ClInclude Include="..\src\game_time.hpp" />
+    <ClInclude Include="..\src\network_sim.hpp" />
     <ClInclude Include="..\src\terrain.hpp" />
     <ClInclude Include="..\src\interaction.hpp" />
     <ClInclude Include="..\src\math_util.hpp" />
@@ -296,7 +297,7 @@
     <ClInclude Include="..\src\engine\text_render.hpp" />
     <ClInclude Include="..\src\engine\engine.hpp" />
     <ClInclude Include="..\src\game_camera.hpp" />
-    <ClCompile Include="..\src\network_defaults.cpp">
+    <ClCompile Include="..\src\network.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">common.hpp</PrecompiledHeaderFile>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Tracy|x64'">NotUsing</PrecompiledHeader>

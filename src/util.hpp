@@ -218,6 +218,15 @@ inline bool draggable (Input& I, View3D& view, float3* pos, float r) {
 	return hovered_or_dragging;
 }
 
+inline bool wait_for (float& timer, float dt) {
+	timer -= dt;
+	if (timer <= 0.0f) {
+		timer = 0;
+		return true;
+	}
+	return false;
+}
+
 template <typename KEY_T, typename VAL_T, typename HASHER=std::hash<KEY_T>, typename EQUAL=std::equal_to<KEY_T>>
 struct Hashmap : public std::unordered_map<KEY_T, VAL_T, HASHER> {
 	// Not tested with move only types yet (avoiding copies can be hard with try_add etc)

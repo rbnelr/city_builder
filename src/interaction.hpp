@@ -157,7 +157,7 @@ struct Interaction {
 				auto* pers = hover.get<Person*>();
 				auto* trip = pers->owned_vehicle->get_trip();
 				if (trip) {
-					network::VehicleTrip::cancel_trip(trip, pers);
+					network::VehicleTrip::cancel_trip(*trip, *pers);
 				}
 
 				hover = nullptr;

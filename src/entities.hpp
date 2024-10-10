@@ -10,7 +10,6 @@ namespace network {
 	void _mem_use (MemUse& mem, VehicleTrip* trip); // can't forward declare a method, but can a free function, bravo C++...
 }
 struct Building;
-class Vehicle;
 class ParkingSpot;
 
 class Vehicle {
@@ -18,7 +17,6 @@ public:
 	VehicleAsset* asset;
 	lrgb col;
 	
-	// Could 
 	typedef std::variant<
 		std::monostate, // = Pocket car
 		std::unique_ptr<network::VehicleTrip>,

@@ -1,6 +1,7 @@
 #include "common.hpp"
 #include "entities.hpp"
 #include "network.hpp"
+#include "network_sim.hpp"
 
 std::optional<PosRot> Vehicle::clac_pos () {
 	return visit_overloaded(state,

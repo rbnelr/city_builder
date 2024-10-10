@@ -107,10 +107,10 @@
 			"small road": {
 				"road_class": 0,
 				"speed_limit": 8.333333969116211,
-				"edgeL": -5.0,
-				"edgeR": 7.0,
+				"edgeL": -5.199999809265137,
+				"edgeR": 6.800000190734863,
 				"sidewalkL": -3.0,
-				"sidewalkR": 5.0,
+				"sidewalkR": 4.5,
 				"lanes": [
 					{
 						"shift": 1.399999976158142,
@@ -125,7 +125,7 @@
 				],
 				"parking": [
 					{
-						"shift": 4.199999809265137,
+						"shift": 4.099999904632568,
 						"direction": "FORWARD",
 						"spot_size": [
 							2.5999999046325684,
@@ -476,7 +476,7 @@
 	"test_map_builder": {
 		"_grid_n": 10,
 		"_persons_n": 1000,
-		"_intersection_radius": 0.5,
+		"_intersection_radius": 2.0,
 		"_connection_chance": 0.699999988079071
 	},
 	"test_bez": {

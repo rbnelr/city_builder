@@ -6,6 +6,7 @@
 #include "game_time.hpp"
 #include "terrain.hpp"
 #include "network.hpp"
+#include "network_sim.hpp"
 #include "entities.hpp"
 #include "interaction.hpp"
 

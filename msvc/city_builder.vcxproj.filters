@@ -44,7 +44,7 @@
       <Filter>engine\tracy</Filter>
     </ClCompile>
     <ClCompile Include="..\src\assets.cpp" />
-    <ClCompile Include="..\src\network.cpp" />
+    <ClCompile Include="..\src\network_sim.cpp" />
     <ClCompile Include="..\src\engine\glad\glad.cpp">
       <Filter>engine</Filter>
     </ClCompile>
@@ -85,7 +85,7 @@
     <ClCompile Include="..\src\opengl\ogl_render.cpp">
       <Filter>opengl</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\network_defaults.cpp" />
+    <ClCompile Include="..\src\network.cpp" />
     <ClCompile Include="..\src\util.cpp" />
     <ClCompile Include="..\src\common.cpp" />
     <ClCompile Include="..\src\entities.cpp" />
@@ -234,7 +234,6 @@
     <ClInclude Include="..\src\opengl\bindless_textures.hpp">
       <Filter>opengl</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\heightmap.hpp" />
     <ClInclude Include="..\src\interaction.hpp" />
     <ClInclude Include="..\src\entities.hpp" />
     <ClInclude Include="..\src\game_time.hpp" />
@@ -245,9 +244,6 @@
     <ClInclude Include="..\src\opengl\post_passes.hpp">
       <Filter>opengl</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\opengl\terrain.hpp">
-      <Filter>opengl</Filter>
-    </ClInclude>
     <ClInclude Include="..\src\opengl\objects.hpp">
       <Filter>opengl</Filter>
     </ClInclude>
@@ -255,5 +251,8 @@
       <Filter>opengl</Filter>
     </ClInclude>
     <ClInclude Include="..\src\math_util.hpp" />
+    <ClInclude Include="..\src\terrain.hpp" />
+    <ClInclude Include="..\src\opengl\terrain_render.hpp" />
+    <ClInclude Include="..\src\network_sim.hpp" />
   </ItemGroup>
 </Project>

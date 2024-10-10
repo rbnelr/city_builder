@@ -193,7 +193,7 @@ struct EntityRender {
 	lrgba wireframe_col;
 
 	AssetMeshes<ASSET_T>& meshes;
-
+	
 	EntityRender (const char* dbg_name, AssetMeshes<ASSET_T>& meshes, const char* shad_name, const char* variant_name="_VARIANT", lrgba wireframe_col={1}):
 		dbg_name{dbg_name}, meshes{meshes}, wireframe_col{wireframe_col} {
 
@@ -263,9 +263,8 @@ struct EntityRender {
 	Vbo MDI_vbo = {"DebugDraw.MDI_vbo"};
 	
 	void draw (StateManager& state, bool shadow_pass=false) {
-		//ZoneScopedN(dbg_name); // TODO: why is this broken?
-		ZoneScoped;
-		OGL_TRACE("entities");
+		ZoneScopedN(dbg_name);
+		OGL_TRACE(dbg_name);
 		
 		auto& instance_vbo0 = std::get<0>(vbos).vbo;
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_BINDING_ENTITY_INSTANCES, instance_vbo0);
@@ -391,6 +390,116 @@ struct EntityRenders {
 		vehicles       .draw(state, shadow_pass);
 
 		vehicles.invalidate_instances<0>();
+	}
+};
+
+class EntityRender2 {
+public:
+
+	struct Mesh {
+		Vbo vbo = {"entities.mesh.vbo"};
+		Ebo ebo = {"entities.mesh.ebo"};
+
+		int index_count = 0;
+	};
+	std::unordered_map<void*, int> meshes;
+	
+	template <typename ASSET_T>
+	void upload_meshes (AssetCollection<ASSET_T> const& assets) {
+		ZoneScoped;
+
+		for (auto& asset : assets) {
+			auto& mesh = meshes[asset.get()];
+
+			auto& lod0 = asset->mesh.mesh_lods[0];
+
+			upload_buffer(GL_ARRAY_BUFFER        , mesh.vbo, lod0.vertices);
+			upload_buffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo, lod0.indices);
+
+			mesh.index_count = (int)lod0.indices.size();
+		}
+	}
+	
+	template <typename ASSET_T, typename... INSTANCE_PARTS>
+	struct ShaderDraw {
+		const char* const dbg_name;
+		Shader* shader;
+
+		lrgba wireframe_col;
+
+		struct MeshDraw {
+			Vao vao;
+
+			std::vector<Vbo> vbos = {}; // "entities.vbo"
+
+			int instance_count;
+			
+			void setup_vao (Mesh& mesh) {
+				vao = {"entities.vao"};
+				vbos = {};
+
+				glBindVertexArray(vao);
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
+
+				glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+				int idx = setup_vao_attribs(AssetMeshes<ASSET_T>::vert_t::attribs(), 0, 0);
+
+				// horrible syntax, essentially just loops of heterogenous elements in tuple vbos
+				(setup_instance_part<INSTANCE_PARTS>(idx), ...);
+
+				glBindBuffer(GL_ARRAY_BUFFER, 0); // glVertexAttribPointer remembers VAO
+				glBindVertexArray(0);
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); // VAO remembers EBO (note that we need to unbind VAO first)
+			}
+			template <typename INSTANCE_T>
+			void setup_instance_part (int& idx) {
+				auto& vbo = vbos.emplace_back("entities.vbo");
+				glBindBuffer(GL_ARRAY_BUFFER, vbo);
+				idx = setup_vao_attribs(INSTANCE_T::attribs(), idx, 1);
+			}
+		};
+
+		std::unordered_map<void*, MeshDraw> meshes;
+
+		ShaderDraw (const char* dbg_name, const char* shad_name, const char* variant_name="_VARIANT", lrgba wireframe_col={1}):
+				dbg_name{dbg_name}, wireframe_col{wireframe_col}{
+			
+			shader = g_shaders.compile(shad_name, {{variant_name, "1"}},
+				false, prints("%s (%s)", shad_name, variant_name).c_str());
+		}
+
+		template <typename T>
+		struct Data {
+			std::vector<T> instances;
+
+			T& push () {
+				return instances.emplace_back();
+			}
+		};
+		template <typename T>
+		Data<T> prepare_data (int part) {
+			Data<T> d;
+			d.instances.reserve(512);
+			return d;
+		}
+
+		void upload () {
+
+		}
+
+		void draw_all () {
+			
+		}
+	};
+
+	ShaderDraw<BuildingAsset, StaticEntity>                       buildings       = {"buildings",       "entities", "BUILDINGS",       lrgba(1,1,1, 1)};
+	ShaderDraw<PropAsset,     StaticEntity>                       props           = {"props",           "entities", "PROPS",           lrgba(1,1,1, 1)};
+	ShaderDraw<PropAsset,     StaticEntity>                       lamps           = {"lamps",           "entities", "LAMPS",           lrgba(1,1,1, 1)};
+	ShaderDraw<PropAsset,     StaticEntity, DynamicTrafficSignal> traffic_signals = {"traffic_signals", "entities", "TRAFFIC_SIGNALS", lrgba(1,1,1, 1)};
+	ShaderDraw<VehicleAsset,  DynamicVehicle>                     vehicles        = {"vehicles",        "vehicles", "VEHICLES",        lrgba(1,0,0, 1)};
+
+	void upload_instance_data (Shader*) {
+
 	}
 };
 

@@ -4,8 +4,6 @@
 
 namespace network {
 
-struct NavEndCurve;
-	
 class Pathfinding {
 public:
 	struct Endpoint {
@@ -23,12 +21,24 @@ public:
 void update_segment (App& app, Segment* seg);
 void update_node (App& app, Node* node, float dt);
 
+struct NavEndCurve;
+
+class IVehNav {
+public:
+	// start and destination getters implemented by Trip
+	virtual NavEndCurve get_vehicle_trip_start (SegLane lane) = 0;
+	// false: parking spot gets reserved on call, this call only happens just before dest is reached
+	// visualize=true to avoid instantly reserving parking spot
+	virtual NavEndCurve get_vehicle_trip_dest (SegLane lane, Vehicle& veh, bool visualize=false) = 0;
+};
+
 // Stores the path from pathfinding
 // Is a Sequence of Motions that a vehicle performs to drive along a path
-// step() should be called whenever the vehicle has performed the Motion represented by the current State
+// step() should be called whenever the vehicle has performed the Motion represented by the current Motion
 class VehNav {
 public:
-	void more_mem_use (MemUse& mem) {
+	void mem_use (MemUse& mem) {
+		mem.add("VehNav", sizeof(*this));
 		for (auto& i : path) mem.add("VehNav::path[]", sizeof(i));
 	}
 
@@ -36,7 +46,7 @@ public:
 
 	enum MotionType { START, END, SEGMENT, NODE };
 
-	struct State {
+	struct Motion {
 		// current path sequence number (complicated, ideally this could be a generator function)
 		// 0: start building -> road segment
 		// 1: first segment, 2: first node, 3: next segment...
@@ -69,45 +79,30 @@ public:
 		LaneVehicles* cur_vehicles = nullptr;
 	};
 
-	// start and destination getters implemented by Trip
-	virtual NavEndCurve get_vehicle_trip_start (SegLane lane) = 0;
-	// false: parking spot gets reserved on call, this call only happens just before dest is reached
-	// visualize=true to avoid instantly reserving parking spot
-	virtual NavEndCurve get_vehicle_trip_dest (SegLane lane, Vehicle& veh, bool visualize=false) = 0;
-
 private:
-	
-	// all segments returned by pathfinding, without choosing lanes
-	// TODO: later this might have lane info (SegLane instead of Segment*) to allow for lane selection into the future
-	// lane info is 1byte at most, so we can afford to store -1 for unchosen and 0-254 for chosen lanes
-	// this enables tracking past lanes, which is good for tracking long vehicles that might cover more than 2 segments correctly (+ nodes inbetween)
 	std::vector<Segment*> path;
 
 	SegLane pick_lane (Network& net, Random& rand, int seg_i, SegLane prev_lane) const;
 	
-	State s;
-
-	State _step (Network& net, int idx, State* prev_state, Vehicle& veh, bool visualize);
+	Motion _step (Network& net, int idx, Motion* prev_state, Vehicle& veh, IVehNav* inav, bool visualize);
 
 public:
 	operator bool () const {
 		return !path.empty();
 	}
 
-	State const& get_state () const { return s; }
+	bool pathfind (Motion& mot, Network& net, Vehicle& veh, Pathfinding::Endpoint start, Pathfinding::Endpoint dest, IVehNav* inav);
+	bool repath (Motion& mot, Network& net, Vehicle& veh, Pathfinding::Endpoint new_dest, IVehNav* inav);
 
-	bool nav_pathfind (Network& net, Vehicle& veh, Pathfinding::Endpoint start, Pathfinding::Endpoint dest);
-	bool nav_repath (Network& net, Vehicle& veh, Pathfinding::Endpoint new_dest);
-
-	void nav_step (Network& net, Vehicle& veh) {
-		s = _step(net, s.idx + 1, &s, veh, false);
+	void step (Motion& mot, Network& net, Vehicle& veh, IVehNav* inav) {
+		mot = _step(net, mot.idx + 1, &mot, veh, inav, false);
 	}
 	
-	void nav_visualize (OverlayDraw& overlay, Network& net, Vehicle& veh,
+	void visualize (Motion& mot, OverlayDraw& overlay, Network& net, Vehicle& veh, IVehNav* inav,
 		bool skip_next_node, lrgba col=lrgba(1,1,0,0.75f));
 
 	// HACK: to fix problem with node vehicle tracking
-	void _nav_clear_nodes (SimVehicle* vehicle) {
+	void _clear_nodes (SimVehicle* vehicle) {
 		int num_seg = (int)path.size();
 		
 		for (int i=0; i<num_seg-1; ++i) {
@@ -118,7 +113,7 @@ public:
 };
 
 // Stores all the data for Vehicle simulation, from traffic sim, to visual physics and other visuals
-class SimVehicle : public VehNav {
+class SimVehicle {
 public: // TODO: encapsulate better?
 
 	// TODO: These are just copied from Person, can we avoid storing them twice?
@@ -127,6 +122,7 @@ public: // TODO: encapsulate better?
 	lrgb tint_col;
 	float agressiveness;
 
+	VehNav::Motion mot;
 	
 	float bez_t = 0; // [0,1] bezier parameter for current segment/node curve
 
@@ -171,10 +167,6 @@ public: // TODO: encapsulate better?
 		_init_pos(pos.pos, rotate3_Z(pos.ang) * float3(1,0,0));
 	}
 
-	void sim_init () {
-		brake = 1;
-	}
-
 	bool update_blinker (float rand_num, float dt) {
 		constexpr float blinker_freq_min = 1.6f;
 		constexpr float blinker_freq_max = 1.2f;
@@ -187,14 +179,14 @@ public: // TODO: encapsulate better?
 	float3 center () { return (front_pos + rear_pos)*0.5; };
 	PosRot calc_pos ();
 	
-	virtual ~SimVehicle () override {
-		auto& s = get_state();
-		if (s.cur_vehicles) get_state().cur_vehicles->list.try_remove(this);
-		
-		_nav_clear_nodes(this);
+	virtual ~SimVehicle () {
+		if (mot.cur_vehicles) mot.cur_vehicles->list.try_remove(this);
 	}
 	
-	bool sim_update (App& app, Network& net, Metrics::Var& met, Vehicle& veh, float dt);
+	void begin_update () {
+		brake = 1;
+	}
+	bool update (App& app, Network& net, Metrics::Var& met, VehNav& nav, Vehicle& veh, IVehNav* inav, float dt);
 };
 
 inline Bezier3 Node::calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0, float2 shiftXZ_1) {
@@ -374,26 +366,31 @@ inline ParkingSpot* find_parking_near (Building* dest) {
 
 // User of SimVehicle, currently represents a random trip from building to building
 // More complexity TODO
-class VehicleTrip : public SimVehicle {
+class VehicleTrip : public IVehNav {
 public:
 	void mem_use (MemUse& mem) {
 		mem.add("VehicleTrip", sizeof(*this));
-		VehNav::more_mem_use(mem);
+		nav.mem_use(mem);
 	}
 
-	typedef std::variant<Building*, float3> Waypoint;
-
 	//Person* driver;
+
+	SimVehicle sim;
 	
 	NavEndpoint start;
 	NavEndpoint dest; // TODO: rename as dest?
+
+	VehNav nav;
 	
-	virtual ~VehicleTrip () override {
+	~VehicleTrip () {
+		nav._clear_nodes(&sim);
+
 		// need to unreserve if deleted vehicle with trip etc.
 		if (dest.parking)
 			dest.parking->unreserve(this);
 	}
 
+// IVehNav
 	NavEndCurve get_vehicle_trip_start (SegLane lane) override {
 		return start.calc_curve({lane, false});
 	}
@@ -405,59 +402,6 @@ public:
 				dest.parking->reserve(&veh);
 		}
 		return dest.calc_curve({lane, true});
-	}
-
-	//std::optional<Waypoint> _waypoint = {}; // just for debug repathing for now
-	//float waypoint_wait_after = 0; // just for testing
-
-	bool dbg_waypoint (OverlayDraw& overlay, Network& net, Waypoint waypoint, bool preview) {
-	//	auto targ = to_navpoint(net, waypoint);
-	//	if (targ) {
-	//		if (!preview) {
-	//			// add tmp waypoint, keep building dest
-	//			_waypoint = waypoint;
-	//			waypoint_wait_after = 3;
-	//
-	//			nav_repath(net, targ);
-	//			return true;
-	//		}
-	//		else {
-	//			// copy and preview repath
-	//			VehicleTrip tmp_nav = *this; // copy whole Trip, is this a good idea?
-	//			if (tmp_nav.nav_repath(net, targ)) {
-	//				tmp_nav.nav_visualize(overlay, net, bez_t, false, lrgba(1,1,1,0.4f));
-	//			}
-	//		}
-	//	}
-		return false;
-	}
-
-	//void resume_after_waypoint (Network& net, Person* person) {
-	//	assert(_waypoint);
-	//	//assert(sim.nav.path.back() == waypoint.seg); // private!
-	//
-	//	auto wayp_targ = to_navpoint(net, *_waypoint); // is this smart? computed this before, but might want to know about building as well
-	//
-	//	// reset nav and go from waypoint (where we currently are to original dest)
-	//	nav_pathfind(net, wayp_targ, to_navpoint(dest));
-	//	bez_t = 0; // need to reset this
-	//
-	//	_waypoint = {};
-	//}
-
-	bool update (App& app, Network& net, Metrics::Var& met, Vehicle& veh, float dt) {
-		if (!sim_update(app, net, met, veh, dt))
-			return false; // still navigating
-
-		//if (_waypoint) {
-		//	if (waypoint_wait_after <= 0.0f) {
-		//		waypoint_wait_after = 0;
-		//		resume_after_waypoint(net, person);
-		//	}
-		//	waypoint_wait_after -= dt;
-		//	return false;
-		//}
-		return true; // trip finished
 	}
 
 	static void cancel_trip (VehicleTrip& trip, Person& person) {
@@ -492,25 +436,26 @@ public:
 
 			auto trip = std::make_unique<network::VehicleTrip>();
 		
-			trip->vehicle_asset = person.owned_vehicle->asset;
-			trip->tint_col      = person.col;
-			trip->agressiveness = person.agressiveness;
+			trip->sim.vehicle_asset = person.owned_vehicle->asset;
+			trip->sim.tint_col      = person.col;
+			trip->sim.agressiveness = person.agressiveness;
 			//trip->driver = person;
 			trip->start = NavEndpoint::from_vehicle_start(person.cur_building, *person.owned_vehicle);
 			trip->dest = NavEndpoint{ dest_building };
 
-			bool valid = trip->nav_pathfind(net, *person.owned_vehicle,
+			bool valid = trip->nav.pathfind(trip->sim.mot, net, *person.owned_vehicle,
 				Pathfinding::Endpoint{trip->start.building->connected_segment},
-				Pathfinding::Endpoint{trip->dest.building->connected_segment});
+				Pathfinding::Endpoint{trip->dest.building->connected_segment},
+				trip.get());
 
 			if (valid) {
 				if (trip->start.parking) {
 					auto* veh = trip->start.parking->unpark();
 					assert(veh == person.owned_vehicle.get());
-					trip->init_pos(trip->start.parking);
+					trip->sim.init_pos(trip->start.parking);
 				}
 				else {
-					trip->init_pos(trip->get_state().bezier);
+					trip->sim.init_pos(trip->sim.mot.bezier);
 				}
 
 				person.cur_building = nullptr;
@@ -540,7 +485,7 @@ public:
 
 		
 		net.active_vehicles++;
-		if (!trip->update(app, net, met, *person.owned_vehicle, dt))
+		if (!trip->sim.update(app, net, met, trip->nav, *person.owned_vehicle, trip, dt))
 			return; // trip ongoing
 
 		finish_trip(*trip, person);

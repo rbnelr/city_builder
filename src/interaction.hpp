@@ -104,25 +104,25 @@ struct Interaction {
 		// TODO: move this somewhere else? ie. make this an function of vehicle?
 		// currently it's just a debug feature though
 		if (dbg_repath && selection.get<Person*>()) {
-			auto* pers = selection.get<Person*>();
-			auto* trip = pers->owned_vehicle->get_trip();
-			if (trip) {
-				std::optional<network::VehicleTrip::Waypoint> targ = {};
-
-				auto* build = hover.get<Building*>();
-				if (build) {
-					targ = build;
-				}
-				else {
-					auto res = heightmap.raycast_cursor(view, input);
-					if (res) targ = *res;
-				}
-				
-				if (targ) {
-					bool preview = !input.buttons[MOUSE_BUTTON_RIGHT].went_down;
-					trip->dbg_waypoint(overlay, net, *targ, preview);
-				}
-			}
+			//auto* pers = selection.get<Person*>();
+			//auto* trip = pers->owned_vehicle->get_trip();
+			//if (trip) {
+			//	std::optional<network::VehicleTrip::Waypoint> targ = {};
+			//
+			//	auto* build = hover.get<Building*>();
+			//	if (build) {
+			//		targ = build;
+			//	}
+			//	else {
+			//		auto res = heightmap.raycast_cursor(view, input);
+			//		if (res) targ = *res;
+			//	}
+			//	
+			//	if (targ) {
+			//		bool preview = !input.buttons[MOUSE_BUTTON_RIGHT].went_down;
+			//		trip->dbg_waypoint(overlay, net, *targ, preview);
+			//	}
+			//}
 		}
 		
 		if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {

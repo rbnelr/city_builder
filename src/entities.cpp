@@ -9,7 +9,7 @@ std::optional<PosRot> Vehicle::clac_pos () {
 			return std::nullopt; 
 		},
 		[] (std::unique_ptr<network::VehicleTrip> const& v) -> std::optional<PosRot> {
-			return v->calc_pos();
+			return v->sim.calc_pos();
 		},
 		[] (ParkingSpot* const& v) -> std::optional<PosRot> {
 			return v->calc_pos();

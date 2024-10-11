@@ -12,6 +12,11 @@ namespace network {
 struct Building;
 class ParkingSpot;
 
+// Instead of Vehicle containing PocketCar/Parking*/unique VehicleTrip*
+// we could have a very simple BaseClass with Interface for selection / bulldoze etc.
+// and VehicleTrip implements this as well, ie. InactiveVehicle gets "converted" to ActiveVehicle (allocated differently)
+// this requires any state that needs to be kept to be copied
+// the advantage is however, that VehicleTrip code can directly use it's own pointer to reserve parking spots and any, vehicle->get_trip goes away
 class Vehicle {
 public:
 	VehicleAsset* asset;

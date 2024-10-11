@@ -549,6 +549,9 @@ struct NetworkRender {
 			s.depth_test = true;
 			s.blend_enable = false;
 			s.depth_clamp = true;
+			// Render backfaces to avoid sun shining from below networks (due to terrain clipping) while setting
+			// and shouldn't hurt performance that much usually, since networks mostly point towards sun
+			s.cull_face = false;
 		}
 		state.set(s);
 

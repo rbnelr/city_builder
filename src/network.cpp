@@ -332,7 +332,7 @@ void Network::simulate (App& app) {
 				//if (pers->cur_building) continue;
 				auto* trip = pers->owned_vehicle->get_trip();
 				if (trip)
-					trip->sim_init();
+					trip->sim.begin_update();
 			}
 		}
 		

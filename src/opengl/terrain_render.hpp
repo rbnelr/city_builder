@@ -256,7 +256,9 @@ struct TerrainRenderer {
 			else {
 				s.depth_test = true;
 				s.blend_enable = false;
-				s.cull_face = false; // for shadow rendering and just becaue it won't hurt
+				// Render backfaces to avoid sun shining from below terrain while setting
+				// and shouldn't hurt performance that much usually, since terrain mostly points towards sun
+				s.cull_face = false;
 				s.depth_clamp = true;
 			}
 			state.set(s);

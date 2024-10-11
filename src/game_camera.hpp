@@ -190,7 +190,7 @@ struct CameraTrack {
 		auto* sel = selection.get<Person*>();
 		auto* trip = sel ? sel->owned_vehicle->get_trip() : nullptr;
 		if (track && trip) { // If tracking and object selected
-			auto pos = trip->calc_pos();
+			auto pos = trip->sim.calc_pos();
 			
 			if (cur_tracking != selection) {
 				// re-center camera if new selection or selection changed

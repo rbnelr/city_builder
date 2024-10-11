@@ -579,7 +579,7 @@ void ObjectRender::upload_vehicle_instances (Textures& texs, App& app, View3D& v
 		visit_overloaded(entity->owned_vehicle->state,
 			[] (std::monostate) {},
 			[&] (std::unique_ptr<network::VehicleTrip>& v) {
-				push_vehicle_instance(instances, texs, *v, view, app.input.real_dt);
+				push_vehicle_instance(instances, texs, v->sim, view, app.input.real_dt);
 			},
 			[&] (ParkingSpot* v) {
 				assert(entity->owned_vehicle.get() == v->veh);

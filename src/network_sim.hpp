@@ -2,6 +2,8 @@
 #include "common.hpp"
 #include "network.hpp"
 
+class App;
+
 namespace network {
 
 class Pathfinding {
@@ -365,7 +367,6 @@ inline ParkingSpot* find_parking_near (Building* dest) {
 }
 
 // User of SimVehicle, currently represents a random trip from building to building
-// More complexity TODO
 class VehicleTrip : public IVehNav {
 public:
 	void mem_use (MemUse& mem) {
@@ -403,7 +404,13 @@ public:
 		}
 		return dest.calc_curve({lane, true});
 	}
+};
+inline void _mem_use (MemUse& mem, VehicleTrip* trip) {
+	trip->mem_use(mem);
+}
 
+class PersonTrip {
+public:
 	static void cancel_trip (VehicleTrip& trip, Person& person) {
 		person.cur_building = trip.start.building;
 		person.owned_vehicle->state = {}; // pocket car!
@@ -427,79 +434,117 @@ public:
 		}
 	}
 
-	static bool start_trip (Entities& entities, Network& net, Random& rand, Person& person) {
-		auto* dest_building = entities.buildings[ rand.uniformi(0, (int)entities.buildings.size()) ].get();
+	static bool start_trip (Entities& entities, Network& net, Random& rand, Person& person);
+	static void update (App& app, Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person& person, float dt);
+};
+class DebugVehicles {
+public:
+	std::vector<std::unique_ptr<Vehicle>> vehicles;
+	
+	std::unique_ptr<Vehicle> veh = nullptr;
+	Vehicle* preview_veh = nullptr;
+
+	void imgui () {
 		
-		assert(person.cur_building->connected_segment);
-		if (person.cur_building->connected_segment) {
-			ZoneScoped;
-
-			auto trip = std::make_unique<network::VehicleTrip>();
-		
-			trip->sim.vehicle_asset = person.owned_vehicle->asset;
-			trip->sim.tint_col      = person.col;
-			trip->sim.agressiveness = person.agressiveness;
-			//trip->driver = person;
-			trip->start = NavEndpoint::from_vehicle_start(person.cur_building, *person.owned_vehicle);
-			trip->dest = NavEndpoint{ dest_building };
-
-			bool valid = trip->nav.pathfind(trip->sim.mot, net, *person.owned_vehicle,
-				Pathfinding::Endpoint{trip->start.building->connected_segment},
-				Pathfinding::Endpoint{trip->dest.building->connected_segment},
-				trip.get());
-
-			if (valid) {
-				if (trip->start.parking) {
-					auto* veh = trip->start.parking->unpark();
-					assert(veh == person.owned_vehicle.get());
-					trip->sim.init_pos(trip->start.parking);
-				}
-				else {
-					trip->sim.init_pos(trip->sim.mot.bezier);
-				}
-
-				person.cur_building = nullptr;
-				person.owned_vehicle->state = std::move(trip);
-				return true;
-			}
-		}
-		return false;
 	}
-	static void update_person (App& app, Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person& person, float dt) {
-		if (person.cur_building) {
-			// Person in building, wait for timer to start trip
-			if (!wait_for(person.stay_timer, dt))
-				return; // waiting
-
-			if (!VehicleTrip::start_trip(entities, net, rand, person)) {
-				assert(person.cur_building);
-				person.stay_timer = 1;
-				return; // start_trip failed
-			}
-
-			dt = 0; // 0 dt timestep to init some values properly
+	void update_interact (Input& input, Assets& assets, sel_ptr hover, std::optional<PosRot> hover_pos) {
+		
+		preview_veh = nullptr;
+		
+		if (!veh) {
+			// Random vehicle with random color when selecting tool
+			auto* asset = RandomVehicle::get_random(assets);
+			
+			veh = std::make_unique<Vehicle>(random, asset);
+			auto trip = std::make_unique<VehicleTrip>();
+		
+			trip->sim.vehicle_asset = asset;
+			trip->sim.tint_col      = veh->col;
+			trip->sim.agressiveness = 1;
+			veh->state = std::move(trip);
 		}
 
-		auto* trip = person.owned_vehicle->get_trip();
-		assert(trip);
+		if (hover_pos) {
+			// place at hover pos if anything hovered and make visible (preview_veh gets rendered)
+			veh->get_trip()->sim._init_pos(hover_pos->pos, rotate3_Z(hover_pos->ang) * float3(1,0,0));
+			preview_veh = veh.get();
 
-		
-		net.active_vehicles++;
-		if (!trip->sim.update(app, net, met, trip->nav, *person.owned_vehicle, trip, dt))
-			return; // trip ongoing
+			if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+				vehicles.push_back(std::move(veh));
 
-		finish_trip(*trip, person);
-		person.stay_timer = net._stay_time;
+				veh = nullptr;
+				preview_veh = nullptr;
+			}
+		}
+	}
+	void deselect () {
+		veh = nullptr;
+		preview_veh = nullptr;
+	}
+
+	void update () {
+
 	}
 };
-inline void _mem_use (MemUse& mem, VehicleTrip* trip) {
-	trip->mem_use(mem);
-}
 
-class DebugVehicles {
-	std::vector<std::unique_ptr<Vehicle>> vehicles;
+struct Network {
+	SERIALIZE(Network, settings, _stay_time);
 
+	void mem_use (MemUse& mem) {
+		mem.add("Network", sizeof(*this));
+		for (auto& i : nodes) i->mem_use(mem);
+		for (auto& i : segments) i->mem_use(mem);
+	}
 
+	std::vector<std::unique_ptr<Node>> nodes;
+	std::vector<std::unique_ptr<Segment>> segments;
+
+	Metrics metrics;
+	Settings settings;
+
+	DebugVehicles debug_vehicles;
+	
+	int _dijk_iter = 0;
+	int _dijk_iter_dupl = 0;
+	int _dijk_iter_lanes = 0;
+
+	int active_vehicles = 0;
+
+	// Just an experiment for now
+	float _lane_switch_chance = 0.25f;
+	float _stay_time = 5*60;
+
+	void imgui () {
+		ImGui::Text("Active Vehicles: %5d", active_vehicles);
+
+		metrics.imgui();
+		settings.imgui();
+
+		ImGui::SliderFloat("lane_switch_chance", &_lane_switch_chance, 0, 1);
+		_lane_switch_chance = clamp(_lane_switch_chance, 0.0f, 1.0f);
+
+		ImGui::DragFloat("stay_time", &_stay_time, 0);
+	}
+
+	int pathing_count;
+
+	void simulate (App& app);
+	void draw_debug (App& app, View3D& view);
+	
+	inline Segment* find_nearest_segment (float3 pos) const {
+		Segment* nearest_seg = nullptr;
+		float min_dist = INF;
+
+		for (auto& seg : segments) {
+			float dist = seg->distance_to_point(pos);
+			if (dist < min_dist) {
+				min_dist = dist;
+				nearest_seg = seg.get();
+			}
+		}
+
+		return nearest_seg;
+	}
 };
 
 }; // namespace network

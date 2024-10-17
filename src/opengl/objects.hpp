@@ -393,6 +393,9 @@ struct EntityRenders {
 	}
 };
 
+/* TODO: Rewrite entitiy rendering so that it can sort entities by assets, to test more traditional rendering technique for performance
+* // After that implement version that allocates memory based on base mesh_id, such that cull/lod can be implmented with simple atomic add
+instead of complicated compute sorting scheme, which hopefully is easy and runs efficently
 class EntityRender2 {
 public:
 
@@ -502,6 +505,7 @@ public:
 
 	}
 };
+*/
 
 struct NetworkRender {
 	struct Vertex {
@@ -584,12 +588,15 @@ struct ObjectRender {
 	void upload_static_instances (Textures& texs, App& app);
 	void update_dynamic_traffic_signals (Textures& texs, Network& net);
 
+	void upload_vehicle_instances (Textures& texs, App& app, View3D& view);
+
 	void push_vehicle_instance (std::vector<DynamicVehicle>& instances,
-		Textures& texs, network::SimVehicle& veh, View3D& view, float dt);
+		Textures& texs, Vehicle& veh, View3D& view, float dt);
+	
 	void push_parked_vehicle_instance (std::vector<DynamicVehicle>& instances,
 		Textures& texs, ParkingSpot& parking);
-
-	void upload_vehicle_instances (Textures& texs, App& app, View3D& view);
+	void push_vehicle_instance (std::vector<DynamicVehicle>& instances,
+		Textures& texs, network::SimVehicle& veh, View3D& view, float dt);
 };
 
 } // namespace ogl

@@ -231,7 +231,7 @@ struct ExposureReadback {
 	int desired_res = 4;
 	float2 edge_weight = 0.0f;
 
-	bool readback (Render_Texture& tex, int2 full_res, lrgb* weighted_average) {
+	bool readback (LightingFbo& fbo, int2 full_res, lrgb* weighted_average) {
 		ZoneScoped;
 		OGL_TRACE("exposure readback");
 		
@@ -256,7 +256,7 @@ struct ExposureReadback {
 			glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos[cur_buf]);
 			glBufferData(GL_PIXEL_PACK_BUFFER, size, nullptr, GL_STREAM_DRAW); // TODO: avoid reallocating?
 		
-			glBindTexture(GL_TEXTURE_2D, tex);
+			glBindTexture(GL_TEXTURE_2D, fbo.col);
 			glGetTexImage(GL_TEXTURE_2D, mip, GL_RGB, GL_FLOAT, nullptr);
 			glBindTexture(GL_TEXTURE_2D, 0);
 		}
@@ -329,7 +329,7 @@ struct ExposureControl {
 		ImGui::PopID();
 	}
 
-	void auto_exposure_readback (Render_Texture& tex, int2 full_res, float dt) {
+	void auto_exposure_readback (LightingFbo& fbo, int2 full_res, float dt) {
 		ZoneScoped;
 
 		// Exposure readback is not working, not async for whatever reason, kills fps!
@@ -337,7 +337,7 @@ struct ExposureControl {
 			return;
 
 		lrgb avg_exposed_rgb;
-		if (backreader.readback(tex, full_res, &avg_exposed_rgb)) {
+		if (backreader.readback(fbo, full_res, &avg_exposed_rgb)) {
 			float luma = lrgb_luminance(avg_exposed_rgb);
 
 			if (auto_exposure) {

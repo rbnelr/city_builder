@@ -607,6 +607,8 @@ VehNav::Motion VehNav::_step (Network& net, int idx, Motion* prev_state, Vehicle
 }
 
 void VehNav::visualize (Motion& state, OverlayDraw& overlay, Network& net, Vehicle& veh, IVehNav* inav, bool skip_next_node, lrgba col) {
+	if (path.empty()) return;
+
 	Motion copy = state;
 	float start_t = veh.get_trip()->sim.bez_t;
 	
@@ -934,7 +936,7 @@ void dbg_brake_for (App& app, SimVehicle* cur, float dist, float3 obstacle, lrgb
 void dbg_brake_for (App& app, SimVehicle* cur, float dist, float3 obstacle, lrgba col) {}
 #endif
 auto _SimVehicle_sel = [] (sel_ptr& sel) -> SimVehicle* {
-	return sel.get<Person*>() ? &sel.get<Person*>()->owned_vehicle->get_trip()->sim : nullptr;
+	return sel.get<Vehicle*>() ? &sel.get<Vehicle*>()->get_trip()->sim : nullptr;
 };
 
 void _FORCEINLINE dbg_brake_for_vehicle (App& app, SimVehicle* cur, float dist, SimVehicle* obstacle) {
@@ -956,9 +958,9 @@ void Network::draw_debug (App& app, View3D& view) {
 
 	debug_node(app, app.interact.selection.get<Node*>(), view);
 
-	auto* pers = app.interact.selection.get<Person*>();
-	if (pers && pers->owned_vehicle->get_trip()) {
-		debug_vehicle(app, *pers->owned_vehicle, view);
+	auto* veh = app.interact.selection.get<Vehicle*>();
+	if (veh && veh->get_trip()) {
+		debug_vehicle(app, *veh, view);
 	}
 
 	debug_last_pathfind(app.network, view);
@@ -1926,6 +1928,132 @@ bool SimVehicle::update (App& app, Network& net, Metrics::Var& met, VehNav& nav,
 	vehicle_update_animation(this, net, bez_res, delta_dist, dt);
 
 	return false;
+}
+
+////
+bool PersonTrip::start_trip (Entities& entities, Network& net, Random& rand, Person& person) {
+	auto* dest_building = entities.buildings[ rand.uniformi(0, (int)entities.buildings.size()) ].get();
+		
+	assert(person.cur_building->connected_segment);
+	if (person.cur_building->connected_segment) {
+		ZoneScoped;
+
+		auto trip = std::make_unique<network::VehicleTrip>();
+		
+		trip->sim.vehicle_asset = person.owned_vehicle->asset;
+		trip->sim.tint_col      = person.col;
+		trip->sim.agressiveness = person.agressiveness;
+		//trip->driver = person;
+		trip->start = NavEndpoint::from_vehicle_start(person.cur_building, *person.owned_vehicle);
+		trip->dest = NavEndpoint{ dest_building };
+
+		bool valid = trip->nav.pathfind(trip->sim.mot, net, *person.owned_vehicle,
+			Pathfinding::Endpoint{trip->start.building->connected_segment},
+			Pathfinding::Endpoint{trip->dest.building->connected_segment},
+			trip.get());
+
+		if (valid) {
+			if (trip->start.parking) {
+				auto* veh = trip->start.parking->unpark();
+				assert(veh == person.owned_vehicle.get());
+				trip->sim.init_pos(trip->start.parking);
+			}
+			else {
+				trip->sim.init_pos(trip->sim.mot.bezier);
+			}
+
+			person.cur_building = nullptr;
+			person.owned_vehicle->state = std::move(trip);
+			return true;
+		}
+	}
+	return false;
+}
+void PersonTrip::update (App& app, Entities& entities, Network& net, Metrics::Var& met, Random& rand, Person& person, float dt) {
+	if (person.cur_building) {
+		// Person in building, wait for timer to start trip
+		if (!wait_for(person.stay_timer, dt))
+			return; // waiting
+
+		if (!start_trip(entities, net, rand, person)) {
+			assert(person.cur_building);
+			person.stay_timer = 1;
+			return; // start_trip failed
+		}
+
+		dt = 0; // 0 dt timestep to init some values properly
+	}
+
+	auto* trip = person.owned_vehicle->get_trip();
+	assert(trip);
+
+		
+	net.active_vehicles++;
+	if (!trip->sim.update(app, net, met, trip->nav, *person.owned_vehicle, trip, dt))
+		return; // trip ongoing
+
+	finish_trip(*trip, person);
+	person.stay_timer = net._stay_time;
+}
+
+void Network::simulate (App& app) {
+	ZoneScoped;
+
+	pathing_count = 0;
+	active_vehicles = 0;
+
+	float dt = app.sim_dt();
+
+	// to avoid debugging overlays only showing while not paused, only skip moving the car when paused, later actually skip sim steps
+	bool force_update_for_dbg = true;
+	if (dt > 0.0f || force_update_for_dbg) {
+		Metrics::Var met;
+		
+		{ // TODO: only iterate active vehicles
+			ZoneScopedN("init pass");
+			for (auto& pers : app.entities.persons) {
+				//if (pers->cur_building) continue;
+				auto* trip = pers->owned_vehicle->get_trip();
+				if (trip)
+					trip->sim.begin_update();
+			}
+		}
+		
+		{
+			ZoneScopedN("update segments");
+			for (auto& seg : segments) {
+				update_segment(app, seg.get());
+			}
+		}
+		{
+			ZoneScopedN("update nodes");
+			for (auto& node : nodes) {
+				update_node(app, node.get(), dt);
+			}
+		}
+		
+		{
+			ZoneScopedN("final pass");
+			for (auto& person : app.entities.persons) {
+				PersonTrip::update(app, app.entities, app.network, met, app.sim_rand, *person, dt);
+			}
+		}
+
+		metrics.update(met);
+	}
+
+	static RunningAverage pathings_avg(30);
+	pathings_avg.push((float)pathing_count);
+	float min, max;
+	float avg = pathings_avg.calc_avg(&min, &max);
+	ImGui::Text("pathing_count: avg %3.1f min: %3.1f max: %3.1f", avg, min, max);
+	
+
+	ImGui::Text("nodes: %05d segments: %05d persons: %05d",
+		(int)nodes.size(), (int)segments.size(), (int)app.entities.persons.size());
+	
+	ImGui::Text("last dijkstra: iter: %05d iter_dupl: %05d iter_lanes: %05d", _dijk_iter, _dijk_iter_dupl, _dijk_iter_lanes);
+
 }
 
 } // namespace network

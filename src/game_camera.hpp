@@ -187,20 +187,19 @@ struct CameraTrack {
 	}
 
 	void update (GameCamera& cam, sel_ptr selection, float dt) {
-		auto* sel = selection.get<Person*>();
-		auto* trip = sel ? sel->owned_vehicle->get_trip() : nullptr;
-		if (track && trip) { // If tracking and object selected
-			auto pos = trip->sim.calc_pos();
+		auto* veh = selection.get<Vehicle*>();
+		auto pos = veh ? veh->clac_pos() : std::nullopt;
+		if (track && pos) { // If tracking and object selected
 			
 			if (cur_tracking != selection) {
 				// re-center camera if new selection or selection changed
-				pos_target = pos.pos; // jump to tracking target
+				pos_target = pos->pos; // jump to tracking target
 				smoothing_t = 0;
 			}
 			else {
-				pos_target += pos.pos - prev_pos.pos;
+				pos_target += pos->pos - prev_pos.pos;
 				if (track_rot)
-					cam.rot_aer.x += pos.ang - prev_pos.ang;
+					cam.rot_aer.x += pos->ang - prev_pos.ang;
 			}
 
 			// smoothly lerp from free camera to tracking target for smoothing_duration seconds
@@ -208,7 +207,7 @@ struct CameraTrack {
 			cam.orbit_pos = lerp(cam.orbit_pos, pos_target, smoothing_t); // TODO: framereate dependent!!!
 			smoothing_t = min(smoothing_t + dt / smoothing_duration, 1.0f);
 
-			prev_pos = pos;
+			prev_pos = *pos;
 
 			cur_tracking = selection;
 		}

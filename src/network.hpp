@@ -3,8 +3,6 @@
 #include "assets.hpp"
 #include "entities.hpp"
 
-class App;
-
 namespace network {
 // TODO: naming
 // path should be reserved for pathfinding
@@ -17,34 +15,12 @@ inline constexpr float SAFETY_DIST = 1.0f;
 inline constexpr float ROAD_Z = -0.15f;
 
 struct Network;
-struct Node;
-struct Segment;
+class Node;
+class Segment;
 struct Lane;
 class SimVehicle;
 struct LaneVehicles;
 struct TrafficLight;
-
-struct Metrics {
-
-	float avg_flow = 1; // avg of each (cur speed / cur speed limit)
-	
-	struct Var {
-		float total_flow = 0;
-		float total_flow_weight = 0;
-	};
-	
-	void update (Var& var, App& app);
-
-	ValuePlotter flow_plot = ValuePlotter();
-
-	void imgui () {
-		if (!imgui_Header("Metrics")) return;
-
-		flow_plot.imgui_display("avg_flow", 0.0f, 1.0f);
-
-		ImGui::PopID();
-	}
-};
 
 enum class Turns : uint8_t {
 	NONE     = 0,
@@ -279,7 +255,8 @@ struct NodeVehicles {
 	Hashmap<ConflictKey, Conflict, ConflictKeyHasher> conflict_cache;
 };
 
-struct Node {
+class Node {
+public:
 	void mem_use (MemUse& mem) {
 		mem.add("Node", sizeof(*this));
 		mem.add("Node::segments", MemUse::sizeof_alloc(segments));
@@ -336,8 +313,8 @@ struct Node {
 
 	int get_node_class ();
 	
-	SelCircle get_sel_shape () {
-		return { pos, _radius, lrgb(1, 0.5f, 0) };
+	std::optional<SelCircle> get_sel_shape () {
+		return SelCircle{ pos, _radius, lrgb(1, 0.5f, 0) };
 	}
 };
 
@@ -367,7 +344,8 @@ public:
 };
 
 // Segments are oriented from a -> b, such that the 'forward' lanes go from a->b and reverse lanes from b->a
-struct Segment { // better name? Keep Path and call path Route?
+class Segment { // better name? Keep Path and call path Route?
+public:
 	void mem_use (MemUse& mem) {
 		mem.add("Segment", sizeof(*this));
 		for (auto& i : lanes) i.mem_use(mem);
@@ -539,14 +517,14 @@ struct Segment { // better name? Keep Path and call path Route?
 		parking = StreetParking(this);
 	}
 	
-	SelRect get_sel_shape () {
+	std::optional<SelRect> get_sel_shape () {
 		float3 forw = tangent_a();
 		float3 right = rotate90_right(forw);
 		float3 pos = pos_a + right * asset->edgeL;
 		forw *= _length;
 		right *= asset->get_width();
 
-		return { pos, forw, right, lrgb(0, 0, 1) };
+		return SelRect{ pos, forw, right, lrgb(0, 0, 1) };
 	}
 };
 inline StreetParking::StreetParking (Segment* seg) {
@@ -777,6 +755,31 @@ struct TrafficLight {
 	}
 };
 
+struct Metrics {
+
+	float avg_flow = 1; // avg of each (cur speed / cur speed limit)
+	
+	struct Var {
+		float total_flow = 0;
+		float total_flow_weight = 0;
+	};
+	
+	void update (Var& var) {
+		avg_flow = var.total_flow / var.total_flow_weight;
+
+		flow_plot.push_value(avg_flow);
+	}
+
+	ValuePlotter flow_plot = ValuePlotter();
+
+	void imgui () {
+		if (!imgui_Header("Metrics")) return;
+
+		flow_plot.imgui_display("avg_flow", 0.0f, 1.0f);
+
+		ImGui::PopID();
+	}
+};
 struct Settings {
 	SERIALIZE(Settings, car_accel, car_deccel, car_rear_drag_ratio, intersec_heur, suspension);
 	
@@ -839,63 +842,6 @@ struct Settings {
 		}
 
 		ImGui::PopID();
-	}
-};
-struct Network {
-	SERIALIZE(Network, settings, _stay_time);
-
-	void mem_use (MemUse& mem) {
-		mem.add("Network", sizeof(*this));
-		for (auto& i : nodes) i->mem_use(mem);
-		for (auto& i : segments) i->mem_use(mem);
-	}
-
-	std::vector<std::unique_ptr<Node>> nodes;
-	std::vector<std::unique_ptr<Segment>> segments;
-
-	Metrics metrics;
-	Settings settings;
-	
-	int _dijk_iter = 0;
-	int _dijk_iter_dupl = 0;
-	int _dijk_iter_lanes = 0;
-
-	int active_vehicles = 0;
-
-	// Just an experiment for now
-	float _lane_switch_chance = 0.25f;
-	float _stay_time = 5*60;
-
-	void imgui () {
-		ImGui::Text("Active Vehicles: %5d", active_vehicles);
-
-		metrics.imgui();
-		settings.imgui();
-
-		ImGui::SliderFloat("lane_switch_chance", &_lane_switch_chance, 0, 1);
-		_lane_switch_chance = clamp(_lane_switch_chance, 0.0f, 1.0f);
-
-		ImGui::DragFloat("stay_time", &_stay_time, 0);
-	}
-
-	int pathing_count;
-
-	void simulate (App& app);
-	void draw_debug (App& app, View3D& view);
-	
-	inline Segment* find_nearest_segment (float3 pos) const {
-		Segment* nearest_seg = nullptr;
-		float min_dist = INF;
-
-		for (auto& seg : segments) {
-			float dist = seg->distance_to_point(pos);
-			if (dist < min_dist) {
-				min_dist = dist;
-				nearest_seg = seg.get();
-			}
-		}
-
-		return nearest_seg;
 	}
 };
 

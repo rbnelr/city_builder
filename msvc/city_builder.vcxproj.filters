@@ -89,6 +89,7 @@
     <ClCompile Include="..\src\util.cpp" />
     <ClCompile Include="..\src\common.cpp" />
     <ClCompile Include="..\src\entities.cpp" />
+    <ClCompile Include="..\src\interact.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="engine">
@@ -234,7 +235,7 @@
     <ClInclude Include="..\src\opengl\bindless_textures.hpp">
       <Filter>opengl</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\interaction.hpp" />
+    <ClInclude Include="..\src\interact.hpp" />
     <ClInclude Include="..\src\entities.hpp" />
     <ClInclude Include="..\src\game_time.hpp" />
     <ClInclude Include="..\src\bezier.hpp" />

@@ -8,7 +8,7 @@
 #include "network.hpp"
 #include "network_sim.hpp"
 #include "entities.hpp"
-#include "interaction.hpp"
+#include "interact.hpp"
 
 class App;
 
@@ -574,7 +574,7 @@ struct TestMapBuilder {
 		//	0.5f, 1.6f, false);
 		
 		if (persons) {
-			interact.clear_sel<Person*>();
+			interact.clear_sel<Vehicle*>();
 
 			entities.persons.clear();
 			entities.persons.resize(_persons_n);
@@ -740,7 +740,7 @@ struct TestMapBuilder {
 		if (persons) {
 			ZoneScopedN("spawn persons");
 
-			interact.clear_sel<Person*>();
+			interact.clear_sel<Vehicle*>();
 
 			// remove references
 			for (auto& node : net.nodes) {
@@ -885,7 +885,7 @@ public:
 		ImGui::Separator();
 
 		time.imgui();
-		interact.imgui(heightmap);
+		interact.imgui(*this);
 
 		heightmap.imgui();
 		network.imgui();
@@ -988,7 +988,9 @@ public:
 			view_dbg_cam_prev = view_dbg_cam;
 		}
 		
-		//
+		// stop tracking when trying to move, since moving while tracking doesn't work anyway
+		if (interact.selection && cam_binds.get_local_move_dir(input) != 0)
+			interact.cam_track.track = false;
 		interact.cam_track.update(main_cam, interact.selection, input.real_dt);
 
 		View3D view;
@@ -1029,7 +1031,7 @@ public:
 		View3D view = update_camera();
 		
 		// select after updating positions
-		interact.update(view, input, overlay, entities, network, heightmap);
+		interact.update(*this, view);
 
 		network.draw_debug(*this, view); // TODO: move to interact?
 		

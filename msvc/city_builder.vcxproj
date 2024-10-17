@@ -217,6 +217,7 @@
     </ClCompile>
     <ClCompile Include="..\src\engine\tracy\public\TracyClient.cpp" />
     <ClCompile Include="..\src\entities.cpp" />
+    <ClCompile Include="..\src\interact.cpp" />
     <ClCompile Include="..\src\main.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">common.hpp</PrecompiledHeaderFile>
@@ -262,7 +263,7 @@
     <ClInclude Include="..\src\game_time.hpp" />
     <ClInclude Include="..\src\network_sim.hpp" />
     <ClInclude Include="..\src\terrain.hpp" />
-    <ClInclude Include="..\src\interaction.hpp" />
+    <ClInclude Include="..\src\interact.hpp" />
     <ClInclude Include="..\src\math_util.hpp" />
     <ClInclude Include="..\src\network.hpp" />
     <ClInclude Include="..\src\engine\camera.hpp" />

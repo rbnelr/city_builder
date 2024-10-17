@@ -11,7 +11,7 @@ vec3 nightSky_light (vec3 dir_world) {
 	if (dir_world.z < -0.04)
 		return vec3(0);
 	vec3 dir = mat3(lighting.world2solar) * dir_world;
-	return map(dir_world.z, -0.04, 0.0) * readCubemap(night_sky, dir).rgb * 0.0001;
+	return map(dir_world.z, -0.04, 0.0) * readCubemap(night_sky, dir).rgb * 0.001;
 }
 
 // sun gets darker towards horizon and to 0 at night

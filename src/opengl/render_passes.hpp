@@ -1160,7 +1160,7 @@ struct RenderPasses {
 			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 		
-		exposure.auto_exposure_readback(light_fbo.col, renderscale.size, dt);
+		exposure.auto_exposure_readback(light_fbo, renderscale.size, dt);
 	}
 
 	void postprocess (StateManager& state, int2 window_size) {

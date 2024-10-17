@@ -3,14 +3,26 @@
 #include "assets.hpp"
 
 namespace network {
-	struct Segment;
-	struct Node;
+	class Segment;
+	class Node;
 	class VehicleTrip;
 
 	void _mem_use (MemUse& mem, VehicleTrip* trip); // can't forward declare a method, but can a free function, bravo C++...
 }
-struct Building;
+class Building;
+class Person;
 class ParkingSpot;
+
+class RandomVehicle {
+public:
+	static VehicleAsset* get_random (Assets& assets) {
+		int count = (int)assets.vehicles.set.size();
+		assert(count > 0);
+		if (count <= 0) return nullptr;
+		int i = random.uniformi(0, count-1);
+		return assets.vehicles.set.values()[i].get();
+	}
+};
 
 // Instead of Vehicle containing PocketCar/Parking*/unique VehicleTrip*
 // we could have a very simple BaseClass with Interface for selection / bulldoze etc.
@@ -21,6 +33,8 @@ class Vehicle {
 public:
 	VehicleAsset* asset;
 	lrgb col;
+
+	Person* owner = nullptr;
 	
 	typedef std::variant<
 		std::monostate, // = Pocket car
@@ -70,13 +84,16 @@ public:
 		}
 	}
 	~Vehicle ();
-
+	
 	std::optional<PosRot> clac_pos ();
 	
+	bool selectable () {
+		return !std::holds_alternative<std::monostate>(state) && clac_pos();
+	}
 	std::optional<SelCircle> get_sel_shape () {
 		auto pos = clac_pos();
 		if (pos)
-			return SelCircle{ pos->pos, asset->length()*0.5f, 0 }; // return pos and radius for Person::get_sel_shape()
+			return SelCircle{ pos->pos, asset->length()*0.5f, lrgb(0.04f, 1, 0.04f) };
 		return std::nullopt;
 	}
 };
@@ -177,7 +194,8 @@ inline Vehicle::~Vehicle () {
 	if (parking) (*parking)->clear(this);
 }
 
-struct Building {
+class Building {
+public:
 	BuildingAsset* asset;
 
 	float3 pos = 0;
@@ -203,10 +221,10 @@ struct Building {
 		}
 	}
 
-	SelCircle get_sel_shape () {
+	std::optional<SelCircle> get_sel_shape () {
 		auto sz = asset->mesh.aabb.size();
 		float radius = max(sz.x, sz.y) * 0.5f;
-		return { pos, radius*0.5f, lrgb(1, 0.04f, 0.04f) };
+		return SelCircle{ pos, radius*0.5f, lrgb(1, 0.04f, 0.04f) };
 	}
 
 	void mem_use (MemUse& mem) {
@@ -215,7 +233,8 @@ struct Building {
 	}
 };
 
-struct VehicleAgressiveness {
+class VehicleAgressiveness {
+public:
 	static float get_random_for_person (Random& rand) {
 		float agressiveness_deviation = 0.15f;
 		return rand.normalf(agressiveness_deviation, 0.0f);
@@ -225,7 +244,8 @@ struct VehicleAgressiveness {
 	}
 };
 
-struct Person {
+class Person {
+public:
 	// TODO: needs to be some kind of state like in car, or in building
 	// OR car/building etc needs to track citizen and we dont know where the citizen is
 	// probably best to first use double pointers everywhere, likely that this is not a problem in terms of memory
@@ -248,26 +268,27 @@ struct Person {
 		stay_timer = r.uniformf(0,1);
 	}
 
-	float3 clac_pos () {
+	float3 calc_pos () {
 		if (cur_building)
 			return cur_building->pos;
 		auto pos = owned_vehicle->clac_pos();
-		assert(pos); // while 
+		assert(pos);
+		return pos->pos;
 	}
 
-	bool selectable () {
-		// can only select while driving currently
-		return owned_vehicle->clac_pos().has_value();
-	}
-	SelCircle get_sel_shape () {
-		auto c = lrgb(0.04f, 1, 0.04f);
-		if (cur_building)
-			return { cur_building->pos, 1, c };
-
-		auto shape = owned_vehicle->get_sel_shape();
-		assert(shape.has_value());
-		return { shape->pos, shape->radius, c };
-	}
+	//bool selectable () {
+	//	// can only select while driving currently
+	//	return owned_vehicle->clac_pos().has_value();
+	//}
+	//float3 get_sel_shape () {
+	//	auto c = lrgb(0.04f, 1, 0.04f);
+	//	if (cur_building)
+	//		return { cur_building->pos, 1, c };
+	//
+	//	auto shape = owned_vehicle->get_sel_shape();
+	//	assert(shape.has_value());
+	//	return { shape->pos, shape->radius, c };
+	//}
 	
 	void mem_use (MemUse& mem) {
 		mem.add("Person", sizeof(*this));
@@ -275,8 +296,8 @@ struct Person {
 	}
 };
 
-struct Entities {
-
+class Entities {
+public:
 	std::vector<std::unique_ptr<Building>> buildings;
 	std::vector<std::unique_ptr<Person>> persons;
 
@@ -289,4 +310,4 @@ struct Entities {
 	}
 };
 
-typedef NullableVariant<Building*, Person*, network::Node*, network::Segment*> sel_ptr;
+typedef NullableVariant<Building*, /*Person*,*/ Vehicle*, network::Node*, network::Segment*> sel_ptr;

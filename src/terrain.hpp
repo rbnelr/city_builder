@@ -194,7 +194,7 @@ public:
 	// Raymarch and sample_height each time? Can we avoid huge number of steps?
 	std::optional<float3> raycast_cursor (View3D& view, Input& input) {
 		ZoneScoped;
-	#if 0
+	#if 1
 		Ray ray;
 		if (!view.cursor_ray(input, &ray.pos, &ray.dir))
 			return {};
@@ -539,7 +539,7 @@ class HeightmapTerraform {
 	float3 radius_drag_pos;
 	bool radius_dragging = false;
 
-	bool dragging_lock_buttons = false; // avoid accedentally editing when finishin radius drag with mouse button
+	bool dragging_lock_buttons = false; // avoid accedentally editing when finishing radius drag with mouse button
 
 	TerraformBrush brush;
 
@@ -556,20 +556,22 @@ class HeightmapTerraform {
 		if (radius_dragging) {
 			new_radius = length((float2)cursor_pos - (float2)radius_drag_pos);
 			new_radius = max(new_radius, 0.0f);
-
-			bool finish_dragging = input.buttons[KEY_R].went_down ||
-				input.buttons[MOUSE_BUTTON_LEFT].went_down || input.buttons[MOUSE_BUTTON_RIGHT].went_down;
+			
+			bool finish_dragging_LRMB =  input.buttons[MOUSE_BUTTON_LEFT].went_down || input.buttons[MOUSE_BUTTON_RIGHT].went_down;
+			bool finish_dragging = input.buttons[KEY_R].went_down || finish_dragging_LRMB;
 			bool cancel_dragging = input.buttons[KEY_ESCAPE].went_down;
 
 			if (finish_dragging)
 				paint_radius = new_radius;
 			if (finish_dragging || cancel_dragging) {
 				radius_dragging = false;
-				dragging_lock_buttons = true;
+				if (finish_dragging_LRMB)
+					dragging_lock_buttons = true;
+				
+				input.buttons[KEY_ESCAPE].went_down = false; // eat any esc presses to avoid double use in interact system
 			}
 		}
 		else {
-			// being able to 
 			bool begin_dragging = input.buttons[KEY_R].went_down;
 			if (begin_dragging) {
 				radius_drag_pos = cursor_pos;
@@ -612,7 +614,7 @@ public:
 		if (cur_tool)
 			cur_tool->imgui(map);
 	}
-
+	
 	void update (View3D& view, Input& input, Heightmap& map) {
 		auto cursor_pos = map.raycast_cursor(view, input);
 		if (!cursor_pos.has_value())
@@ -620,7 +622,8 @@ public:
 		
 		update_and_show_edit_circle(cursor_pos.value(), input);
 
-		if (!dragging_lock_buttons && cur_tool)
+		if (!dragging_lock_buttons && cur_tool) {
 			cur_tool->edit_terrain(map, cursor_pos.value(), paint_radius, brush, input);
+		}
 	}
 };

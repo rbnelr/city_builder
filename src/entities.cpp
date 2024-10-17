@@ -5,8 +5,8 @@
 
 std::optional<PosRot> Vehicle::clac_pos () {
 	return visit_overloaded(state,
-		[] (std::monostate) -> std::optional<PosRot> {
-			return std::nullopt; 
+		[=] (std::monostate) -> std::optional<PosRot> {
+			return PosRot{ owner->calc_pos(), 0 };
 		},
 		[] (std::unique_ptr<network::VehicleTrip> const& v) -> std::optional<PosRot> {
 			return v->sim.calc_pos();

@@ -569,26 +569,40 @@ void ObjectRender::update_dynamic_traffic_signals (Textures& texs, Network& net)
 	entities.traffic_signals.upload<1>(signal_colors, true);
 }
 
+
 void ObjectRender::upload_vehicle_instances (Textures& texs, App& app, View3D& view) {
 	ZoneScoped;
 		
 	std::vector<DynamicVehicle> instances;
 	instances.reserve(4096); // not all persons have active vehicle, don't overallocate
 
-	for (auto& entity : app.entities.persons) {
-		visit_overloaded(entity->owned_vehicle->state,
-			[] (std::monostate) {},
-			[&] (std::unique_ptr<network::VehicleTrip>& v) {
-				push_vehicle_instance(instances, texs, v->sim, view, app.input.real_dt);
-			},
-			[&] (ParkingSpot* v) {
-				assert(entity->owned_vehicle.get() == v->veh);
-				push_parked_vehicle_instance(instances, texs, *v);
-			}
-		);
+	for (auto& pers : app.entities.persons) {
+		if (pers->owned_vehicle)
+			push_vehicle_instance(instances, texs, *pers->owned_vehicle, view, app.input.real_dt);
 	}
 
+	for (auto& veh : app.network.debug_vehicles.vehicles) {
+		push_vehicle_instance(instances, texs, *veh, view, app.input.real_dt);
+	}
+
+	if (app.network.debug_vehicles.preview_veh)
+		push_vehicle_instance(instances, texs, *app.network.debug_vehicles.preview_veh, view, app.input.real_dt);
+
 	entities.vehicles.upload<0>(instances, true);
+}
+
+void ObjectRender::push_vehicle_instance (std::vector<DynamicVehicle>& instances,
+		Textures& texs, Vehicle& veh, View3D& view, float dt) {
+	visit_overloaded(veh.state,
+		[] (std::monostate) {},
+		[&] (std::unique_ptr<network::VehicleTrip>& v) {
+			push_vehicle_instance(instances, texs, v->sim, view, dt);
+		},
+		[&] (ParkingSpot* v) {
+			assert(&veh == v->veh);
+			push_parked_vehicle_instance(instances, texs, *v);
+		}
+	);
 }
 
 // TODO: make parked vehicles static entities that do not get uploaded every frame (and don't need skinned shader)

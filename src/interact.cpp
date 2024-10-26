@@ -83,17 +83,17 @@ public:
 	void update (Interaction& inter, App& app, View3D& view) override {
 		inter.find_hover(app, view, false);
 		
-		if (app.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
-			if (inter.hover.get<Vehicle*>()) {
-				auto* veh = inter.hover.get<Vehicle*>();
-				auto* trip = veh->get_trip();
-				if (trip && veh->owner) { // TODO: ??
-					network::PersonTrip::cancel_trip(*trip, *veh->owner);
-				}
-
-				inter.hover = nullptr;
-			}
-		}
+		//if (app.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+		//	if (inter.hover.get<Vehicle*>()) {
+		//		auto* veh = inter.hover.get<Vehicle*>();
+		//		auto* trip = veh->get_trip();
+		//		if (trip && veh->owner) { // TODO: ??
+		//			network::PersonTrip::cancel_trip(*trip, *veh->owner);
+		//		}
+		//
+		//		inter.hover = nullptr;
+		//	}
+		//}
 	}
 };
 
@@ -209,12 +209,12 @@ void Interaction::find_hover (App& app, View3D& view, bool only_net) { // TODO: 
 
 	if (!only_net) {
 		for (auto& person : app.entities.persons) {
-			auto& veh = *person->owned_vehicle;
-			if (veh.selectable()) {
-				auto shape = veh.get_sel_shape();
+			auto* veh = person->owned_vehicle.get();
+			if (veh->selectable()) {
+				auto shape = veh->get_sel_shape();
 				float hit_dist;
 				if (shape && shape->test(ray, &hit_dist) && hit_dist < dist) {
-					hover = &veh;
+					hover = veh;
 					dist = hit_dist;
 				}
 			}
@@ -248,14 +248,14 @@ void Interaction::find_hover (App& app, View3D& view, bool only_net) { // TODO: 
 		}
 	}
 
-	for (auto& veh : app.network.debug_vehicles.vehicles) {
-		if (veh->selectable()) {
-			auto shape = veh->get_sel_shape();
-			float hit_dist;
-			if (shape && shape->test(ray, &hit_dist) && hit_dist < dist) {
-				hover = veh.get();
-				dist = hit_dist;
-			}
-		}
-	}
+	//for (auto& veh : app.network.debug_vehicles.vehicles) {
+	//	if (veh->selectable()) {
+	//		auto shape = veh->get_sel_shape();
+	//		float hit_dist;
+	//		if (shape && shape->test(ray, &hit_dist) && hit_dist < dist) {
+	//			hover = veh.get();
+	//			dist = hit_dist;
+	//		}
+	//	}
+	//}
 }

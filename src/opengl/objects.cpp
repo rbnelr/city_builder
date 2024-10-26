@@ -593,26 +593,25 @@ void ObjectRender::upload_vehicle_instances (Textures& texs, App& app, View3D& v
 
 void ObjectRender::push_vehicle_instance (std::vector<DynamicVehicle>& instances,
 		Textures& texs, Vehicle& veh, View3D& view, float dt) {
-	visit_overloaded(veh.state,
-		[] (std::monostate) {},
-		[&] (std::unique_ptr<network::VehicleTrip>& v) {
-			push_vehicle_instance(instances, texs, v->sim, view, dt);
-		},
-		[&] (ParkingSpot* v) {
-			assert(&veh == v->veh);
-			push_parked_vehicle_instance(instances, texs, *v);
-		}
-	);
+	if (veh.sim) {
+		push_vehicle_instance(instances, texs, veh, *veh.sim, view, dt);
+		
+		assert(veh.parking == nullptr);
+	}
+	else if (veh.parking) {
+		assert(!veh.sim);
+		assert(veh.parking->veh == &veh && !veh.parking->reserved);
+		push_parked_vehicle_instance(instances, texs, veh);
+	}
 }
 
 // TODO: make parked vehicles static entities that do not get uploaded every frame (and don't need skinned shader)
 void ObjectRender::push_parked_vehicle_instance (std::vector<DynamicVehicle>& instances,
-		Textures& texs, ParkingSpot& parking) {
+		Textures& texs, Vehicle& veh) {
 	uint32_t instance_id = (uint32_t)instances.size();
 	auto& instance = instances.emplace_back();
 
-	auto& veh = *parking.veh;
-	auto pos = parking.vehicle_center_pos(&veh);
+	auto pos = veh.parking->vehicle_center_pos(&veh);
 
 	int tex_id = texs.bindless_textures[veh.asset->tex_filename];
 
@@ -620,7 +619,7 @@ void ObjectRender::push_parked_vehicle_instance (std::vector<DynamicVehicle>& in
 	instance.instance_id = instance_id;
 	instance.tex_id = tex_id;
 	instance.pos = pos.pos;
-	instance.tint = veh.col;
+	instance.tint = veh.tint_col;
 	instance.glow = 0;
 	
 	float3x3 heading_rot = rotate3_Z(pos.ang);
@@ -629,31 +628,31 @@ void ObjectRender::push_parked_vehicle_instance (std::vector<DynamicVehicle>& in
 }
 
 void ObjectRender::push_vehicle_instance (std::vector<DynamicVehicle>& instances,
-		Textures& texs, network::SimVehicle& veh, View3D& view, float dt) {
+		Textures& texs, Vehicle& veh, network::SimVehicle& sim, View3D& view, float dt) {
 	uint32_t instance_id = (uint32_t)instances.size();
 	auto& instance = instances.emplace_back();
 
-	auto& bone_mats = veh.vehicle_asset->bone_mats;
+	auto& bone_mats = veh.asset->bone_mats;
 	
-	int tex_id = texs.bindless_textures[veh.vehicle_asset->tex_filename];
+	int tex_id = texs.bindless_textures[veh.asset->tex_filename];
 
 	auto vehicle_hash = (uint32_t)hash((size_t)&veh);
 	float rand1 = (float)vehicle_hash / (float)UINT_MAX;
 
-	bool blinker_on = veh.update_blinker(rand1, dt);
+	bool blinker_on = sim.update_blinker(rand1, dt);
 
-	auto pos = veh.calc_pos();
+	auto pos = sim._calc_pos();
 
-	instance.mesh_id = entities.vehicle_meshes.asset2mesh_id[veh.vehicle_asset];
+	instance.mesh_id = entities.vehicle_meshes.asset2mesh_id[veh.asset];
 	instance.instance_id = instance_id;
 	instance.tex_id = tex_id;
 	instance.pos = pos.pos;
 	instance.tint = veh.tint_col;
 
 	instance.glow.x = 255;
-	instance.glow.y = veh.brake_light > 0.5f ? 255 : 0;
-	instance.glow.z = veh.blinker < 0.0f && blinker_on ? 255 : 0;
-	instance.glow.w = veh.blinker > 0.0f && blinker_on ? 255 : 0;
+	instance.glow.y = sim.brake_light > 0.5f ? 255 : 0;
+	instance.glow.z = sim.blinker < 0.0f && blinker_on ? 255 : 0;
+	instance.glow.w = sim.blinker > 0.0f && blinker_on ? 255 : 0;
 		
 	float3x3 heading_rot = rotate3_Z(pos.ang);
 
@@ -679,7 +678,7 @@ void ObjectRender::push_vehicle_instance (std::vector<DynamicVehicle>& instances
 			(bone_mats[boneID].bone2mesh * float4x4(bone_rot) * bone_mats[boneID].mesh2bone);
 	};
 
-	float wheel_ang = veh.wheel_roll * -deg(360);
+	float wheel_ang = sim.wheel_roll * -deg(360);
 	float3x3 roll_mat = rotate3_Z(wheel_ang);
 
 	float rear_axle_x = (bone_mats[VBONE_WHEEL_BL].bone2mesh * float4(0,0,0,1)).x;
@@ -690,13 +689,13 @@ void ObjectRender::push_vehicle_instance (std::vector<DynamicVehicle>& instances
 		float2 wheel_pos2d = (float2)(bone_mats[boneID].bone2mesh * float4(0,0,0,1));
 		float2 wheel_rel2d = wheel_pos2d - float2(rear_axle_x, 0);
 
-		float c = veh.turn_curv;
+		float c = sim.turn_curv;
 		float ang = -atanf((c * wheel_rel2d.x) / (c * -wheel_rel2d.y - 1.0f));
 
 		return rotate3_Y(ang);
 	};
 
-	float3x3 base_rot = rotate3_X(veh.suspension_ang.x) * rotate3_Z(-veh.suspension_ang.y);
+	float3x3 base_rot = rotate3_X(sim.suspension_ang.x) * rotate3_Z(-sim.suspension_ang.y);
 	set_bone_rot(VBONE_BASE, base_rot);
 
 

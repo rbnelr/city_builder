@@ -758,19 +758,11 @@ struct TestMapBuilder {
 			
 			sim_rand = Random(0);
 
-			auto rand_car = WeightedChoice(assets.vehicles.begin(), assets.vehicles.end(),
-				[] (AssetPtr<VehicleAsset> const& car) { return car->spawn_weight; });
-
-
 			if (entities.buildings.size() > 0) {
 				for (int i=0; i<_persons_n; ++i) {
 					auto* building = entities.buildings[sim_rand.uniformi(0, (int)entities.buildings.size())].get();
-					auto* car_asset = rand_car.get_random(sim_rand)->get();
 					
-					auto owned_vehicle = std::make_unique<Vehicle>(sim_rand, car_asset);
-
-					entities.persons[i] = std::make_unique<Person>(sim_rand, building, owned_vehicle->col);
-					entities.persons[i]->owned_vehicle = std::move(owned_vehicle);
+					entities.persons[i] = std::make_unique<Person>(assets, sim_rand, building);
 				}
 			}
 		}

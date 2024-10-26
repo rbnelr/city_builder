@@ -18,7 +18,7 @@ struct Network;
 class Node;
 class Segment;
 struct Lane;
-class SimVehicle;
+class Vehicle;
 struct LaneVehicles;
 struct TrafficLight;
 
@@ -174,7 +174,7 @@ struct NodeVehicle {
 		mem.add("NodeVehicle", sizeof(*this));
 	}
 
-	SimVehicle* vehicle; // unnecessary
+	Vehicle* veh; // unnecessary
 
 	// k == (approx) distance along node curve
 	// where before node : k negative where abs(k) is dist to node
@@ -201,14 +201,14 @@ struct NodeVehicle {
 	// Even without the algorithm, we would still want a list of vehicles per intersection, for rendering purposes
 	
 	bool operator== (NodeVehicle const& other) const {
-		return vehicle == other.vehicle;
+		return veh == other.veh;
 	}
-	bool operator== (SimVehicle* other) const {
-		return vehicle == other;
+	bool operator== (Vehicle* other) const {
+		return veh == other;
 	}
 	template <typename U>
 	bool operator!= (U const& other) const {
-		return vehicle != other.vehicle;
+		return veh != other.veh;
 	}
 };
 
@@ -217,7 +217,7 @@ struct LaneVehicles {
 		mem.add("LaneVehicles", sizeof(*this) + MemUse::sizeof_alloc(list.list));
 	}
 
-	VehicleList<SimVehicle*> list;
+	VehicleList<Vehicle*> list;
 	float avail_space;
 	
 	// find index in list of vehicles such all vehicles of indices below return value have
@@ -225,12 +225,12 @@ struct LaneVehicles {
 	// this is the correct index for insertion
 	struct FindResult {
 		int idx;
-		SimVehicle* leading = nullptr;
-		SimVehicle* trailing = nullptr;
+		Vehicle* leading = nullptr;
+		Vehicle* trailing = nullptr;
 	};
 	FindResult find_lane_spot (float bez_t) const;
 
-	void find_spot_and_insert (SimVehicle* veh);
+	void find_spot_and_insert (Vehicle* veh);
 };
 struct SegVehicles {
 	void mem_use (MemUse& mem) {

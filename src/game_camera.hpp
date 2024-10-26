@@ -188,7 +188,7 @@ struct CameraTrack {
 
 	void update (GameCamera& cam, sel_ptr selection, float dt) {
 		auto* veh = selection.get<Vehicle*>();
-		auto pos = veh ? veh->clac_pos() : std::nullopt;
+		auto pos = veh ? veh->calc_pos() : std::nullopt;
 		if (track && pos) { // If tracking and object selected
 			
 			if (cur_tracking != selection) {

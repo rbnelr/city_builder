@@ -594,9 +594,9 @@ struct ObjectRender {
 		Textures& texs, Vehicle& veh, View3D& view, float dt);
 	
 	void push_parked_vehicle_instance (std::vector<DynamicVehicle>& instances,
-		Textures& texs, ParkingSpot& parking);
+		Textures& texs, Vehicle& veh);
 	void push_vehicle_instance (std::vector<DynamicVehicle>& instances,
-		Textures& texs, network::SimVehicle& veh, View3D& view, float dt);
+		Textures& texs, Vehicle& veh, network::SimVehicle& sim, View3D& view, float dt);
 };
 
 } // namespace ogl

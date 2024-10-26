@@ -5,98 +5,12 @@
 namespace network {
 	class Segment;
 	class Node;
-	class VehicleTrip;
-
-	void _mem_use (MemUse& mem, VehicleTrip* trip); // can't forward declare a method, but can a free function, bravo C++...
+	class Vehicle;
+	class PersonTrip;
 }
 class Building;
 class Person;
-class ParkingSpot;
-
-class RandomVehicle {
-public:
-	static VehicleAsset* get_random (Assets& assets) {
-		int count = (int)assets.vehicles.set.size();
-		assert(count > 0);
-		if (count <= 0) return nullptr;
-		int i = random.uniformi(0, count-1);
-		return assets.vehicles.set.values()[i].get();
-	}
-};
-
-// Instead of Vehicle containing PocketCar/Parking*/unique VehicleTrip*
-// we could have a very simple BaseClass with Interface for selection / bulldoze etc.
-// and VehicleTrip implements this as well, ie. InactiveVehicle gets "converted" to ActiveVehicle (allocated differently)
-// this requires any state that needs to be kept to be copied
-// the advantage is however, that VehicleTrip code can directly use it's own pointer to reserve parking spots and any, vehicle->get_trip goes away
-class Vehicle {
-public:
-	VehicleAsset* asset;
-	lrgb col;
-
-	Person* owner = nullptr;
-	
-	typedef std::variant<
-		std::monostate, // = Pocket car
-		std::unique_ptr<network::VehicleTrip>,
-		ParkingSpot*> State;
-//private:
-	State state;
-//public:
-
-	void mem_use (MemUse& mem) {
-		mem.add("Vehicle", sizeof(*this));
-		
-		auto* trip = get_trip();
-		if (trip) network::_mem_use(mem, trip);
-	}
-
-	network::VehicleTrip* get_trip () {
-		auto* res = std::get_if<std::unique_ptr<network::VehicleTrip>>(&state);
-		return res ? res->get() : nullptr;
-	}
-
-	Vehicle (Random& r, VehicleAsset* asset): asset{asset} {
-		
-		bool van = asset->mesh_filename == "vehicles/van.fbx";
-		bool bus = asset->mesh_filename == "vehicles/bus.fbx";
-
-		// 50% of cars (100% of busses) are colorful
-		if (r.chance(0.5f) || bus) {
-			col = hsv2rgb(r.uniformf(), 1.0f, 0.8f); // debug-like colorful colors
-		}
-		// other cars get black and white colors
-		else {
-			lrgb std_colors[] = {
-				lrgb(0,0,0), // black
-				lrgb(0,0,0), // 2nd black to make it more common
-				lrgb(0.1f,0.1f,0.1f), // grey
-				lrgb(0.5f,0.5f,0.55f), // silver?
-				lrgb(1,1,1), // white
-				lrgb(0.95f,0.1f,0.1f), // ?
-			};
-			col = std_colors[r.uniformi(0, ARRLEN(std_colors))];
-		}
-
-		// most transporters are white
-		if (van && r.chance(0.8f)) {
-			col = lrgb(1,1,1);
-		}
-	}
-	~Vehicle ();
-	
-	std::optional<PosRot> clac_pos ();
-	
-	bool selectable () {
-		return !std::holds_alternative<std::monostate>(state) && clac_pos();
-	}
-	std::optional<SelCircle> get_sel_shape () {
-		auto pos = clac_pos();
-		if (pos)
-			return SelCircle{ pos->pos, asset->length()*0.5f, lrgb(0.04f, 1, 0.04f) };
-		return std::nullopt;
-	}
-};
+using network::Vehicle;
 
 // Should this class be a series of parking spots instead?
 class ParkingSpot {
@@ -115,9 +29,11 @@ public:
 			veh = nullptr;
 		}
 	}
-	void unreserve (network::VehicleTrip* trip) {
-		if (reserved && veh->get_trip() == trip)
-			clear(veh);
+	void unreserve (Vehicle* vehicle) {
+		if (reserved && veh == vehicle) {
+			reserved = false;
+			veh = nullptr;
+		}
 	}
 	
 	bool avail () {
@@ -153,10 +69,7 @@ public:
 	PosRot vehicle_front_pos () const {
 		return { pos.local(float3(size.y*0.5f,0,0)), pos.ang };
 	}
-	PosRot vehicle_center_pos (Vehicle* veh) const {
-		float dist = size.y*0.5f - veh->asset->length()*0.5f;
-		return { pos.local(float3(dist,0,0)), pos.ang };
-	}
+	PosRot vehicle_center_pos (Vehicle* veh) const;
 
 	float3 front_enter_ctrl () const {
 		return pos.local(float3(-size.y*1.5f,0,0));
@@ -188,11 +101,6 @@ public:
 		mem.add("ParkingSpot", sizeof(*this));
 	}
 };
-
-inline Vehicle::~Vehicle () {
-	auto* parking = std::get_if<ParkingSpot*>(&state);
-	if (parking) (*parking)->clear(this);
-}
 
 class Building {
 public:
@@ -233,17 +141,6 @@ public:
 	}
 };
 
-class VehicleAgressiveness {
-public:
-	static float get_random_for_person (Random& rand) {
-		float agressiveness_deviation = 0.15f;
-		return rand.normalf(agressiveness_deviation, 0.0f);
-	}
-	static float topspeed_accel_mul (float agressiveness) {
-		return clamp(1.1f + agressiveness, 0.7f, 1.5f);
-	}
-};
-
 class Person {
 public:
 	// TODO: needs to be some kind of state like in car, or in building
@@ -257,24 +154,13 @@ public:
 	float stay_timer = 1;
 
 	std::unique_ptr<Vehicle> owned_vehicle;
+	std::unique_ptr<network::PersonTrip> trip;
 
-	lrgb col;
-	float agressiveness;
+	//float agressiveness;
 
-	Person (Random& r, Building* initial_building, lrgb col): cur_building{initial_building}, col{col} {
-		float agressiveness_deviation = 0.15f;
-		agressiveness = VehicleAgressiveness::get_random_for_person(r);
+	Person (Assets& assets, Random& rand, Building* initial_building);
 
-		stay_timer = r.uniformf(0,1);
-	}
-
-	float3 calc_pos () {
-		if (cur_building)
-			return cur_building->pos;
-		auto pos = owned_vehicle->clac_pos();
-		assert(pos);
-		return pos->pos;
-	}
+	float3 calc_pos ();
 
 	//bool selectable () {
 	//	// can only select while driving currently
@@ -292,7 +178,8 @@ public:
 	
 	void mem_use (MemUse& mem) {
 		mem.add("Person", sizeof(*this));
-		owned_vehicle->mem_use(mem);
+		if (owned_vehicle) mem.add(*owned_vehicle);
+		if (trip) mem.add(*trip);
 	}
 };
 

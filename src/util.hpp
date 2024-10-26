@@ -676,6 +676,12 @@ public:
 		entry.count++;
 		entry.size += size;
 	}
+
+	// allows nicer api and calling on incomplete types
+	template <typename T>
+	void add (T& t) {
+		t.mem_use(*this);
+	}
 	
 	void _imgui ();
 

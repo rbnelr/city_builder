@@ -581,12 +581,13 @@ void ObjectRender::upload_vehicle_instances (Textures& texs, App& app, View3D& v
 			push_vehicle_instance(instances, texs, *pers->owned_vehicle, view, app.input.real_dt);
 	}
 
-	for (auto& veh : app.network.debug_vehicles.vehicles) {
-		push_vehicle_instance(instances, texs, *veh, view, app.input.real_dt);
+	for (auto& v : app.network.debug_vehicles.vehicles) {
+		push_vehicle_instance(instances, texs, *v->veh, view, app.input.real_dt);
 	}
 
 	if (app.network.debug_vehicles.preview_veh)
-		push_vehicle_instance(instances, texs, *app.network.debug_vehicles.preview_veh, view, app.input.real_dt);
+		push_vehicle_instance(instances, texs, *app.network.debug_vehicles.preview_veh->veh,
+							  view, app.input.real_dt);
 
 	entities.vehicles.upload<0>(instances, true);
 }

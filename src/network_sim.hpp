@@ -392,7 +392,7 @@ public:
 
 	std::optional<PosRot> calc_pos () {
 		if (sim)     return sim->_calc_pos();
-		if (parking) return parking->calc_pos();
+		if (parking) return parking->vehicle_center_pos(this);
 		//if (owner)   return PosRot{ owner->calc_pos(), 0 };
 		return {};
 	}
@@ -482,46 +482,51 @@ public:
 };
 class DebugVehicles {
 public:
-	std::vector<std::unique_ptr<Vehicle>> vehicles;
+	struct DebugVehicle {
+		std::unique_ptr<Vehicle> veh;
+		Path path;
+	};
+	std::vector<std::unique_ptr<DebugVehicle>> vehicles;
 	
-	std::unique_ptr<Vehicle> veh = nullptr;
-	Vehicle* preview_veh = nullptr;
+	std::unique_ptr<DebugVehicle> next_vehicle = nullptr;
+	DebugVehicle* preview_veh = nullptr;
 
 	void imgui () {
 		
 	}
 	void update_interact (Input& input, Assets& assets, sel_ptr hover, std::optional<PosRot> hover_pos) {
 		
-		//preview_veh = nullptr;
-		//
-		//if (!veh) {
-		//	// Random vehicle with random color when selecting tool
-		//	auto* asset = RandomVehicle::get_random(assets);
-		//	
-		//	veh = std::make_unique<Vehicle>(random, asset);
-		//	auto trip = std::make_unique<VehicleTrip>();
-		//
-		//	trip->sim.vehicle_asset = asset;
-		//	trip->sim.tint_col      = veh->col;
-		//	trip->sim.agressiveness = 1;
-		//	veh->state = std::move(trip);
-		//}
-		//
-		//if (hover_pos) {
-		//	// place at hover pos if anything hovered and make visible (preview_veh gets rendered)
-		//	veh->get_trip()->sim._init_pos(hover_pos->pos, rotate3_Z(hover_pos->ang) * float3(1,0,0));
-		//	preview_veh = veh.get();
-		//
-		//	if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
-		//		vehicles.push_back(std::move(veh));
-		//
-		//		veh = nullptr;
-		//		preview_veh = nullptr;
-		//	}
-		//}
+		
+		if (!next_vehicle) {
+			// Create a random vehicle when using DebugVehicles tool,
+			// but keep vehicle or else it flashes different random vehicles every frame
+			next_vehicle = std::make_unique<DebugVehicle>();
+			next_vehicle->veh = Vehicle::create_random_vehicle(assets, random);
+		}
+
+		preview_veh = nullptr;
+
+		if (hover_pos) {
+			// place at hover pos if anything hovered and make visible (preview_veh gets rendered)
+			
+			// recreate SimVehicle used to render vehicle at arbitrary position 
+			next_vehicle->veh->sim = std::make_unique<SimVehicle>();
+
+			next_vehicle->veh->sim->_init_pos(hover_pos->pos, rotate3_Z(hover_pos->ang) * float3(1,0,0),
+											  next_vehicle->veh->asset);
+			// show vehicle only when hover valid (but keep next_vehicle)
+			preview_veh = next_vehicle.get();
+		
+			if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+				vehicles.push_back(std::move(next_vehicle));
+				// create new vehicle to place next frame
+				next_vehicle = nullptr;
+				preview_veh = nullptr;
+			}
+		}
 	}
 	void deselect () {
-		veh = nullptr;
+		next_vehicle = nullptr;
 		preview_veh = nullptr;
 	}
 

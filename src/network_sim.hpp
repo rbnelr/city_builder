@@ -76,7 +76,11 @@ inline ParkingSpot* find_parking_near (Building* dest) {
 //  but vehicles will still need to be able to ask for the next motion
 class Path {
 public:
-	enum MotionType { START, END, SEGMENT, NODE };
+	enum MotionType {
+		STARTUP, SHUTDOWN,
+		START, END,
+		SEGMENT, NODE
+	};
 
 	struct Motion {
 		// current path sequence number (complicated, ideally this could be a generator function)
@@ -109,6 +113,10 @@ public:
 
 		// Needed for correct Segment/Node updates
 		LaneVehicles* cur_vehicles = nullptr;
+
+		bool valid () {
+			return idx >= 0;
+		}
 	};
 
 	void mem_use (MemUse& mem) {
@@ -256,7 +264,7 @@ public:
 		_clear_nodes(veh);
 
 		// need to unreserve if deleted vehicle with trip etc.
-		if (dest.parking)
+		if (dest.parking && dest.parking->reserved)
 			dest.parking->unreserve(&veh);
 	}
 	
@@ -289,11 +297,15 @@ public:
 		mem.add("SimVehicle", sizeof(*this));
 	}
 
+	static constexpr float STARTUP_DURATION = 5;
+
 	Path* path; // TODO: could potentially eliminated
 
 	Path::Motion mot;
 	
-	float bez_t = 0; // [0,1] bezier parameter for current segment/node curve
+	// [0,1] bezier parameter for current segment/node curve
+	// or parking/unparking startup timer
+	float mot_t = 0;
 
 	float brake = 1; // set by controlled conflict logic, to brake smoothly
 	float speed = 0; // worldspace speed controlled by acceleration and brake
@@ -326,18 +338,19 @@ public:
 		if (mot.cur_vehicles) mot.cur_vehicles->list.try_remove(&veh);
 	}
 	
-	void _init_pos (float3 pos, float3 forw, VehicleAsset* asset) {
-		front_pos = pos;
-		rear_pos = pos - forw * asset->length();
-	}
-	void init_pos (Bezier3 const& bez, VehicleAsset* asset) {
+	static PosRot get_init_pos (Bezier3 const& bez, VehicleAsset* asset) {
 		auto pos = bez.eval(0).pos;
 		auto forw = normalizesafe(bez.eval(0.001f).pos - pos);
-		_init_pos(pos, forw, asset);
+
+		return PosRot{ pos, angle2d(forw) };
 	}
-	void init_pos (ParkingSpot* parking, VehicleAsset* asset) {
-		auto pos = parking->vehicle_front_pos();
-		_init_pos(pos.pos, rotate3_Z(pos.ang) * float3(1,0,0), asset);
+	static PosRot get_init_pos (ParkingSpot* parking) {
+		return parking->vehicle_front_pos();
+	}
+
+	void init_pos (PosRot pos, VehicleAsset* asset) {
+		front_pos = pos.pos;
+		rear_pos = pos.pos - (rotate3_Z(pos.ang) * float3(1,0,0)) * asset->length();
 	}
 
 	float3 _center () { return (front_pos + rear_pos)*0.5; };
@@ -377,16 +390,18 @@ public:
 	Path* try_get_path () {
 		return sim ? sim->path : nullptr;
 	}
+
+	Vehicle (VehicleAsset* asset, lrgb tint_col, float agressiveness):
+		asset{asset}, tint_col{tint_col}, agressiveness{agressiveness} {}
+	Vehicle (Vehicle&& v): // Allow static constructor (create_random_vehicle) and inheritance at the same time
+		asset{v.asset}, tint_col{v.tint_col}, agressiveness{v.agressiveness} {}
 	
 	void mem_use (MemUse& mem) {
 		mem.add("Vehicle", sizeof(*this));
 		if (sim) mem.add(*sim);
 	}
-	
-	Vehicle (VehicleAsset* asset, lrgb tint_col, float agressiveness):
-		asset{asset}, tint_col{tint_col}, agressiveness{agressiveness} {}
 
-	~Vehicle () {
+	virtual ~Vehicle () {
 		if (parking) parking->clear(this);
 	}
 
@@ -456,11 +471,11 @@ public:
 		return clamp(1.1f + agressiveness, 0.7f, 1.5f);
 	}
 
-	static std::unique_ptr<Vehicle> create_random_vehicle (Assets& assets, Random& rand) {
+	static Vehicle create_random_vehicle (Assets& assets, Random& rand) {
 		auto* asset = pick_random_asset(assets, rand);
 		auto tint_col = pick_random_color(rand, asset);
 		auto agressiveness = get_random_aggressiveness(rand);
-		return std::make_unique<Vehicle>(asset, tint_col, agressiveness);
+		return { asset, tint_col, agressiveness };
 	}
 };
 
@@ -480,28 +495,36 @@ public:
 
 	void update (App& app, Person& person, Network& net, Entities& entities, Metrics::Var& met, Random& rand, float dt);
 };
+
+class DebugVehicle : public Vehicle {
+friend class DebugVehicles;
+
+	Path path;
+
+	DebugVehicle (Assets& assets):
+		Vehicle{ Vehicle::create_random_vehicle(assets, random) } {
+
+	}
+};
 class DebugVehicles {
 public:
-	struct DebugVehicle {
-		std::unique_ptr<Vehicle> veh;
-		Path path;
-	};
 	std::vector<std::unique_ptr<DebugVehicle>> vehicles;
 	
 	std::unique_ptr<DebugVehicle> next_vehicle = nullptr;
 	DebugVehicle* preview_veh = nullptr;
 
 	void imgui () {
-		
+		if (ImGui::Button("Clear All")) {
+			vehicles.clear();
+			vehicles.shrink_to_fit();
+		}
 	}
 	void update_interact (Input& input, Assets& assets, sel_ptr hover, std::optional<PosRot> hover_pos) {
-		
 		
 		if (!next_vehicle) {
 			// Create a random vehicle when using DebugVehicles tool,
 			// but keep vehicle or else it flashes different random vehicles every frame
-			next_vehicle = std::make_unique<DebugVehicle>();
-			next_vehicle->veh = Vehicle::create_random_vehicle(assets, random);
+			next_vehicle = std::make_unique<DebugVehicle>(DebugVehicle(assets));
 		}
 
 		preview_veh = nullptr;
@@ -510,15 +533,19 @@ public:
 			// place at hover pos if anything hovered and make visible (preview_veh gets rendered)
 			
 			// recreate SimVehicle used to render vehicle at arbitrary position 
-			next_vehicle->veh->sim = std::make_unique<SimVehicle>();
+			next_vehicle->sim = std::make_unique<SimVehicle>();
+			next_vehicle->sim->path = &next_vehicle->path;
 
-			next_vehicle->veh->sim->_init_pos(hover_pos->pos, rotate3_Z(hover_pos->ang) * float3(1,0,0),
-											  next_vehicle->veh->asset);
+			next_vehicle->sim->init_pos(*hover_pos, next_vehicle->asset);
+
 			// show vehicle only when hover valid (but keep next_vehicle)
 			preview_veh = next_vehicle.get();
-		
+			
 			if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+
+				// store as active debug vehicle
 				vehicles.push_back(std::move(next_vehicle));
+
 				// create new vehicle to place next frame
 				next_vehicle = nullptr;
 				preview_veh = nullptr;

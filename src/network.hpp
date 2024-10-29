@@ -672,8 +672,9 @@ struct TrafficLight {
 
 	static constexpr float yellow_time = 3; // 1sec, TODO: make customizable or have it depend on duration of cycle?
 
-	float phase_go_duration = 30; // how long we have green/yellow
-	float phase_idle_duration = 3; // how long to hold red before next phase starts
+	float phase_go_dur = 30; // how long we have green/yellow
+	float phase_idle_dur = 3; // how long to hold red before next phase starts
+	float phase_total_dur () { return phase_go_dur + phase_idle_dur; }
 
 	float timer = 0;
 
@@ -684,8 +685,13 @@ struct TrafficLight {
 	TrafficLight (Node* node);
 
 	void update (Node* node, float dt) {
-		timer += dt / (phase_go_duration + phase_idle_duration);
+		timer += dt / phase_total_dur();
 		timer = fmodf(timer, (float)num_phases);
+	}
+
+	float approx_wait_time () {
+		// half of total traffic light time
+		return (float)num_phases * phase_total_dur() * 0.5f;
 	}
 
 	struct CurPhase {
@@ -698,10 +704,10 @@ struct TrafficLight {
 		int phase_i = floori(timer);
 		float t = timer - (float)phase_i;
 		
-		float elapsed = t * (phase_go_duration + phase_idle_duration);
+		float elapsed = t * phase_total_dur();
 
 		res.mask  = phases[phase_i];
-		res.green_remain = phase_go_duration - elapsed;
+		res.green_remain = phase_go_dur - elapsed;
 		return res;
 	}
 	SignalState get_signal (CurPhase& cur_phase, int signal_slot) {
@@ -781,7 +787,7 @@ struct Metrics {
 	}
 };
 struct Settings {
-	SERIALIZE(Settings, car_accel, car_deccel, car_rear_drag_ratio, intersec_heur, suspension);
+	SERIALIZE(Settings, car_accel, car_deccel, car_rear_drag_ratio, intersec_heur, suspension, pathfinding);
 	
 	float car_accel = 4.5f;
 	float car_deccel = 5;
@@ -810,6 +816,12 @@ struct Settings {
 
 		bool avoid_blocking_intersection = true;
 	} intersec_heur;
+
+	struct Pathfinding {
+		SERIALIZE(Pathfinding, avoid_traffic_lights);
+
+		float avoid_traffic_lights = 0; // factor to scale approximate wait times for pathfinding cost
+	} pathfinding;
 	
 	void imgui () {
 		if (!imgui_Header("Network Settings")) return;
@@ -838,6 +850,11 @@ struct Settings {
 			ImGui::DragFloat("yield_lane_penal",        &intersec_heur.yield_lane_penal       , 0.1f);
 			
 			ImGui::Checkbox("avoid_blocking_intersection", &intersec_heur.avoid_blocking_intersection);
+			ImGui::TreePop();
+		}
+		
+		if (ImGui::TreeNode("Pathfinding")) {
+			ImGui::DragFloat("avoid_traffic_lights",    &pathfinding.avoid_traffic_lights     , 0.1f, 0, 2);
 			ImGui::TreePop();
 		}
 

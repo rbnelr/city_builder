@@ -4,8 +4,21 @@
 #include "engine/camera.hpp"
 #include "bezier.hpp"
 
+// return [-180deg, 180deg]
 inline float angle2d (float2 dir) {
 	return length_sqr(dir) > 0 ? atan2f(dir.y, dir.x) : 0;
+}
+inline float lerp_angle (float src, float dst, float angular_speed) {
+	// https://stackoverflow.com/questions/2708476/rotation-interpolation
+	float shortest_angle = fmodf(fmodf(dst - src, deg(360)) + deg(360 + 180), deg(360)) - deg(180);
+
+	float dir = shortest_angle > 0.0f ? +1.0f : -1.0f;
+	float mag = abs(shortest_angle);
+
+	// move towards at constant speed without overshooting
+	// TODO: handle angle wraparound!
+	src += dir * min(angular_speed, mag);
+	return src;
 }
 
 struct PosRot {

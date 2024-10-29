@@ -220,6 +220,17 @@ void Interaction::find_hover (App& app, View3D& view, bool only_net) { // TODO: 
 			}
 		}
 
+		for (auto& veh : app.network.debug_vehicles.vehicles) {
+			if (veh->selectable()) {
+				auto shape = veh->get_sel_shape();
+				float hit_dist;
+				if (shape && shape->test(ray, &hit_dist) && hit_dist < dist) {
+					hover = veh.get();
+					dist = hit_dist;
+				}
+			}
+		}
+
 		for (auto& building : app.entities.buildings) {
 			auto shape = building->get_sel_shape();
 			float hit_dist;
@@ -247,15 +258,4 @@ void Interaction::find_hover (App& app, View3D& view, bool only_net) { // TODO: 
 			dist = hit_dist;
 		}
 	}
-
-	//for (auto& veh : app.network.debug_vehicles.vehicles) {
-	//	if (veh->selectable()) {
-	//		auto shape = veh->get_sel_shape();
-	//		float hit_dist;
-	//		if (shape && shape->test(ray, &hit_dist) && hit_dist < dist) {
-	//			hover = veh.get();
-	//			dist = hit_dist;
-	//		}
-	//	}
-	//}
 }

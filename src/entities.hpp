@@ -29,12 +29,6 @@ public:
 			veh = nullptr;
 		}
 	}
-	void unreserve (Vehicle* vehicle) {
-		if (reserved && veh == vehicle) {
-			reserved = false;
-			veh = nullptr;
-		}
-	}
 	
 	bool avail () {
 		if (veh == nullptr) assert(!reserved);
@@ -43,23 +37,14 @@ public:
 	bool reserved_by (Vehicle* vehicle) {
 		return reserved && veh == vehicle;
 	}
+	bool occupied_by (Vehicle* vehicle) {
+		return !reserved && veh == vehicle;
+	}
 	
-	void reserve (Vehicle* vehicle) {
-		assert(avail());
-		reserved = true;
-		veh = vehicle;
-	}
-	void park (Vehicle* vehicle) {
-		assert(avail() || reserved_by(vehicle));
-		reserved = false;
-		veh = vehicle;
-	}
-	Vehicle* unpark () {
-		Vehicle* vehicle = veh;
-		veh = nullptr;
-		reserved = false;
-		return vehicle;
-	}
+	void reserve (Vehicle* vehicle);
+	void unreserve (Vehicle* vehicle);
+	void park (Vehicle* vehicle);
+	void unpark_keep_reserved (Vehicle* vehicle);
 
 	// center
 	PosRot calc_pos () const {

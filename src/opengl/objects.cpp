@@ -582,11 +582,11 @@ void ObjectRender::upload_vehicle_instances (Textures& texs, App& app, View3D& v
 	}
 
 	for (auto& v : app.network.debug_vehicles.vehicles) {
-		push_vehicle_instance(instances, texs, *v->veh, view, app.input.real_dt);
+		push_vehicle_instance(instances, texs, *v, view, app.input.real_dt);
 	}
 
 	if (app.network.debug_vehicles.preview_veh)
-		push_vehicle_instance(instances, texs, *app.network.debug_vehicles.preview_veh->veh,
+		push_vehicle_instance(instances, texs, *app.network.debug_vehicles.preview_veh,
 							  view, app.input.real_dt);
 
 	entities.vehicles.upload<0>(instances, true);
@@ -597,7 +597,8 @@ void ObjectRender::push_vehicle_instance (std::vector<DynamicVehicle>& instances
 	if (veh.sim) {
 		push_vehicle_instance(instances, texs, veh, *veh.sim, view, dt);
 		
-		assert(veh.parking == nullptr);
+		// make sure vehicles would never be drawn twice (if parking drawing was not in else if)
+		assert(veh.parking == nullptr || !veh.parking->occupied_by(&veh));
 	}
 	else if (veh.parking) {
 		assert(!veh.sim);

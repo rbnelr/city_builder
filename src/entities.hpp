@@ -12,6 +12,13 @@ class Building;
 class Person;
 using network::Vehicle;
 
+// So we can bulldoze both personal vehicles and debug vehicles
+// Might change later!
+class IVehicleOwner {
+public:
+	virtual void remove_vehicle (Vehicle* vehicle) = 0;
+};
+
 // Should this class be a series of parking spots instead?
 class ParkingSpot {
 public:
@@ -126,7 +133,7 @@ public:
 	}
 };
 
-class Person {
+class Person : IVehicleOwner {
 public:
 	// TODO: needs to be some kind of state like in car, or in building
 	// OR car/building etc needs to track citizen and we dont know where the citizen is
@@ -160,6 +167,8 @@ public:
 	//	assert(shape.has_value());
 	//	return { shape->pos, shape->radius, c };
 	//}
+
+	void remove_vehicle (Vehicle* vehicle) override;
 	
 	void mem_use (MemUse& mem) {
 		mem.add("Person", sizeof(*this));

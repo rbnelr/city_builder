@@ -44,7 +44,15 @@ float3 Person::calc_pos () {
 Person::Person (Assets& assets, Random& rand, Building* initial_building) {
 	cur_building = initial_building;
 
-	owned_vehicle = std::make_unique<Vehicle>(Vehicle::create_random_vehicle(assets, rand));
+	owned_vehicle = std::make_unique<Vehicle>(Vehicle::create_random_vehicle(this, assets, rand));
 
 	stay_timer = rand.uniformf(0,1);
+}
+void Person::remove_vehicle (Vehicle* vehicle) {
+	if (trip) {
+		trip->cancel_trip(*this);
+	}
+	else {
+		vehicle->parking = nullptr; // vehicle goes to owner's pocket!
+	}
 }

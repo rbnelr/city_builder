@@ -69,7 +69,7 @@ inline ParkingSpot* find_parking_near (Building* dest) {
 }
 
 // Stores the path from pathfinding
-// Is a Sequence of Motions that a vehicle performs to drive along a path
+// Is a Sequence of Motions that a vehicle performs to drive along a path acting as a state machine
 // step() should be called whenever the vehicle has performed the Motion represented by the current Motion
 // For pedestrians this needs to be reworked
 // Pathfinding will later pathfind walking/driving/transit in one go, so there can't be a vehicle specific path
@@ -376,7 +376,7 @@ public:
 	lrgb tint_col;
 	float agressiveness;
 
-	//Person* owner = nullptr;
+	IVehicleOwner* owner;
 
 	// When simulated:
 	//  possibly reserved parking
@@ -389,20 +389,6 @@ public:
 
 	Path* try_get_path () {
 		return sim ? sim->path : nullptr;
-	}
-
-	Vehicle (VehicleAsset* asset, lrgb tint_col, float agressiveness):
-		asset{asset}, tint_col{tint_col}, agressiveness{agressiveness} {}
-	Vehicle (Vehicle&& v): // Allow static constructor (create_random_vehicle) and inheritance at the same time
-		asset{v.asset}, tint_col{v.tint_col}, agressiveness{v.agressiveness} {}
-	
-	void mem_use (MemUse& mem) {
-		mem.add("Vehicle", sizeof(*this));
-		if (sim) mem.add(*sim);
-	}
-
-	virtual ~Vehicle () {
-		if (parking) parking->clear(this);
 	}
 
 	std::optional<PosRot> calc_pos () {
@@ -427,7 +413,22 @@ public:
 	}
 	bool update (Path& path, App& app, Network& net, Metrics::Var& met, float dt);
 
+
+	Vehicle (IVehicleOwner* owner, VehicleAsset* asset, lrgb tint_col, float agressiveness):
+		owner{owner}, asset{asset}, tint_col{tint_col}, agressiveness{agressiveness} {}
+	Vehicle (Vehicle&& v): // Allow static constructor (create_random_vehicle) and inheritance at the same time
+		owner{v.owner}, asset{v.asset}, tint_col{v.tint_col}, agressiveness{v.agressiveness} {}
 	
+	void mem_use (MemUse& mem) {
+		mem.add("Vehicle", sizeof(*this));
+		if (sim) mem.add(*sim);
+	}
+
+	virtual ~Vehicle () {
+		if (parking) parking->clear(this);
+	}
+
+
 	static VehicleAsset* pick_random_asset (Assets& assets, Random& rand) {
 		auto rand_car = WeightedChoice(assets.vehicles.begin(), assets.vehicles.end(),
 			[] (AssetPtr<VehicleAsset> const& car) { return car->spawn_weight; });
@@ -471,11 +472,11 @@ public:
 		return clamp(1.1f + agressiveness, 0.7f, 1.5f);
 	}
 
-	static Vehicle create_random_vehicle (Assets& assets, Random& rand) {
+	static Vehicle create_random_vehicle (IVehicleOwner* owner, Assets& assets, Random& rand) {
 		auto* asset = pick_random_asset(assets, rand);
 		auto tint_col = pick_random_color(rand, asset);
 		auto agressiveness = get_random_aggressiveness(rand);
-		return { asset, tint_col, agressiveness };
+		return { owner, asset, tint_col, agressiveness };
 	}
 };
 
@@ -493,7 +494,7 @@ public:
 	void cancel_trip (Person& person);
 	void finish_trip (Person& person);
 
-	void update (App& app, Person& person, Network& net, Entities& entities, Metrics::Var& met, Random& rand, float dt);
+	static void update (App& app, Person& person, Network& net, Entities& entities, Metrics::Var& met, Random& rand, float dt);
 };
 
 class DebugVehicle : public Vehicle {
@@ -501,17 +502,21 @@ friend class DebugVehicles;
 
 	Path path;
 
-	DebugVehicle (Assets& assets):
-		Vehicle{ Vehicle::create_random_vehicle(assets, random) } {
+	DebugVehicle (IVehicleOwner* owner, Assets& assets):
+		Vehicle{ Vehicle::create_random_vehicle(owner, assets, random) } {
 
 	}
 };
-class DebugVehicles {
+class DebugVehicles : IVehicleOwner {
 public:
 	std::vector<std::unique_ptr<DebugVehicle>> vehicles;
 	
 	std::unique_ptr<DebugVehicle> next_vehicle = nullptr;
 	DebugVehicle* preview_veh = nullptr;
+	
+	void remove_vehicle (Vehicle* vehicle) override {
+		remove_first(vehicles, vehicle, [] (std::unique_ptr<DebugVehicle> const& l, Vehicle* r) { return l.get() == r; });
+	}
 
 	void imgui () {
 		if (ImGui::Button("Clear All")) {
@@ -524,7 +529,7 @@ public:
 		if (!next_vehicle) {
 			// Create a random vehicle when using DebugVehicles tool,
 			// but keep vehicle or else it flashes different random vehicles every frame
-			next_vehicle = std::make_unique<DebugVehicle>(DebugVehicle(assets));
+			next_vehicle = std::make_unique<DebugVehicle>(DebugVehicle(this, assets));
 		}
 
 		preview_veh = nullptr;

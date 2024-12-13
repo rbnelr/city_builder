@@ -83,17 +83,13 @@ public:
 	void update (Interaction& inter, App& app, View3D& view) override {
 		inter.find_hover(app, view, false);
 		
-		//if (app.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
-		//	if (inter.hover.get<Vehicle*>()) {
-		//		auto* veh = inter.hover.get<Vehicle*>();
-		//		auto* trip = veh->get_trip();
-		//		if (trip && veh->owner) { // TODO: ??
-		//			network::PersonTrip::cancel_trip(*trip, *veh->owner);
-		//		}
-		//
-		//		inter.hover = nullptr;
-		//	}
-		//}
+		if (app.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+			auto* veh = inter.hover.get<Vehicle*>();
+			if (veh) {
+				veh->owner->remove_vehicle(veh);
+				inter.hover = nullptr;
+			}
+		}
 	}
 };
 
@@ -198,6 +194,8 @@ void Interaction::find_hover (App& app, View3D& view, bool only_net) { // TODO: 
 	
 	if (app.input.buttons[KEY_R].is_down) {
 		hover_pos.rot += app.input.mouse_delta.x * deg(180) / 500.0f;
+		
+		//hover_pos.rot += app.input.mouse_wheel_delta * deg(45); // mouse wheel still zoom camera
 	}
 	else {
 		// lock pos in place while dragging for rotation

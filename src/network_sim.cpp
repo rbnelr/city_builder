@@ -1879,10 +1879,12 @@ void update_standing_vehicle (Vehicle& veh, Network& net, float dt) {
 		PosRot targ = SimVehicle::get_init_pos(veh.parking);
 
 		// TODO: just work with front pos + ang in the first place?
-		float speed = deg(30);
+		float speed = 1;
+		float ang_speed = deg(30);
 
 		auto pos = get_veh_pos(veh);
- 		pos.ang = lerp_angle(pos.ang, targ.ang, speed * dt);
+		pos.pos = lerp_pos(pos.pos, targ.pos, speed * dt);
+ 		pos.ang = lerp_angle(pos.ang, targ.ang, ang_speed * dt);
 
 		veh.sim->init_pos(pos, veh.asset);
 	}
@@ -2019,7 +2021,7 @@ void Path::begin_vehicle_trip (Network& net, Vehicle& veh) {
 	veh.sim->init_pos(pos, veh.asset);
 }
 void Path::cancel_vehicle_trip (Vehicle& veh) {
-	// pocket car!
+	// vehicle goes to owner's pocket!
 
 	veh.sim->_dtor(veh);
 	veh.sim = nullptr;
@@ -2028,7 +2030,7 @@ void Path::finish_vehicle_trip (Vehicle& veh) {
 	if (dest.parking) {
 		dest.parking->park(&veh);
 	}
-	// else pocket car!
+	// else vehicle goes to owner's pocket!
 	
 	veh.sim->_dtor(veh);
 	veh.sim = nullptr;
@@ -2109,7 +2111,7 @@ void PersonTrip::update (App& app, Person& person, Network& net, Entities& entit
 	if (!veh->update(person.trip->path, app, net, met, dt))
 		return; // trip ongoing
 
-	finish_trip(person);
+	person.trip->finish_trip(person);
 	person.stay_timer = net._stay_time;
 }
 

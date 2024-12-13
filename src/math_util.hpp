@@ -8,6 +8,14 @@
 inline float angle2d (float2 dir) {
 	return length_sqr(dir) > 0 ? atan2f(dir.y, dir.x) : 0;
 }
+inline float3 lerp_pos (float3 src, float3 dst, float speed) {
+	float3 dir = normalizesafe(dst - src);
+	float dist = length(dst - src);
+
+	// move towards at constant speed without overshooting
+	src += dir * min(speed, dist);
+	return src;
+}
 inline float lerp_angle (float src, float dst, float angular_speed) {
 	// https://stackoverflow.com/questions/2708476/rotation-interpolation
 	float shortest_angle = fmodf(fmodf(dst - src, deg(360)) + deg(360 + 180), deg(360)) - deg(180);
@@ -16,7 +24,6 @@ inline float lerp_angle (float src, float dst, float angular_speed) {
 	float mag = abs(shortest_angle);
 
 	// move towards at constant speed without overshooting
-	// TODO: handle angle wraparound!
 	src += dir * min(angular_speed, mag);
 	return src;
 }

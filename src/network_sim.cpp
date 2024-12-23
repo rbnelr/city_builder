@@ -2063,6 +2063,8 @@ bool PersonTrip::begin_trip (Person& person, Network& net, Entities& entities, R
 			return true;
 		}
 	}
+
+	person.stay_timer = 1;
 	return false;
 }
 void PersonTrip::cancel_trip (Person& person) {
@@ -2075,6 +2077,8 @@ void PersonTrip::cancel_trip (Person& person) {
 	// delete trip
 	path._dtor(*person.owned_vehicle);
 	person.trip = nullptr; // delete self
+
+	person.stay_timer = 1;
 }
 void PersonTrip::finish_trip (Person& person) {
 	ZoneScoped;
@@ -2097,7 +2101,6 @@ void PersonTrip::update (App& app, Person& person, Network& net, Entities& entit
 
 		if (!begin_trip(person, net, entities, rand)) {
 			assert(person.cur_building);
-			person.stay_timer = 1;
 			return; // start_trip failed
 		}
 

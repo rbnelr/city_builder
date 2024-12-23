@@ -4,7 +4,7 @@
 #include "network.hpp"
 #include "network_sim.hpp"
 
-class Inspect : public ITool {
+class InspectTool : public ExclusiveTool {
 	bool dbg_repath = false;
 public:
 	const char* name () override { return "Inspect"; }
@@ -84,11 +84,7 @@ public:
 		inter.find_hover(app, view, false);
 		
 		if (app.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
-			auto* veh = inter.hover.get<Vehicle*>();
-			if (veh) {
-				veh->owner->remove_vehicle(veh);
-				inter.hover = nullptr;
-			}
+			Interaction::remove_entity(inter.hover);
 		}
 	}
 };
@@ -109,6 +105,7 @@ public:
 	
 	void deselect (Interaction& inter, App& app) override {
 		app.network.debug_vehicles.deselect();
+		inter.selection = nullptr;
 	}
 };
 
@@ -127,11 +124,11 @@ public:
 };
 
 Interaction::Interaction () {
-	tools.push_back(std::make_unique<Inspect>());
-	tools.push_back(std::make_unique<Build>());
-	tools.push_back(std::make_unique<Bulldoze>());
-	tools.push_back(std::make_unique<DebugVehicles>());
-	tools.push_back(std::make_unique<Terraform>());
+	tools.push_back(std::make_unique<InspectTool>());
+	tools.push_back(std::make_unique<BuildTool>());
+	tools.push_back(std::make_unique<BulldozeTool>());
+	tools.push_back(std::make_unique<DebugVehiclesTool>());
+	tools.push_back(std::make_unique<TerraformTool>());
 
 	cur_tool = tools[0].get();
 }
@@ -141,6 +138,14 @@ auto Interaction::switch_to_tool (App& app, ITool* tool) {
 		cur_tool->deselect(*this, app);
 		cur_tool = tool;
 		cur_tool->select(*this, app);
+	}
+}
+
+void Interaction::remove_entity (sel_ptr& entity) {
+	auto* veh = entity.get<Vehicle*>();
+	if (veh) {
+		veh->owner->remove_vehicle(veh);
+		entity = nullptr;
 	}
 }
 
@@ -180,6 +185,10 @@ void Interaction::update (App& app, View3D& view) {
 	// ESC or RMB deselects current tool (=> Go to inspect tool)
 	if (app.input.buttons[KEY_ESCAPE].went_down || app.input.buttons[MOUSE_BUTTON_RIGHT].went_down) {
 		switch_to_tool(app, tools[0].get());
+	}
+
+	if (app.input.buttons[KEY_DELETE].went_down) {
+		remove_entity(selection);
 	}
 
 	highlight_hover_sel();

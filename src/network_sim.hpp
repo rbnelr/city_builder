@@ -514,6 +514,9 @@ public:
 	std::unique_ptr<DebugVehicle> next_vehicle = nullptr;
 	DebugVehicle* preview_veh = nullptr;
 	
+	bool place_vehicle = false;
+	bool control_vehicle = false;
+	
 	void remove_vehicle (Vehicle* vehicle) override {
 		remove_first(vehicles, vehicle, [] (std::unique_ptr<DebugVehicle> const& l, Vehicle* r) { return l.get() == r; });
 	}

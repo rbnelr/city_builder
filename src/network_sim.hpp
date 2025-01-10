@@ -1,11 +1,12 @@
 #pragma once
 #include "common.hpp"
 #include "network.hpp"
+#include "interact.hpp"
 
 class App;
 
 namespace network {
-struct Network;
+class Network;
 
 inline Bezier3 Node::calc_curve (Segment* seg0, Segment* seg1, float2 shiftXZ_0, float2 shiftXZ_1) {
 	auto i0 = seg0->get_end_info(this, shiftXZ_0);
@@ -507,7 +508,7 @@ friend class DebugVehicles;
 
 	}
 };
-class DebugVehicles : IVehicleOwner {
+class DebugVehicles : IVehicleOwner, public ExclusiveTool {
 public:
 	std::vector<std::unique_ptr<DebugVehicle>> vehicles;
 	
@@ -516,40 +517,52 @@ public:
 	
 	bool place_vehicle = false;
 	bool control_vehicle = false;
+
+	DebugVehicles (): ExclusiveTool{"Debug Vehicles"} {}
 	
 	void remove_vehicle (Vehicle* vehicle) override {
 		remove_first(vehicles, vehicle, [] (std::unique_ptr<DebugVehicle> const& l, Vehicle* r) { return l.get() == r; });
 	}
-
-	void imgui () {
+	
+	void imgui (Interaction& I) override {
 		if (ImGui::Button("Clear All")) {
 			vehicles.clear();
 			vehicles.shrink_to_fit();
 		}
 	}
-	void update_interact (Input& input, Assets& assets, sel_ptr hover, std::optional<PosRot> hover_pos) {
+
+	void on_deactivate (Interaction& I) override {
+		next_vehicle = nullptr;
+		preview_veh = nullptr;
+
+		I.selection = nullptr;
+	}
+	
+	void update (Interaction& I) override {
+
+		I.find_hover(true);
 		
 		if (!next_vehicle) {
 			// Create a random vehicle when using DebugVehicles tool,
 			// but keep vehicle or else it flashes different random vehicles every frame
-			next_vehicle = std::make_unique<DebugVehicle>(DebugVehicle(this, assets));
+			next_vehicle = std::make_unique<DebugVehicle>(DebugVehicle(this, I.assets));
 		}
 
 		preview_veh = nullptr;
 
-		if (hover_pos) {
+		if (I.hover_pos) {
 			// place at hover pos if anything hovered and make visible (preview_veh gets rendered)
 			
 			// recreate SimVehicle used to render vehicle at arbitrary position 
 			next_vehicle->sim = std::make_unique<SimVehicle>();
 			next_vehicle->sim->path = &next_vehicle->path;
 
-			next_vehicle->sim->init_pos(*hover_pos, next_vehicle->asset);
+			next_vehicle->sim->init_pos(*I.hover_pos, next_vehicle->asset);
 
 			// show vehicle only when hover valid (but keep next_vehicle)
 			preview_veh = next_vehicle.get();
 			
-			if (input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+			if (I.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
 
 				// store as active debug vehicle
 				vehicles.push_back(std::move(next_vehicle));
@@ -560,17 +573,10 @@ public:
 			}
 		}
 	}
-	void deselect () {
-		next_vehicle = nullptr;
-		preview_veh = nullptr;
-	}
-
-	void update () {
-
-	}
 };
 
-struct Network {
+class Network {
+public:
 	SERIALIZE(Network, settings, _stay_time);
 
 	void mem_use (MemUse& mem) {

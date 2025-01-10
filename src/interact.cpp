@@ -1,26 +1,31 @@
 #include "common.hpp"
 #include "interact.hpp"
 #include "app.hpp"
+#include "terrain.hpp"
+#include "entities.hpp"
 #include "network.hpp"
 #include "network_sim.hpp"
 
+// TODO: What's the best way to implement it such that "inpecting" is just what happens while not using any real tool?
+// Inpecting currently just means being able to select anything (which causes imgui options to show)
+// Usually using any other tools should deselect inspected entities, and tools might keep their own selections
 class InspectTool : public ExclusiveTool {
 	bool dbg_repath = false;
 public:
-	const char* name () override { return "Inspect"; }
-	void imgui (App& app) override {
-		ImGui::SeparatorText("Inspect");
+	InspectTool (): ExclusiveTool{"Inspect"} {}
+
+	void imgui (Interaction& I) override {
 		ImGui::Checkbox("dbg_repath", &dbg_repath);
 
-		app.interact.cam_track.imgui();
+		I.cam_track.imgui();
 	}
 
-	void update (Interaction& inter, App& app, View3D& view) override {
-		inter.find_hover(app, view, false);
+	void update (Interaction& I) override {
+		I.find_hover(false);
 
 		// TODO: move this somewhere else? ie. make this an function of vehicle?
 		// currently it's just a debug feature though
-		if (dbg_repath && inter.selection.get<Vehicle*>()) {
+		if (dbg_repath && I.selection.get<Vehicle*>()) {
 			//auto* pers = selection.get<Person*>();
 			//auto* trip = pers->owned_vehicle->get_trip();
 			//if (trip) {
@@ -41,104 +46,73 @@ public:
 			//}
 		}
 		
-		if (app.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
-			inter.selection = inter.hover;
+		if (I.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+			I.selection = I.hover;
 		}
 	}
 	
-	void deselect (Interaction& inter, App& app) override {
-		inter.selection = nullptr;
+	void on_deactivate (Interaction& I) override {
+		I.selection = nullptr;
 	}
 };
 
-class Build : public ITool {
-	bool toggle_traffic_light = false;
-public:
-	const char* name () override { return "Build"; }
-	void imgui (App& app) override {
-		ImGui::SeparatorText("Build");
-		ImGui::Checkbox("Toggle Traffic Lights", &toggle_traffic_light);
-	}
+class BuildTools : public ToolshelfTool {
+	class ToggleTrafficLights : public ExclusiveTool {
+	public:
+		ToggleTrafficLights (): ExclusiveTool{"Toggle Traffic Lights"} {}
 
-	void update (Interaction& inter, App& app, View3D& view) override {
-		if (toggle_traffic_light) {
-			inter.find_hover(app, view, true);
+		void update (Interaction& I) override {
+			I.find_hover(true);
 			
-			if (app.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
-				auto* node = inter.hover.get<network::Node*>();
+			if (I.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+				auto* node = I.hover.get<network::Node*>();
 				if (node) {
 					node->toggle_traffic_light();
-					app.entities.buildings_changed = true; // TODO: make more efficient, or refactor at least?
+					I.entities.buildings_changed = true; // TODO: make more efficient, or refactor at least?
 				}
 			}
 		}
+	};
+
+public:
+	BuildTools (): ToolshelfTool{"Build"} {
+		add_tool(std::make_unique<ToggleTrafficLights>());
 	}
 };
 
-class Bulldoze : public ITool {
+class BulldozeTool : public ExclusiveTool {
 public:
-	const char* name () override { return "Bulldoze"; }
-	//void imgui () override {}
+	BulldozeTool (): ExclusiveTool{"Bulldoze"} {}
 
-	void update (Interaction& inter, App& app, View3D& view) override {
-		inter.find_hover(app, view, false);
+	void update (Interaction& I) override {
+		I.find_hover(false);
 		
-		if (app.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
-			Interaction::remove_entity(inter.hover);
+		if (I.input.buttons[MOUSE_BUTTON_LEFT].went_down) {
+			Interaction::remove_entity(I.hover);
 		}
 	}
 };
 
-class DebugVehicles : public ITool {
-public:
-	const char* name () override { return "Debug Vehicles"; }
-	void imgui (App& app) override {
-		ImGui::SeparatorText("Debug Vehicles");
-		app.network.debug_vehicles.imgui();
-	}
+//class TerraformTools : public ToolshelfTool {
+//	HeightmapTerraform terraform;
+//public:
+//	const char* name () override { return "Terraform"; }
+//	void imgui (App& app) override {
+//		terraform.imgui(app.heightmap);
+//	}
+//
+//	void update (Interaction& inter, App& app, View3D& view) override {
+//		terraform.update(view, app.input, app.heightmap);
+//		app.input.buttons[MOUSE_BUTTON_RIGHT].went_down = false; // always eat RMB
+//	}
+//};
 
-	void update (Interaction& inter, App& app, View3D& view) override {
-		inter.find_hover(app, view, true);
-
-		app.network.debug_vehicles.update_interact(app.input, app.assets, inter.hover, inter.hover_pos.get());
-	}
-	
-	void deselect (Interaction& inter, App& app) override {
-		app.network.debug_vehicles.deselect();
-		inter.selection = nullptr;
-	}
-};
-
-class Terraform : public ITool {
-	HeightmapTerraform terraform;
-public:
-	const char* name () override { return "Terraform"; }
-	void imgui (App& app) override {
-		terraform.imgui(app.heightmap);
-	}
-
-	void update (Interaction& inter, App& app, View3D& view) override {
-		terraform.update(view, app.input, app.heightmap);
-		app.input.buttons[MOUSE_BUTTON_RIGHT].went_down = false; // always eat RMB
-	}
-};
-
-Interaction::Interaction () {
-	tools.push_back(std::make_unique<InspectTool>());
-	tools.push_back(std::make_unique<BuildTool>());
-	tools.push_back(std::make_unique<BulldozeTool>());
-	tools.push_back(std::make_unique<DebugVehiclesTool>());
-	tools.push_back(std::make_unique<TerraformTool>());
-
-	cur_tool = tools[0].get();
-}
-
-auto Interaction::switch_to_tool (App& app, ITool* tool) {
-	if (cur_tool != tool) {
-		cur_tool->deselect(*this, app);
-		cur_tool = tool;
-		cur_tool->select(*this, app);
-	}
+void Interaction::_add_tools () {
+	root_tool.add_tool(std::make_unique<InspectTool>());
+	root_tool.add_tool(std::make_unique<BuildTools>());
+	root_tool.add_tool(std::make_unique<BulldozeTool>());
+	root_tool.add_tool(std::make_unique<network::DebugVehicles>());
+	//tools.push_back(std::make_unique<TerraformTool>());
 }
 
 void Interaction::remove_entity (sel_ptr& entity) {
@@ -149,27 +123,12 @@ void Interaction::remove_entity (sel_ptr& entity) {
 	}
 }
 
-void Interaction::imgui (App& app) {
+void Interaction::imgui () {
 	if (!imgui_Header("Interaction", true)) return;
 	
+	ToolshelfTool::draw_tree(*this, &root_tool);
 
-	// TODO: I would prefer a automatic line-wrap layouting here, can Imgui do that or would I implement that myself?
-	for (auto& tool : tools) {
-		//if (&tool != &tools[0]) ImGui::SameLine();
-		
-		// Auto wrap horizontal buttons
-		ImGui::SameLine();
-		if (&tool == &tools[0] || ImGui::GetCursorPosX() > ImGui::GetWindowWidth() - 100)
-			ImGui::NewLine();
-		
-		bool active = cur_tool == tool.get();
-		auto str = prints(active ? "[%s]###%s":"%s###%s", tool->name(), tool->name());
-		if (ImGui::ButtonEx(str.c_str(), ImVec2(80, 20), ImGuiButtonFlags_PressedOnClick)) {
-			switch_to_tool(app, tool.get());
-		}
-	}
-	
-	cur_tool->imgui(app);
+	root_tool.imgui(*this);
 
 	ImGui::PopID();
 }
@@ -179,13 +138,13 @@ void Interaction::update (App& app, View3D& view) {
 	
 	hover = nullptr;
 	//hover_pos = {};
-
-	cur_tool->update(*this, app, view);
 	
-	// ESC or RMB deselects current tool (=> Go to inspect tool)
-	if (app.input.buttons[KEY_ESCAPE].went_down || app.input.buttons[MOUSE_BUTTON_RIGHT].went_down) {
-		switch_to_tool(app, tools[0].get());
-	}
+	root_tool.update(*this);
+	
+	//// ESC or RMB deselects current tool (=> Go to inspect tool)
+	//if (app.input.buttons[KEY_ESCAPE].went_down || app.input.buttons[MOUSE_BUTTON_RIGHT].went_down) {
+	//	switch_to_tool(app, tools[0].get());
+	//}
 
 	if (app.input.buttons[KEY_DELETE].went_down) {
 		remove_entity(selection);
@@ -194,28 +153,28 @@ void Interaction::update (App& app, View3D& view) {
 	highlight_hover_sel();
 }
 
-void Interaction::find_hover (App& app, View3D& view, bool only_net) { // TODO: create a mask for this
+void Interaction::find_hover (bool only_net) { // TODO: create a mask for this
 	ZoneScoped;
 
 	Ray ray;
-	if (!view.cursor_ray(app.input, &ray.pos, &ray.dir))
+	if (!view.cursor_ray(input, &ray.pos, &ray.dir))
 		return;
 	
-	if (app.input.buttons[KEY_R].is_down) {
-		hover_pos.rot += app.input.mouse_delta.x * deg(180) / 500.0f;
+	if (input.buttons[KEY_R].is_down) {
+		hover_pos.rot += input.mouse_delta.x * deg(180) / 500.0f;
 		
 		//hover_pos.rot += app.input.mouse_wheel_delta * deg(45); // mouse wheel still zoom camera
 	}
 	else {
 		// lock pos in place while dragging for rotation
-		hover_pos.pos = app.heightmap.raycast_cursor(view, app.input);
+		hover_pos.pos = heightmap.raycast_cursor(view, input);
 	}
 
 	hover = nullptr;
 	float dist = INF;
 
 	if (!only_net) {
-		for (auto& person : app.entities.persons) {
+		for (auto& person : entities.persons) {
 			auto* veh = person->owned_vehicle.get();
 			if (veh->selectable()) {
 				auto shape = veh->get_sel_shape();
@@ -227,7 +186,7 @@ void Interaction::find_hover (App& app, View3D& view, bool only_net) { // TODO: 
 			}
 		}
 
-		for (auto& veh : app.network.debug_vehicles.vehicles) {
+		for (auto& veh : network.debug_vehicles.vehicles) {
 			if (veh->selectable()) {
 				auto shape = veh->get_sel_shape();
 				float hit_dist;
@@ -238,7 +197,7 @@ void Interaction::find_hover (App& app, View3D& view, bool only_net) { // TODO: 
 			}
 		}
 
-		for (auto& building : app.entities.buildings) {
+		for (auto& building : entities.buildings) {
 			auto shape = building->get_sel_shape();
 			float hit_dist;
 			if (shape && shape->test(ray, &hit_dist) && hit_dist < dist) {
@@ -248,7 +207,7 @@ void Interaction::find_hover (App& app, View3D& view, bool only_net) { // TODO: 
 		}
 	}
 
-	for (auto& node : app.network.nodes) {
+	for (auto& node : network.nodes) {
 		auto shape = node->get_sel_shape();
 		float hit_dist;
 		if (shape && shape->test(ray, &hit_dist) && hit_dist < dist) {
@@ -257,7 +216,7 @@ void Interaction::find_hover (App& app, View3D& view, bool only_net) { // TODO: 
 		}
 	}
 
-	for (auto& seg : app.network.segments) {
+	for (auto& seg : network.segments) {
 		auto shape = seg->get_sel_shape();
 		float hit_dist;
 		if (shape && shape->test(ray, &hit_dist) && hit_dist < dist) {

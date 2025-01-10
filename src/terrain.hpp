@@ -1,10 +1,23 @@
 #pragma once
 #include "common.hpp"
+#include "interact.hpp"
 
-// This heightmap implementation currently has the problem that 16 bit precision is not enough to to
+class App;
+
+// This heightmap implementation currently has the problem that 16 bit precision is not enough to do
 // small scale terraforming, because the delta heights round to 0!
 // No idea what the solution is, could switch to float values everywhere, but heightmap already takes lots of memory
 // Hybrid float and 16bit are probably too complicated and bug prone (remember can't ever move terrain just by save/loading etc., or roadas might get buried)
+// TODO: Maybe just update by the smallest increment and add a 'timeout' to keep the rate of change constant?
+//    -> How to handle the fact that the brush falloff causes some parts to require higher update freq than others? (use the 10% point or something?)
+
+// Reasonable idea: temp float buffer
+// While I thought it was too complicated at first, I could simply limit the edit radius to something resonable (like 512 or 1024^2 pixels) to limit mem
+// then each frame of edit, allocate a temp float buffer exactly around the cursor, copy the decoded int heightmap into it (worldspace heights)
+// then if a previous float buffer exists, copy the overlap (which fixes the problem)
+// then do the edits to the accurate float version, while writing the rounded version into the int buffer (and updating the gpu)
+// when the mouse cursor is released deallocate the temp to save some ram
+//  -> the first 2 steps could be optimized a bit (only copy non-kept parts from 
 
 class Heightmap {
 	friend SERIALIZE_TO_JSON(Heightmap)   { SERIALIZE_TO_JSON_EXPAND(inner, outer, height_min, height_range)
@@ -108,6 +121,9 @@ public:
 				return exp(x*x / (-2.0f * sigma*sigma));
 			};
 
+			// TODO: profile how much the allocation here affects perf, if significant, just put this function into a class like TerraformGaussian
+			// and turn these arrays into vectors (so they keep the allocated memory and auto resize efficiently, minimizing allocs)
+			// then just delete them when stopping edits
 			float* copy  = new float[size.x * size.y];
 			float* passX = new float[size.x * size.y];
 			float* passY = new float[size.x * size.y];
@@ -421,118 +437,125 @@ struct TerraformBrush {
 	}
 };
 
-class TerraformTool {
-public:
-	virtual const char* name () = 0;
-	virtual void imgui (Heightmap& map) = 0;
-	virtual void edit_terrain (Heightmap& map, float3 cursor_pos, float radius, TerraformBrush& brush, Input& input) = 0;
-};
+class TerraformTools : public ToolshelfTool {
+	//SERIALIZE(HeightmapTerraform, paint_radius, move_tool, flatten_tool, smooth_tool)
+	// It feels better when these things are not kept across restarts, resonable defaults feel better?
+	// cur_tool is also UI state, ie which button is clicked, which no one expect to be restored ever
+	
+	class TerraformTool : public ExclusiveTool {
+	public:
+		TerraformTool (std::string&& name): ExclusiveTool{std::move(name)} {}
 
-class TerraformMove : public TerraformTool {
-	SERIALIZE(TerraformMove, strength)
+		virtual void edit_terrain (Interaction& I, TerraformTools& terr, float3 cursor_pos) = 0;
+	};
 
-	float strength = 1;
-public:
-	virtual const char* name () { return "Move"; };
-	virtual void imgui (Heightmap& map) {
-		ImGui::SliderFloat("Strength", &strength, 0,10, "%.1f", ImGuiSliderFlags_Logarithmic);
-	}
-	virtual void edit_terrain (Heightmap& map, float3 cursor_pos, float radius, TerraformBrush& brush, Input& input) {
-		bool add = input.buttons[TerraformToolButton].is_down;
-		bool sub = input.buttons[TerraformToolButton2].is_down;
-		if (!add && !sub)
-			return;
-		ZoneScoped;
+	class Move : public TerraformTool {
+		//SERIALIZE(TerraformMove, strength)
 
-		float speed = (add ? +1.0f : -1.0f) * strength * radius * input.real_dt;
-
-		map.edit_in_rect(cursor_pos, radius, [&] (float height, float2 uv) {
-			float r = length(uv);
-			if (r < 1.0f) {
-				height += brush.calc(r) * speed;
-			}
-			return height;
-		});
-	}
-};
-class TerraformFlatten : public TerraformTool {
-	SERIALIZE(TerraformFlatten, target_height, strength, restrict_direction)
-
-	float target_height = 0;
-	float strength = 10;
-	int restrict_direction = 0;
-
-	// TODO: Add height visualization (transparent plane that goes more transparent behind terrain?)
-public:
-	virtual const char* name () { return "Flatten"; };
-	virtual void imgui (Heightmap& map) {
-		ImGui::SliderFloat("Height", &target_height, map.height_min, map.height_min + map.height_range);
-
-		ImGui::SliderFloat("Strength", &strength, 0,10, "%.1f", ImGuiSliderFlags_Logarithmic);
-
-		bool checked = restrict_direction > 0;
-		if (ImGui::Checkbox("Raise Only", &checked)) restrict_direction = checked ? +1 : 0;
-		ImGui::SameLine();
-
-		checked = restrict_direction < 0;
-		if (ImGui::Checkbox("Lower Only", &checked)) restrict_direction = checked ? -1 : 0;
-	}
-	virtual void edit_terrain (Heightmap& map, float3 cursor_pos, float radius, TerraformBrush& brush, Input& input) {
-		if (input.buttons[TerraformToolButton2].is_down) {
-			target_height = map.sample_height(cursor_pos);
+		float strength = 1;
+	public:
+		Move (): TerraformTool{"Move"} {}
+	
+		void imgui (Interaction& I) override {
+			ImGui::SliderFloat("Strength", &strength, 0,10, "%.1f", ImGuiSliderFlags_Logarithmic);
 		}
-		else if (input.buttons[TerraformToolButton].is_down) {
+	
+		void edit_terrain (Interaction& I, TerraformTools& terr, float3 cursor_pos) override {
+			bool add = I.input.buttons[TerraformToolButton].is_down;
+			bool sub = I.input.buttons[TerraformToolButton2].is_down;
+			if (!add && !sub)
+				return;
 			ZoneScoped;
-			float speed = strength * radius * input.real_dt;
-			
-			map.edit_in_rect(cursor_pos, radius, [&] (float height, float2 uv) {
+
+			float speed = (add ? +1.0f : -1.0f) * strength * terr.paint_radius * I.input.real_dt;
+
+			I.heightmap.edit_in_rect(cursor_pos, terr.paint_radius, [&] (float height, float2 uv) {
 				float r = length(uv);
 				if (r < 1.0f) {
-					float delta = target_height - height;
-					int dir = delta > 0.0f ? +1 : -1;
-					if (restrict_direction == 0 || restrict_direction == dir) {
-						height += min(abs(delta), brush.calc(r) * speed) * (float)dir; // move by constant speed up, without overshooting
-					}
+					height += terr.brush.calc(r) * speed;
 				}
 				return height;
 			});
 		}
-	}
-};
-class TerraformSmooth : public TerraformTool {
-	SERIALIZE(TerraformSmooth, strength)
+	};
+	class Flatten : public TerraformTool {
+		//SERIALIZE(TerraformFlatten, target_height, strength, restrict_direction)
 
-	float strength = 1;
+		float target_height = 0;
+		float strength = 10;
+		int restrict_direction = 0;
 
-	// TODO: Add height visualization (transparent plane that goes more transparent behind terrain?)
-public:
-	virtual const char* name () { return "Smooth"; };
-	virtual void imgui (Heightmap& map) {
-		ImGui::SliderFloat("Strength", &strength, 0,1, "%.1f", ImGuiSliderFlags_Logarithmic);
-	}
-	virtual void edit_terrain (Heightmap& map, float3 cursor_pos, float radius, TerraformBrush& brush, Input& input) {
-		if (input.buttons[TerraformToolButton].is_down) {
-			ZoneScoped;
-			// does this make sense? higher sigma essentially means a larger blur radius (blur radius, not radius that we apply the blur to!)
-			// gaussian blurs applied multiple times are equivalent to adding the sigma and doing one blur, so it should probably be scaled by dt
-			// we also want larger radius (editing zoomed out) to blur more
-			float gaussian_sigma = strength * radius * input.real_dt;
+		// TODO: Add height visualization (transparent plane that goes more transparent behind terrain?)
+	public:
+		Flatten (): TerraformTool{"Flatten"} {}
 		
-			map.gaussian_blur_rect(cursor_pos, radius, gaussian_sigma, [&] (float old_height, float smoothed_height, float2 uv) {
-				float r = length(uv);
-				if (r < 1.0f) {
-					return lerp(old_height, smoothed_height, brush.calc(r));
-				}
-				return old_height;
-			});
-		}
-	}
-};
+		void imgui (Interaction& I) override {
+			ImGui::SliderFloat("Height", &target_height,
+				I.heightmap.height_min, I.heightmap.height_min + I.heightmap.height_range);
 
-class HeightmapTerraform {
-	//SERIALIZE(HeightmapTerraform, paint_radius, move_tool, flatten_tool, smooth_tool)
-	// It feels better when these things are not kept across restarts, resonable defaults feel better?
-	// cur_tool is also UI state, ie which button is clicked, which no one expect to be restored ever
+			ImGui::SliderFloat("Strength", &strength, 0,10, "%.1f", ImGuiSliderFlags_Logarithmic);
+
+			bool checked = restrict_direction > 0;
+			if (ImGui::Checkbox("Raise Only", &checked)) restrict_direction = checked ? +1 : 0;
+			ImGui::SameLine();
+
+			checked = restrict_direction < 0;
+			if (ImGui::Checkbox("Lower Only", &checked)) restrict_direction = checked ? -1 : 0;
+		}
+
+		void edit_terrain (Interaction& I, TerraformTools& terr, float3 cursor_pos) override {
+			if (I.input.buttons[TerraformToolButton2].is_down) {
+				target_height = I.heightmap.sample_height(cursor_pos);
+			}
+			else if (I.input.buttons[TerraformToolButton].is_down) {
+				ZoneScoped;
+				float speed = strength * terr.paint_radius * I.input.real_dt;
+			
+				I.heightmap.edit_in_rect(cursor_pos, terr.paint_radius, [&] (float height, float2 uv) {
+					float r = length(uv);
+					if (r < 1.0f) {
+						float delta = target_height - height;
+						int dir = delta > 0.0f ? +1 : -1;
+						if (restrict_direction == 0 || restrict_direction == dir) {
+							height += min(abs(delta), terr.brush.calc(r) * speed) * (float)dir; // move by constant speed up, without overshooting
+						}
+					}
+					return height;
+				});
+			}
+		}
+	};
+	class Smooth : public TerraformTool {
+		//SERIALIZE(TerraformSmooth, strength)
+
+		float strength = 1;
+
+		// TODO: Add height visualization (transparent plane that goes more transparent behind terrain?)
+	public:
+		Smooth (): TerraformTool{"Smooth"} {}
+
+		virtual void imgui (Interaction& I) {
+			ImGui::SliderFloat("Strength", &strength, 0,1, "%.1f", ImGuiSliderFlags_Logarithmic);
+		}
+		
+		void edit_terrain (Interaction& I, TerraformTools& terr, float3 cursor_pos) override {
+			if (I.input.buttons[TerraformToolButton].is_down) {
+				ZoneScoped;
+				// does this make sense? higher sigma essentially means a larger blur radius (blur radius, not radius that we apply the blur to!)
+				// gaussian blurs applied multiple times are equivalent to adding the sigma and doing one blur, so it should probably be scaled by dt
+				// we also want larger radius (editing zoomed out) to blur more
+				float gaussian_sigma = strength * terr.paint_radius * I.input.real_dt;
+		
+				I.heightmap.gaussian_blur_rect(cursor_pos, terr.paint_radius, gaussian_sigma, [&] (float old_height, float smoothed_height, float2 uv) {
+					float r = length(uv);
+					if (r < 1.0f) {
+						return lerp(old_height, smoothed_height, terr.brush.calc(r));
+					}
+					return old_height;
+				});
+			}
+		}
+	};
 
 	float paint_radius = 25;
 
@@ -542,12 +565,6 @@ class HeightmapTerraform {
 	bool dragging_lock_buttons = false; // avoid accedentally editing when finishing radius drag with mouse button
 
 	TerraformBrush brush;
-
-	TerraformMove    move_tool;
-	TerraformFlatten flatten_tool;
-	TerraformSmooth  smooth_tool;
-
-	TerraformTool* cur_tool = nullptr;
 
 	void update_and_show_edit_circle (float3 cursor_pos, Input& input) {
 		paint_radius = max(paint_radius, 0.0f);
@@ -592,38 +609,31 @@ class HeightmapTerraform {
 	}
 
 public:
-	void imgui (Heightmap& map) {
-		ImGui::SeparatorText("Terraform");
+	TerraformTools (): ToolshelfTool{"Terraform"} {
+		add_tool(std::make_unique<Move>());
+		add_tool(std::make_unique<Flatten>());
+		add_tool(std::make_unique<Smooth>());
+	}
 
-		auto tool_button = [&] (TerraformTool* tool) {
-			bool active = tool == cur_tool;
-			//ImGui::Setstyle
-			auto str = prints(active ? "[%s]###%s":"%s###%s", tool->name(), tool->name());
-			if (ImGui::ButtonEx(str.c_str(), ImVec2(80, 20), ImGuiButtonFlags_PressedOnClick))
-				cur_tool = !active ? tool : nullptr;
-		};
-		tool_button(&move_tool);
-		ImGui::SameLine();
-		tool_button(&flatten_tool);
-		ImGui::SameLine();
-		tool_button(&smooth_tool);
-
+	void imgui (Interaction& I) override {
 		ImGui::Text("Paint Radius  [R] to Drag-Change");
 		ImGui::SliderFloat("##paint radius", &paint_radius, 0, 64*1024, "%.0f", ImGuiSliderFlags_Logarithmic);
-		
-		if (cur_tool)
-			cur_tool->imgui(map);
 	}
 	
-	void update (View3D& view, Input& input, Heightmap& map) {
-		auto cursor_pos = map.raycast_cursor(view, input);
+	// custom update
+	void update (Interaction& I) override {
+		auto cursor_pos = I.heightmap.raycast_cursor(I.view, I.input);
 		if (!cursor_pos.has_value())
 			return;
 		
-		update_and_show_edit_circle(cursor_pos.value(), input);
+		update_and_show_edit_circle(cursor_pos.value(), I.input);
 
-		if (!dragging_lock_buttons && cur_tool) {
-			cur_tool->edit_terrain(map, cursor_pos.value(), paint_radius, brush, input);
+		if (!dragging_lock_buttons) {
+			for (auto& tool : children) {
+				if (tool->is_active()) {
+					dynamic_cast<TerraformTool*>(tool.get())->edit_terrain(I, *this, cursor_pos.value());
+				}
+			}
 		}
 	}
 };

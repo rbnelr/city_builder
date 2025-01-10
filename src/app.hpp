@@ -877,7 +877,7 @@ public:
 		ImGui::Separator();
 
 		time.imgui();
-		interact.imgui(*this);
+		interact.imgui();
 
 		heightmap.imgui();
 		network.imgui();
@@ -923,8 +923,6 @@ public:
 
 	OverlayDraw overlay;
 	
-	Interaction interact;
-	
 	CameraBinds cam_binds;
 	GameCamera main_cam = GameCamera{ float3(8,8,0) * 1024 };
 
@@ -938,6 +936,9 @@ public:
 	Heightmap heightmap;
 	Network network;
 	Entities entities; // Entities after network, because entities refer to network and else dtors break! This needs to be fixed!
+	
+	// view dependency is unfortunate
+	Interaction interact = Interaction{input, _view, assets, heightmap, network, entities};
 
 	float sim_dt () {
 		float dt = min(input.real_dt, 0.1f); // limit dt to avoid huge timestep when debugging etc.
@@ -955,6 +956,8 @@ public:
 	BezierBuilder test_bez;
 
 	MemUse mem;
+
+	View3D _view;
 
 	View3D update_camera () {
 		auto res = (float2)input.window_size;
@@ -1009,7 +1012,7 @@ public:
 		return main_cam.clac_view((float2)input.window_size);
 	}
 
-	View3D update () {
+	void update () {
 		ZoneScoped;
 		
 		overlay.begin();
@@ -1020,28 +1023,27 @@ public:
 		network.simulate(*this);
 
 	////
-		View3D view = update_camera();
+		_view = update_camera();
 		
 		// select after updating positions
-		interact.update(*this, view);
+		interact.update(*this, _view);
 
-		network.draw_debug(*this, view); // TODO: move to interact?
+		network.draw_debug(*this, _view); // TODO: move to interact?
 		
 	//// Testing stuff
-		//test.update(input, view);
-		//test2.update(input, view);
+		//test.update(input, _view);
+		//test2.update(input, _view);
 
-		test_bez.imgui(input, view);
-		test_bez.update(input, view, overlay);
+		test_bez.imgui(input, _view);
+		test_bez.update(input, _view, overlay);
 
-		//cone_test(view);
+		//cone_test(_view);
 		
 	//// Visually relevant
-		//time.visualize_planet(view);
-		time.calc_sky_config(view);
+		//time.visualize_planet(_view);
+		time.calc_sky_config(_view);
 		
-		g_dbgdraw.axis_gizmo(view, input.window_size);
-		return view;
+		g_dbgdraw.axis_gizmo(_view, input.window_size);
 	}
 
 	virtual void frame () {
@@ -1050,13 +1052,15 @@ public:
 		g_dbgdraw.clear();
 		renderer->begin(*this);
 
-		auto view = update();
+		update();
 
-		renderer->end(*this, view);
+		renderer->end(*this, _view);
 
 
 		assets.assets_reloaded = false;
 		entities.buildings_changed = false;
+
+		_view = {}; // invalidate
 	}
 };
 

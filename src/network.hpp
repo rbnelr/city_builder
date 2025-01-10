@@ -14,7 +14,7 @@ inline constexpr float SAFETY_DIST = 1.0f;
 // sidewalk is at 0, road actually gets lowered! TODO: config per road asset lane
 inline constexpr float ROAD_Z = -0.15f;
 
-struct Network;
+class Network;
 class Node;
 class Segment;
 struct Lane;
